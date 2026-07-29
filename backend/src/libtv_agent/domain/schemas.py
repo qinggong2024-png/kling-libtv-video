@@ -53,7 +53,7 @@ class TaskCreate(ApiModel):
     user_requirement: str = Field(default="", max_length=4000)
     generation_preset: str = "DEFAULT_10S_9X16"
     analysis_model: str = Field(
-        default="gpt-5.6-sol",
+        default="gpt-5.6-terra",
         min_length=1,
         max_length=100,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",

@@ -158,7 +158,14 @@ function validateCompatibleBaseUrl(value: string): string {
   return ''
 }
 const FAILED_PHASES = new Set(['ACTION_REQUIRED'])
-const DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-sol'
+const DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-terra'
+const LEGACY_ANALYSIS_MODEL = 'gpt-5.6-sol'
+
+function readDefaultAnalysisModel(configuredModel?: string): string {
+  const stored = localStorage.getItem('default-model')?.trim()
+  const configured = configuredModel?.trim() || DEFAULT_ANALYSIS_MODEL
+  return !stored || stored === LEGACY_ANALYSIS_MODEL ? configured : stored
+}
 const ANALYSIS_FAILURE_CODES = new Set([
   'ANALYSIS_TIMEOUT',
   'ANALYSIS_CANCELLED',
@@ -577,7 +584,7 @@ function ProductionComposer({ seed, onCreated, system }: {
 }) {
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
   const [products, setProducts] = useState<Material[]>(() => seed?.products.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
-  const [analysisModel] = useState(() => localStorage.getItem('default-model')?.trim() || DEFAULT_ANALYSIS_MODEL)
+  const [analysisModel] = useState(() => readDefaultAnalysisModel(system?.openaiModel))
   const [generationProvider] = useState<GenerationProvider>(() => (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv')
   const [outputVariants, setOutputVariants] = useState<OutputVariantSelection>(readOutputVariantSelection)
   const [requirement, setRequirement] = useState(seed?.requirement ?? '')
@@ -1654,7 +1661,7 @@ function SettingsView({
 }) {
   const [saved, setSaved] = useState(false)
   const [settings, setSettings] = useState(() => ({
-    model: localStorage.getItem('default-model') ?? system?.openaiModel ?? DEFAULT_ANALYSIS_MODEL,
+    model: readDefaultAnalysisModel(system?.openaiModel),
     provider: (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv',
     outputVariants: readOutputVariantSelection(),
   }))

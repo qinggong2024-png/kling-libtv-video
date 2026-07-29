@@ -443,7 +443,7 @@ def _build_task_read(
         title=task.title,
         asset_count=task.asset_count,
         user_requirement=task.user_requirement_raw,
-        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-sol"),
+        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-terra"),
         generation_provider=str(preference_snapshot.get("generationProvider") or "libtv"),
         phase=task.phase,
         phase_reason_code=task.phase_reason_code,
