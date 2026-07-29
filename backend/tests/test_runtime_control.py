@@ -193,6 +193,29 @@ async def test_capacity_slots_enforce_and_release_three_scopes(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_kling_capacity_uses_parent_task_when_canvas_is_absent(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'kling-slots.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(object_store_mode="local", _env_file=None)
+    async with factory() as session:
+        session.add(User(id=USER_ID, username="kling-capacity-user", password_hash="disabled"))
+        task, _variant, attempt, command = _command_graph(3)
+        attempt.provider = settings.kling_cli_provider_name
+        attempt.project_uuid = None
+        session.add(command)
+        await session.commit()
+
+        lease = await acquire_capacity(session, settings, command)
+
+        assert lease is not None
+        assert len(lease.slot_ids) == 3
+        assert task.id is not None
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_unknown_charge_keeps_capacity_lease(monkeypatch: pytest.MonkeyPatch) -> None:
     release = AsyncMock(return_value=3)
     monkeypatch.setattr("libtv_agent.runner.supervisor.release_capacity", release)

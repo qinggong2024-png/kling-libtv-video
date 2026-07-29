@@ -58,8 +58,13 @@ async def acquire_capacity(
     if variant is None:
         return None
     task = await session.get(ParentTask, variant.parent_task_id)
-    if task is None or not attempt.project_uuid:
+    if task is None:
         return None
+    project_scope_id = attempt.project_uuid
+    if not project_scope_id:
+        if attempt.provider not in {"kling", settings.kling_cli_provider_name}:
+            return None
+        project_scope_id = f"{attempt.provider}:{task.id}"
     runtime = await get_runtime_config(session, settings)
     if runtime is None or runtime.config_json["globalPaused"]:
         return None
@@ -67,7 +72,7 @@ async def acquire_capacity(
     scopes = (
         ("GLOBAL", settings.deployment_id, int(limits["global"])),
         ("USER", str(task.user_id), int(limits["perUser"])),
-        ("PROJECT", attempt.project_uuid, int(limits["sameProject"])),
+        ("PROJECT", project_scope_id, int(limits["sameProject"])),
     )
     now = datetime.now(UTC)
     expires = now + timedelta(seconds=lease_seconds)
