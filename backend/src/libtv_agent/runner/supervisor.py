@@ -187,6 +187,9 @@ class RunnerSupervisor:
                 .limit(10)
             )
         )
+        for variant in variants:
+            await self._aggregate_task(session, variant.id)
+
         resumed = 0
         for variant in variants:
             attempt = await session.scalar(
