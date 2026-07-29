@@ -1,0 +1,27 @@
+{
+  "nodeKey": "video-node-redacted",
+  "data": {
+    "type": "video",
+    "name": "[REDACTED]",
+    "url": ["https://cdn.example.invalid/redacted.mp4"],
+    "poster": "https://cdn.example.invalid/redacted.jpg",
+    "action": "generate",
+    "generatorType": "video",
+    "params": {
+      "prompt": "[REDACTED]",
+      "model": "[REDACTED]",
+      "modeType": "mixed2video",
+      "count": 1,
+      "imageListOrder": ["image-node-1", "image-node-2"],
+      "mixedListOrder": ["image-node-1", "image-node-2"]
+    },
+    "taskInfo": {
+      "taskId": "task-redacted",
+      "loading": false,
+      "status": 2,
+      "progressPercent": 100
+    }
+  },
+  "nodeType": "video",
+  "name": "[REDACTED]"
+}

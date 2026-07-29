@@ -1,0 +1,9 @@
+{
+  "status": "SUCCEEDED",
+  "payload": {
+    "taskId": "synthetic-replay-task",
+    "videoUrl": "fake://synthetic-replay-output.mp4"
+  },
+  "stdout": "{\"taskId\":\"synthetic-replay-task\",\"videoUrl\":\"fake://synthetic-replay-output.mp4\"}",
+  "stderr": "[synthetic replay] terminal success"
+}

@@ -1,0 +1,30 @@
+version: 1
+cliBaseline: 1.1.1
+rules:
+  shellString: false
+  explicitProjectUuid: true
+  explicitNodeKey: true
+  separateStdoutStderr: true
+  realOperationsUseOfficialCliOnly: true
+  sharedConfigDirectory: LIBTV_CONFIG_DIR
+commands:
+  accountInfo: [libtv, account, info]
+  createProject: [libtv, project, create, "{name}"]
+  createGroup: [libtv, group, create, "{name}", --project, "{projectUuid}"]
+  uploadImage: [libtv, upload, "{name}", --file, "{absolutePath}", --project, "{projectUuid}", --group, "{groupNodeKey}"]
+  createVideoNode: [libtv, node, create, "{name}", --type, video, --project, "{projectUuid}", --group, "{groupNodeKey}"]
+  setPrompt: [libtv, node, "{nodeKey}", --project, "{projectUuid}", --prompt, "{prompt}"]
+  runNode: [libtv, node, "{nodeKey}", --project, "{projectUuid}", --run]
+runNodeContract:
+  blocksUntilTerminalJson: true
+  callerTimeout: null
+  callerPolling: false
+  backgroundByCaller: false
+  unknownAfterLaunchAutomaticallyResubmitted: false
+authenticationContract:
+  expiredLoginCode: LIBTV_AUTH_REQUIRED
+  expiredLoginSubmitted: false
+  pausePaidSubmissions: true
+  stopNewCommandClaims: true
+  resumeClaimsAfterHealthyAccountCheck: true
+  resumePaidSubmissionsAutomatically: false

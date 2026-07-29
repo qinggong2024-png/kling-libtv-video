@@ -1,0 +1,28 @@
+import { describe, expect, it } from 'vitest'
+
+import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
+
+describe('task timing', () => {
+  it('treats timezone-less API timestamps as UTC', () => {
+    expect(parseTaskTimestamp('2026-07-28T06:00:00')).toBe(
+      Date.UTC(2026, 6, 28, 6, 0, 0),
+    )
+  })
+
+  it('calculates elapsed time from explicit start and end instants', () => {
+    expect(
+      formatElapsed('2026-07-28T06:00:00', '2026-07-28T07:25:30+00:00'),
+    ).toBe('1 小时 25 分钟')
+  })
+
+  it('does not show a misleading negative duration for clock skew', () => {
+    expect(
+      formatElapsed('2026-07-28T07:00:00Z', '2026-07-28T06:59:30Z'),
+    ).toBe('0 秒')
+  })
+
+  it('formats live stage durations with seconds', () => {
+    expect(formatDurationSeconds(38 * 60 + 7)).toBe('38 分 7 秒')
+    expect(formatDurationSeconds(2 * 3600 + 3 * 60)).toBe('2 小时 3 分')
+  })
+})

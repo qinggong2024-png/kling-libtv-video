@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "2.1",
+  "garmentFacts": {
+    "category": "合成服装",
+    "mainColor": "绿色",
+    "secondaryColor": "白色",
+    "print": "合成色块",
+    "logo": "",
+    "text": "",
+    "fit": "常规版型",
+    "frontSellingPoints": ["正面裁片"],
+    "backSellingPoints": [],
+    "unknownFields": []
+  },
+  "storyboardFacts": [
+    {
+      "assetId": "{{ASSET_1}}",
+      "order": 1,
+      "scene": "合成影棚",
+      "framing": "全身",
+      "pose": "站立",
+      "actionCandidates": ["小幅转身"],
+      "interactionObjects": [],
+      "productVisibility": "正面清晰",
+      "shotFunction": "产品清晰开场"
+    }
+  ],
+  "consistencyObservations": {
+    "reasonCodes": [],
+    "summary": "合成回放测试数据",
+    "unknownFields": [],
+    "evidenceAssetIds": ["{{ASSET_1}}"]
+  },
+  "riskFlags": [],
+  "stablePlan": {
+    "continuityStrategy": "explicit_cuts",
+    "shots": [
+      {
+        "referenceAssetIds": ["{{ASSET_1}}"],
+        "durationWeight": 1,
+        "action": "做小幅自然动作",
+        "camera": "稳定缓慢推进",
+        "productDisplay": "服装正面",
+        "shotFunction": "产品清晰开场"
+      }
+    ]
+  },
+  "dynamicPlan": {
+    "continuityStrategy": "explicit_cuts",
+    "shots": [
+      {
+        "referenceAssetIds": ["{{ASSET_1}}"],
+        "durationWeight": 1,
+        "action": "在场景中自信转身",
+        "camera": "控制横向跟拍",
+        "productDisplay": "服装整体轮廓",
+        "shotFunction": "强动态广告开场"
+      }
+    ]
+  },
+  "userRequirementNormalized": "合成回放测试要求",
+  "modelVersion": "synthetic-replay-2.1"
+}

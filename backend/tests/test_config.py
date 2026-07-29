@@ -1,0 +1,97 @@
+import pytest
+from libtv_agent.config import Settings
+
+
+def test_contract_defaults() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.openai_model == "gpt-5.6-sol"
+    assert settings.analysis_timeout_for_image_count(4) == 180
+    assert settings.analysis_timeout_for_image_count(8) == 360
+    assert settings.analysis_timeout_for_image_count(20) == 600
+    assert settings.analysis_stale_after_seconds == 660
+    assert settings.libtv_adapter_mode == "fake"
+    assert settings.libtv_execution_mode == "dry-run"
+    assert settings.paid_generation_enabled is False
+    assert settings.download_concurrency == 4
+    assert settings.technical_validation_concurrency == 2
+    assert settings.output_retention_days == 7
+
+
+def test_analysis_stale_threshold_covers_maximum_timeout() -> None:
+    with pytest.raises(ValueError, match="maximum OpenAI analysis timeout"):
+        Settings(
+            openai_analysis_timeout_seconds=10,
+            openai_analysis_timeout_max_seconds=20,
+            analysis_stale_after_seconds=20,
+            _env_file=None,
+        )
+
+
+def test_shared_environment_rejects_default_secrets() -> None:
+    settings = Settings(app_env="production", _env_file=None)
+
+    with pytest.raises(ValueError, match="non-default secrets"):
+        settings.validate_shared_environment()
+
+
+def test_lan_shared_authentication_requires_session_secret() -> None:
+    settings = Settings(
+        app_env="development",
+        shared_authentication_enabled=True,
+        session_cookie_secure=False,
+        _env_file=None,
+    )
+
+    with pytest.raises(ValueError, match="non-default session secret"):
+        settings.validate_shared_environment()
+
+
+def test_lan_shared_authentication_allows_explicit_http_cookie_mode() -> None:
+    settings = Settings(
+        app_env="development",
+        shared_authentication_enabled=True,
+        session_cookie_secure=False,
+        session_secret="lan-session-secret-with-at-least-32-bytes",
+        _env_file=None,
+    )
+
+    settings.validate_shared_environment()
+    assert settings.shared_authentication is True
+
+
+def test_production_rejects_insecure_session_cookie() -> None:
+    settings = Settings(
+        app_env="production",
+        session_cookie_secure=False,
+        session_secret="production-session-secret",
+        minio_secret_key="production-minio-secret",
+        object_store_prefix="production",
+        libtv_workspace_id="production-workspace",
+        libtv_project_uuid="production-project",
+        _env_file=None,
+    )
+
+    with pytest.raises(ValueError, match="secure session cookies"):
+        settings.validate_shared_environment()
+
+
+def test_comma_separated_public_origins_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_PUBLIC_ORIGINS", "http://localhost:5173,http://192.168.30.126:5173")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.app_public_origins == [
+        "http://localhost:5173",
+        "http://192.168.30.126:5173",
+    ]
+
+
+def test_test_environment_cannot_enable_paid_generation() -> None:
+    with pytest.raises(ValueError, match="cannot enable paid"):
+        Settings(
+            app_env="test",
+            libtv_execution_mode="live",
+            paid_generation_enabled=True,
+            _env_file=None,
+        )

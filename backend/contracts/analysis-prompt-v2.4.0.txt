@@ -1,0 +1,85 @@
+ANALYSIS_PROMPT_VERSION: analysis-v2.4.0
+OUTPUT_SCHEMA_VERSION: 2.1
+
+Analyze the explicitly labeled storyboard images for a fixed 10-second, 9:16 garment video task.
+Rows labeled PRODUCT_REFERENCE are optional garment-detail references, especially for print and
+style accuracy. They are not storyboards. The asset manifest below is authoritative. Never invent,
+rename, merge, reclassify, or reorder asset IDs.
+
+ASSET_MANIFEST:
+{{ASSET_MANIFEST}}
+
+USER_REQUIREMENT:
+{{USER_REQUIREMENT}}
+
+Required work:
+1. Extract garment category, colors, print, logo, text, fit, and front/back selling points.
+2. For every STORYBOARD row, emit exactly one storyboardFacts item with the identical assetId and
+   order. Describe the scene, usable movement space, framing, pose, free limbs, possible actions,
+   visible interaction objects, product visibility, and shot function. Never emit storyboardFacts
+   for PRODUCT_REFERENCE rows.
+3. Record cross-image conflicts in person identity, garment structure, branding, text, scene, and
+   product details as observations. Cite only manifest asset IDs in evidenceAssetIds.
+4. Produce a Stable plan and a Dynamic plan at a natural, controlled pace. Dynamic must not mean
+   faster: it must differ through a clearly different person action, body orientation or feasible
+   movement path, plus framing or shot function where useful. A camera-only difference is invalid.
+5. Both plans must cover every required STORYBOARD asset at least once, use explicit cuts, and
+   preserve the same observable person, garment, branding, text and scene identity.
+6. Use only STORYBOARD asset IDs in every referenceAssetIds list. PRODUCT_REFERENCE asset IDs must
+   never appear in a plan. Duration weights must be positive.
+7. Ground every shot in the movement space, pose, free limbs, props and product areas visible in its
+   own referenceAssetIds. Do not apply one global movement pattern to all storyboard images.
+8. Normalize the user requirement without adding requirements that the user did not state.
+
+Motion policy:
+- Both variants use natural, even-speed body motion and smooth, restrained camera motion.
+- Never request fast, quick, rapid, brisk or sudden movement; speed ramps; whip pans; rapid
+  push-ins; sudden zooms; fast tracking; or large fast camera following.
+- Stable may include a small weight shift, a small orientation change, a controlled garment
+  interaction or a short feasible step. Stable does not mean frozen.
+- Dynamic uses a visibly different person action and may move one controlled level farther than
+  Stable when the scene allows, but it remains natural and unhurried.
+- Prefer explicit cuts between useful framings over increasing movement speed.
+- Keep the main garment selling point unobstructed during its key display and end each variant with
+  a clear settled product view.
+
+Per-storyboard scene adaptation:
+- Mirror selfie or mirror recording: keep the person inside the usable mirror area; preserve the
+  phone, arm, reflection and body relationship; use in-mirror weight shifts, at most a small
+  controlled step, orientation changes and framing cuts; never invent an external tracking camera.
+- Small room or constrained indoor scene: keep movement inside the visible floor area. Stable is
+  mostly in place; Dynamic may use one or two natural steps only when clearly feasible.
+- Outdoor or visibly open scene: allow a somewhat larger natural path and different framing cuts,
+  but keep walking and camera following smooth and unhurried.
+- Seated scene: keep the person seated unless another referenced storyboard explicitly supports
+  standing. Differentiate variants with posture, torso orientation, arm position and framing.
+- Use only interaction objects actually visible in the referenced storyboard.
+
+Garment adaptation:
+- T-shirt or short-sleeve top: prevent monotony with controlled weight shifts, a small step,
+  shoulder orientation, arm opening or a brief side-hem interaction. Keep prints and text visible.
+- Sports jersey: allow slightly clearer stance and step changes than a dress, while keeping numbers,
+  logos and text readable. Use a ball or other sports prop only when it is visibly present.
+- Dress or skirt: use smaller body and camera amplitudes to reduce fabric wobble and jelly effects.
+  Keep the model mainly in place with small weight shifts, arm actions, restrained orientation
+  changes and framing cuts; allow at most one slow half-step. Never request continuous walking,
+  cross-steps, spinning, swishing, yanking or dramatically pulling the skirt.
+- Treat garment prints, text and seams as surface-locked textures. Every plan must explicitly keep
+  their position, scale and shape temporally stable without crawling, drifting, flickering,
+  jittering or local stretching. Prefer texture stability over exaggerated fabric simulation.
+- For other garments, scale movement to the visible structure, loose fabric, text/logo risk and
+  scene space rather than assuming that Dynamic must be fast.
+- Never invent a back view when no storyboard or product reference proves the back design.
+
+Language rules:
+- All human-readable string values in garmentFacts, storyboardFacts, consistencyObservations,
+  stablePlan, dynamicPlan, and userRequirementNormalized must be in Simplified Chinese.
+- Keep only schema identifiers, enum values, asset IDs, and modelVersion in their required form.
+
+Output rules:
+- Return only the structured AnalysisResult matching schema version 2.1.
+- Preserve observable facts. Do not infer unreadable logo/text, hidden garment details, identity,
+  props, movement space or continuity. Put uncertainty in unknownFields and riskFlags.
+- Do not issue PASS/WARNING/QUALITY_REVIEW/SYSTEM_BLOCK; deterministic code owns that decision.
+- Never include URLs, credentials, object keys, prose outside the schema, or asset IDs not present
+  in the manifest.

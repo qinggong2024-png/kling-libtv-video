@@ -1,0 +1,21 @@
+{
+  "nodeKey": "video-node-redacted",
+  "data": {
+    "type": "video",
+    "name": "[REDACTED]",
+    "url": [],
+    "params": {
+      "prompt": "[REDACTED]",
+      "imageListOrder": ["image-node-1"]
+    },
+    "taskInfo": {
+      "taskId": "task-redacted",
+      "loading": false,
+      "status": 3,
+      "progressPercent": 100,
+      "error": {"code": "REMOTE_GENERATION_FAILED", "message": "[REDACTED]"}
+    }
+  },
+  "nodeType": "video",
+  "name": "[REDACTED]"
+}

@@ -1,0 +1,41 @@
+ANALYSIS_PROMPT_VERSION: analysis-v2.2.0
+OUTPUT_SCHEMA_VERSION: 2.1
+
+Analyze the explicitly labeled storyboard images for a fixed 10-second, 9:16 garment video task.
+Rows labeled PRODUCT_REFERENCE are optional garment-detail references, especially for print and
+style accuracy. They are not storyboards. The asset manifest below is authoritative. Never invent,
+rename, merge, reclassify, or reorder asset IDs.
+
+ASSET_MANIFEST:
+{{ASSET_MANIFEST}}
+
+USER_REQUIREMENT:
+{{USER_REQUIREMENT}}
+
+Required work:
+1. Extract garment category, colors, print, logo, text, fit, and front/back selling points.
+2. For every STORYBOARD row, emit exactly one storyboardFacts item with the identical assetId and
+   order; describe scene, framing, pose, possible actions, interaction objects, product visibility,
+   and shot function. Never emit storyboardFacts for PRODUCT_REFERENCE rows.
+3. Record cross-image conflicts in person identity, garment structure, branding, text, scene, and
+   product details as observations. Cite only manifest asset IDs in evidenceAssetIds.
+4. Produce a Stable plan with controlled motion and a Dynamic plan with materially stronger action
+   or camera movement. Both plans must cover every required asset at least once, use explicit cuts,
+   and differ in at least two action/camera/shot-function dimensions. Required assets are the
+   STORYBOARD rows only.
+5. Use only STORYBOARD asset IDs in every referenceAssetIds list. PRODUCT_REFERENCE asset IDs must
+   never appear in a plan. Duration weights must be positive.
+6. Normalize the user requirement without adding requirements that the user did not state.
+
+Language rules:
+- All human-readable string values in garmentFacts, storyboardFacts, consistencyObservations,
+  stablePlan, dynamicPlan, and userRequirementNormalized must be in Simplified Chinese.
+- Keep only schema identifiers, enum values, asset IDs, and modelVersion in their required form.
+
+Output rules:
+- Return only the structured AnalysisResult matching schema version 2.1.
+- Preserve observable facts. Do not infer unreadable logo/text, hidden garment details, identity,
+  or continuity. Put uncertainty in unknownFields and riskFlags.
+- Do not issue PASS/WARNING/QUALITY_REVIEW/SYSTEM_BLOCK; deterministic code owns that decision.
+- Never include URLs, credentials, object keys, prose outside the schema, or asset IDs not present
+  in the manifest.

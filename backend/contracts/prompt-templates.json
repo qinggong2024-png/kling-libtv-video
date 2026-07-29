@@ -1,0 +1,31 @@
+{
+  "version": "1.2.0", "schemaVersion": "2.1", "preset": "DEFAULT_10S_9X16",
+  "budget": {"targetMin": 900, "targetMax": 1300, "extendedMax": 1600, "safetySoftMax": 1850},
+  "stable": {
+    "shotCountMin": 2,
+    "shotCountMax": 3,
+    "continuityStrategy": "explicit_cuts",
+    "motionPolicy": "controlled_visible_action_with_settled_product_hold"
+  },
+  "dynamic": {
+    "shotCountMin": 3,
+    "shotCountMax": 4,
+    "continuityStrategy": "explicit_cuts",
+    "motionPolicy": "distinct_person_action_at_natural_even_speed"
+  },
+  "adaptation": {
+    "priority": ["storyboardSpace", "poseAndFreeLimbs", "garmentRisk", "variantDifference"],
+    "sceneProfiles": ["mirror", "constrainedIndoor", "openIndoor", "outdoor", "seated"],
+    "garmentProfiles": ["shortSleeve", "sportsJersey", "dressOrSkirt", "default"],
+    "forbidRapidMotion": true,
+    "requireDistinctPersonAction": true
+  },
+  "commonConstraints": [
+    "Keep the same model, garment, print, logo, text, colors and scene identity throughout.",
+    "Preserve the garment's original proportions and visible fabric structure.",
+    "Keep the main product area clear during the key display moments.",
+    "Use natural body mechanics and smooth camera movement.",
+    "Maintain a coherent background and continuous lighting.",
+    "Use only the garment's original typography and branding."
+  ]
+}
