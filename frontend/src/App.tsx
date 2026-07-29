@@ -90,6 +90,7 @@ import { mapWithConcurrency } from './concurrency'
 import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingStatus, LibTVAccountStatus, StatusTone, SystemStatus, Task, Variant, VariantKind } from './types'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { OperationsPanel } from './OperationsPanel'
+import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
 import { formatRiskFlags } from './riskLabels'
 import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
 import {
@@ -661,14 +662,16 @@ function ProductionComposer({ seed, onCreated, system }: {
   const storyboardSupported = generationProvider !== 'kling'
     || storyboards.length <= (system?.kling.imageInputLimit ?? 0)
     || system?.kling.fallbackMode === 'first_last_frame'
-  const isImage = (file: File) => ['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
   const addFiles = (bucket: UploadBucket, files: File[]) => {
-    const images = files.filter(isImage)
+    const images = files.filter(isSupportedImageFile)
+    const rejectedCount = files.length - images.length
     const limit = bucket === 'storyboard' ? 7 : 5
     const current = bucket === 'storyboard' ? storyboards : products
     const accepted = images.slice(0, Math.max(0, limit - current.length)).map((file) => ({ id: crypto.randomUUID(), file }))
-    if (images.length !== accepted.length) setNotice(bucket === 'storyboard' ? '分镜图最多上传 7 张，超出部分未添加' : '产品图最多上传 5 张，超出部分未添加')
-    else if (images.length) setNotice('')
+    const notices: string[] = []
+    if (rejectedCount) notices.push(`${rejectedCount} 个文件不是支持的 JPG、PNG 或 WEBP 图片`)
+    if (images.length !== accepted.length) notices.push(bucket === 'storyboard' ? '分镜图最多添加 7 张，超出部分未添加' : '产品图最多添加 5 张，超出部分未添加')
+    setNotice(notices.join('；'))
     if (bucket === 'storyboard') setStoryboards((items) => [...items, ...accepted])
     else setProducts((items) => [...items, ...accepted])
   }
@@ -776,7 +779,7 @@ function ProductionComposer({ seed, onCreated, system }: {
           event.preventDefault()
           event.dataTransfer.dropEffect = event.dataTransfer.types.includes(MATERIAL_DRAG_TYPE) ? 'move' : 'copy'
         }} onDrop={(event) => handleDrop(event, bucket, items.length)}>
-          <input ref={ref} hidden type="file" multiple accept="image/png,image/jpeg,image/webp" onChange={(event) => { addFiles(bucket, Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
+          <input ref={ref} hidden type="file" multiple accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addFiles(bucket, Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
           <div className="upload-panel-head"><div><h2>{title}</h2><small>{hint}</small></div><span>{items.length}/{limit}</span></div>
           <button type="button" className="upload-zone upload-zone--compact" onClick={() => ref.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{items.length ? `继续添加${title}` : `拖拽或点击上传${title}`}</strong><small>JPG、PNG、WEBP</small></span></button>
           {items.length ? <div className="materials-grid" aria-label={`${title}排序列表`}>{items.map((material, index) => <MaterialCard key={material.id} material={material} bucket={bucket} index={index} onRemove={() => remove(bucket, material.id)} onDropAt={(event, target) => handleDrop(event, bucket, target)} onPreview={() => setPreview({ file: material.file, label: `${title} ${index + 1}` })} />)}</div> : null}
