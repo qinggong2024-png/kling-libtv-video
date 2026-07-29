@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
+import { cancelTask, changePassword, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -37,6 +37,24 @@ describe('API request identity and CSRF contracts', () => {
     expect(loginHeaders.has('X-User-Id')).toBe(false)
     expect(writeHeaders.get('X-CSRF-Token')).toBe('csrf-from-login')
     expect(writeHeaders.get('X-User-Id')).toBe(USER_ID)
+  })
+
+  it('changes the current account password without an administrator target id', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-from-login' }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await login('operator', 'current-password-1234')
+    await changePassword('current-password-1234', 'replacement-password-1234')
+
+    const call = vi.mocked(fetch).mock.calls[1]
+    expect(String(call[0])).toBe('/api/v1/auth/password')
+    expect(call[1]?.method).toBe('POST')
+    expect(new Headers(call[1]?.headers).get('X-CSRF-Token')).toBe('csrf-from-login')
+    expect(JSON.parse(String(call[1]?.body))).toEqual({
+      currentPassword: 'current-password-1234',
+      newPassword: 'replacement-password-1234',
+    })
   })
 
   it('keeps an explicit administrator identity local to its own request', async () => {
@@ -171,6 +189,23 @@ describe('API request identity and CSRF contracts', () => {
     expect(String(call[0])).toBe('/api/v1/tasks/task-1/variants/variant-a/feedback')
     expect(call[1]?.method).toBe('PUT')
     expect(JSON.parse(String(call[1]?.body))).toEqual({ feedback: 'LIKE' })
+  })
+
+  it('sends optional detailed generation feedback', async () => {
+    const task = { id: 'task-1' } as Task
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(task))
+
+    await setVariantFeedback('task-1', 'variant-a', 'DISLIKE', {
+      reasons: ['CAMERA_TOO_FAST', 'PRODUCT_UNCLEAR'],
+      comment: '最后一个镜头商品不够清楚',
+    })
+
+    const call = vi.mocked(fetch).mock.calls[0]
+    expect(JSON.parse(String(call[1]?.body))).toEqual({
+      feedback: 'DISLIKE',
+      reasons: ['CAMERA_TOO_FAST', 'PRODUCT_UNCLEAR'],
+      comment: '最后一个镜头商品不够清楚',
+    })
   })
 
   it('exposes the next task cursor from the response header', async () => {

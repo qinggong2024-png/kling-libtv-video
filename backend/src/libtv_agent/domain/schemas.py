@@ -5,6 +5,7 @@ from typing import Any, Literal
 from libtv_agent.domain.enums import (
     ConsistencyLevel,
     DownloadStatus,
+    FeedbackReason,
     FeedbackValue,
     GenerationStatus,
     ParentTaskPhase,
@@ -135,10 +136,41 @@ class VariantRead(ApiModel):
     download_artifact_id: uuid.UUID | None = None
     error_code: str | None = None
     feedback: FeedbackValue | None = None
+    feedback_reasons: list[FeedbackReason] = Field(default_factory=list)
+    feedback_comment: str | None = None
 
 
 class VariantFeedbackRequest(ApiModel):
     feedback: FeedbackValue | None
+    reasons: list[FeedbackReason] | None = Field(default=None, max_length=3)
+    comment: str | None = Field(default=None, max_length=240)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        normalized = " ".join((value or "").split()).strip()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_details(self) -> "VariantFeedbackRequest":
+        if self.feedback is None and (self.reasons or self.comment):
+            raise ValueError("feedback details require a like or dislike")
+        like_reasons = {
+            FeedbackReason.GARMENT_ACCURATE,
+            FeedbackReason.PRODUCT_CLEAR,
+            FeedbackReason.NATURAL_MOTION,
+            FeedbackReason.COMFORTABLE_CAMERA,
+            FeedbackReason.GOOD_PACING,
+            FeedbackReason.STRONG_APPEAL,
+        }
+        if self.reasons:
+            if len(set(self.reasons)) != len(self.reasons):
+                raise ValueError("feedback reasons must be unique")
+            if self.feedback == FeedbackValue.LIKE and not set(self.reasons) <= like_reasons:
+                raise ValueError("like feedback contains a dislike reason")
+            if self.feedback == FeedbackValue.DISLIKE and set(self.reasons) & like_reasons:
+                raise ValueError("dislike feedback contains a like reason")
+        return self
 
 
 class PointsQuotaRead(ApiModel):

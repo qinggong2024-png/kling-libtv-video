@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackValue, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SystemStatus, Task, UploadResult, VariantKind } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SystemStatus, Task, UploadResult, VariantKind } from './types'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -111,9 +111,10 @@ export const setVariantFeedback = (
   taskId: string,
   variantId: string,
   feedback: FeedbackValue | null,
+  details?: { reasons: FeedbackReason[]; comment: string | null },
 ) => request<Task>(`/api/v1/tasks/${taskId}/variants/${variantId}/feedback`, {
   method: 'PUT',
-  body: JSON.stringify({ feedback }),
+  body: JSON.stringify({ feedback, ...details }),
 })
 
 export async function login(username: string, password: string): Promise<void> {
@@ -127,6 +128,13 @@ export async function login(username: string, password: string): Promise<void> {
 export async function logout(): Promise<void> {
   await request<void>('/api/v1/auth/logout', { method: 'POST' })
   csrfToken = ''
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return request<void>('/api/v1/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
 }
 
 export async function uploadStoryboard(file: File): Promise<UploadResult> {

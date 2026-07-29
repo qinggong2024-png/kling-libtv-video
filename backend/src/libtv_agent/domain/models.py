@@ -309,6 +309,8 @@ class GenerationFeedback(Base):
     scene_key: Mapped[str] = mapped_column(String(64))
     context_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     prompt_snapshot: Mapped[str] = mapped_column(Text)
+    reason_codes_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    comment: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), server_default=func.now()
     )

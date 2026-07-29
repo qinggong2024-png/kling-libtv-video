@@ -1,6 +1,21 @@
 export type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'active'
 export type VariantKind = 'STABLE' | 'DYNAMIC'
 export type FeedbackValue = 'LIKE' | 'DISLIKE'
+export type FeedbackReason =
+  | 'GARMENT_ACCURATE'
+  | 'PRODUCT_CLEAR'
+  | 'NATURAL_MOTION'
+  | 'COMFORTABLE_CAMERA'
+  | 'GOOD_PACING'
+  | 'STRONG_APPEAL'
+  | 'GARMENT_DISTORTED'
+  | 'COLOR_INACCURATE'
+  | 'LOGO_TEXT_INCORRECT'
+  | 'FACE_HAND_ARTIFACT'
+  | 'STIFF_MOTION'
+  | 'CAMERA_TOO_FAST'
+  | 'CHAOTIC_EDITING'
+  | 'PRODUCT_UNCLEAR'
 
 export interface Asset {
   id: string
@@ -28,6 +43,8 @@ export interface Variant {
   downloadArtifactId: string | null
   errorCode: string | null
   feedback: FeedbackValue | null
+  feedbackReasons: FeedbackReason[]
+  feedbackComment: string | null
 }
 
 export interface Task {

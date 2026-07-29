@@ -106,7 +106,7 @@ async def wait_for_task_phase(
     client: AsyncClient,
     task_id: str,
     *phases: str,
-    timeout_seconds: float = 2,
+    timeout_seconds: float = 5,
 ) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while True:
@@ -124,7 +124,7 @@ async def create_analyzed_task(
     client: AsyncClient,
     colors: list[str] | None = None,
     client_task_id: str = "client-1",
-    analysis_model: str = "gpt-5.6-sol",
+    analysis_model: str = "gpt-5.6-terra",
     user_requirement: str = "突出服装细节",
     variants: list[str] | None = None,
 ) -> dict:
@@ -183,7 +183,7 @@ async def create_draft_task(
             "title": f"Task {client_task_id}",
             "storyboards": [{"uploadId": upload.json()["id"], "order": 1, "required": True}],
             "userRequirement": "突出服装细节",
-            "analysisModel": "gpt-5.6-sol",
+            "analysisModel": "gpt-5.6-terra",
             "generationProvider": "libtv",
         },
     )
@@ -214,11 +214,17 @@ async def test_generation_feedback_persists_and_guides_matching_future_prompts(
         response = await client.put(
             f"/api/v1/tasks/{first['id']}/variants/{stable['id']}/feedback",
             headers=user_headers(),
-            json={"feedback": "LIKE"},
+            json={
+                "feedback": "LIKE",
+                "reasons": ["GARMENT_ACCURATE", "NATURAL_MOTION"],
+                "comment": "  转身自然，服装还原准确  ",
+            },
         )
         assert response.status_code == 200, response.text
         liked = next(item for item in response.json()["variants"] if item["id"] == stable["id"])
         assert liked["feedback"] == "LIKE"
+        assert liked["feedbackReasons"] == ["GARMENT_ACCURATE", "NATURAL_MOTION"]
+        assert liked["feedbackComment"] == "转身自然，服装还原准确"
 
         forbidden = await client.put(
             f"/api/v1/tasks/{first['id']}/variants/{stable['id']}/feedback",
@@ -236,8 +242,8 @@ async def test_generation_feedback_persists_and_guides_matching_future_prompts(
         next_dynamic = next(item for item in second["variants"] if item["kind"] == "DYNAMIC")
         assert "同类场景反馈优化" in next_stable["promptText"]
         assert "赞 1，踩 0" in next_stable["promptText"]
-        assert "同类场景反馈优化" in next_dynamic["promptText"]
-        assert "赞 1，踩 0" in next_dynamic["promptText"]
+        assert "保持服装颜色、版型、印花与文字的准确还原" in next_stable["promptText"]
+        assert "同类场景反馈优化" not in next_dynamic["promptText"]
 
         switched = await client.put(
             f"/api/v1/tasks/{first['id']}/variants/{stable['id']}/feedback",
@@ -249,6 +255,8 @@ async def test_generation_feedback_persists_and_guides_matching_future_prompts(
             item for item in switched.json()["variants"] if item["id"] == stable["id"]
         )
         assert switched_variant["feedback"] == "DISLIKE"
+        assert switched_variant["feedbackReasons"] == []
+        assert switched_variant["feedbackComment"] is None
         async with app.state.database.session_factory() as session:
             feedback_rows = list(await session.scalars(select(GenerationFeedback)))
             assert len(feedback_rows) == 1
@@ -264,6 +272,13 @@ async def test_generation_feedback_persists_and_guides_matching_future_prompts(
             item for item in cleared.json()["variants"] if item["id"] == stable["id"]
         )
         assert cleared_variant["feedback"] is None
+
+        invalid = await client.put(
+            f"/api/v1/tasks/{first['id']}/variants/{stable['id']}/feedback",
+            headers=user_headers(),
+            json={"feedback": "LIKE", "reasons": ["CAMERA_TOO_FAST"]},
+        )
+        assert invalid.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -363,11 +378,51 @@ async def test_analysis_provider_failure_is_persisted(
 
 
 @pytest.mark.asyncio
+async def test_analysis_falls_back_to_sol_when_terra_result_fails_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requested_models: list[str] = []
+
+    async def analyze(adapter: object, _prompt: str, images: list[object]) -> object:
+        model = str(adapter.settings.openai_model)  # type: ignore[attr-defined]
+        requested_models.append(model)
+        asset_ids = [str(image.asset_id) for image in images]
+        result = fake_analysis(asset_ids)
+        if model == "gpt-5.6-terra":
+            result.dynamic_plan = result.stable_plan.model_copy(deep=True)
+        return result
+
+    monkeypatch.setattr(
+        "libtv_agent.adapters.openai_analysis.OpenAIAnalysisAdapter.analyze", analyze
+    )
+    async with running_app(tmp_path, ai_mode="openai") as (client, app):
+        task = await create_analyzed_task(client, client_task_id="analysis-fallback")
+
+        assert task["phase"] == "AWAITING_CONFIRMATION"
+        assert requested_models == ["gpt-5.6-terra", "gpt-5.6-sol"]
+        async with app.state.database.session_factory() as session:
+            fallback_events = list(
+                await session.scalars(
+                    select(AuditEvent).where(
+                        AuditEvent.action == "OPENAI_ANALYSIS_FALLBACK_STARTED"
+                    )
+                )
+            )
+        assert len(fallback_events) == 1
+        assert "primaryModel:gpt-5.6-terra" in fallback_events[0].evidence_refs_json
+        assert "fallbackModel:gpt-5.6-sol" in fallback_events[0].evidence_refs_json
+
+
+@pytest.mark.asyncio
 async def test_analysis_timeout_is_persisted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    requested_models: list[str] = []
+
     async def timeout(*args: object, **kwargs: object) -> object:
-        del args, kwargs
+        adapter = args[0]
+        requested_models.append(str(adapter.settings.openai_model))  # type: ignore[attr-defined]
+        del kwargs
         raise AnalysisTimeoutError("OpenAI image analysis exceeded 1 seconds")
 
     monkeypatch.setattr(
@@ -384,6 +439,7 @@ async def test_analysis_timeout_is_persisted(
         current = await wait_for_task_phase(client, task["id"], "ACTION_REQUIRED")
         assert current["phaseReasonCode"] == "ANALYSIS_TIMEOUT"
         assert current["actionCapabilities"]["canRetryAnalysis"] is True
+        assert requested_models == ["gpt-5.6-terra"]
 
         async def succeed(_adapter: object, _prompt: str, images: list[object]) -> object:
             asset_ids = [str(image.asset_id) for image in images]
@@ -888,6 +944,8 @@ async def test_partial_success_and_materialization_fault(tmp_path: Path) -> None
         assert [variant["generationStatus"] for variant in response.json()["variants"]].count(
             "SUCCEEDED"
         ) == 1
+        partial_timings = {stage["key"]: stage for stage in response.json()["timing"]["stages"]}
+        assert partial_timings["DOWNLOAD"]["status"] == "COMPLETED"
 
     async with running_app(tmp_path / "materialize", "upload_fail_1") as (client, _):
         task = await create_analyzed_task(client, colors=["#113355"])

@@ -147,6 +147,172 @@
         }
       }
     },
+    "/api/v1/auth/preferences/prompt-confirmation": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Prompt Confirmation Preference",
+        "operationId": "get_prompt_confirmation_preference_api_v1_auth_preferences_prompt_confirmation_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Get Prompt Confirmation Preference Api V1 Auth Preferences Prompt Confirmation Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Patch Prompt Confirmation Preference",
+        "operationId": "patch_prompt_confirmation_preference_api_v1_auth_preferences_prompt_confirmation_patch",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptConfirmationPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Patch Prompt Confirmation Preference Api V1 Auth Preferences Prompt Confirmation Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_v1_auth_password_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "tags": [
@@ -3313,6 +3479,28 @@
         ],
         "title": "Body_upload_storyboard_api_v1_uploads_post"
       },
+      "ChangePasswordRequest": {
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Currentpassword"
+          },
+          "newPassword": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 12,
+            "title": "Newpassword"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "title": "ChangePasswordRequest"
+      },
       "ConfirmRequest": {
         "properties": {
           "expectedStateVersion": {
@@ -3450,6 +3638,26 @@
           "FAILED"
         ],
         "title": "DownloadStatus"
+      },
+      "FeedbackReason": {
+        "type": "string",
+        "enum": [
+          "GARMENT_ACCURATE",
+          "PRODUCT_CLEAR",
+          "NATURAL_MOTION",
+          "COMFORTABLE_CAMERA",
+          "GOOD_PACING",
+          "STRONG_APPEAL",
+          "GARMENT_DISTORTED",
+          "COLOR_INACCURATE",
+          "LOGO_TEXT_INCORRECT",
+          "FACE_HAND_ARTIFACT",
+          "STIFF_MOTION",
+          "CAMERA_TOO_FAST",
+          "CHAOTIC_EDITING",
+          "PRODUCT_UNCLEAR"
+        ],
+        "title": "FeedbackReason"
       },
       "FeedbackValue": {
         "type": "string",
@@ -3705,6 +3913,19 @@
         ],
         "title": "PromptAssistantResponse"
       },
+      "PromptConfirmationPreferenceRequest": {
+        "properties": {
+          "automatic": {
+            "type": "boolean",
+            "title": "Automatic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "automatic"
+        ],
+        "title": "PromptConfirmationPreferenceRequest"
+      },
       "PromptConfirmationRequest": {
         "properties": {
           "expectedVersion": {
@@ -3945,7 +4166,7 @@
             "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "title": "Analysismodel",
-            "default": "gpt-5.6-sol"
+            "default": "gpt-5.6-terra"
           },
           "generationProvider": {
             "type": "string",
@@ -4414,6 +4635,33 @@
                 "type": "null"
               }
             ]
+          },
+          "reasons": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FeedbackReason"
+                },
+                "type": "array",
+                "maxItems": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasons"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
           }
         },
         "type": "object",
@@ -4500,6 +4748,24 @@
                 "type": "null"
               }
             ]
+          },
+          "feedbackReasons": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackReason"
+            },
+            "type": "array",
+            "title": "Feedbackreasons"
+          },
+          "feedbackComment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedbackcomment"
           }
         },
         "type": "object",

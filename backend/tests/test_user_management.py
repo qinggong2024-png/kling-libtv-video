@@ -73,13 +73,53 @@ async def test_admin_manages_user_account_lifecycle(tmp_path: Path) -> None:
         transport = ASGITransport(app=app)
         async with (
             AsyncClient(transport=transport, base_url="https://test") as admin_client,
+            AsyncClient(transport=transport, base_url="https://test") as other_admin_client,
             AsyncClient(transport=transport, base_url="https://test") as user_client,
         ):
             admin_csrf = await login(admin_client, "owner", ADMIN_PASSWORD)
+            await login(other_admin_client, "owner", ADMIN_PASSWORD)
             await login(user_client, "producer-one", USER_PASSWORD)
 
             forbidden = await user_client.get("/api/v1/admin/users")
             assert forbidden.status_code == 403
+
+            wrong_current_password = await admin_client.post(
+                "/api/v1/auth/password",
+                headers={"X-CSRF-Token": admin_csrf},
+                json={
+                    "currentPassword": "wrong-admin-password",
+                    "newPassword": "admin-password-5678",
+                },
+            )
+            assert wrong_current_password.status_code == 401
+            assert wrong_current_password.json()["detail"]["code"] == "CURRENT_PASSWORD_INVALID"
+
+            unchanged_password = await admin_client.post(
+                "/api/v1/auth/password",
+                headers={"X-CSRF-Token": admin_csrf},
+                json={"currentPassword": ADMIN_PASSWORD, "newPassword": ADMIN_PASSWORD},
+            )
+            assert unchanged_password.status_code == 409
+            assert unchanged_password.json()["detail"]["code"] == "PASSWORD_UNCHANGED"
+
+            changed_password = await admin_client.post(
+                "/api/v1/auth/password",
+                headers={"X-CSRF-Token": admin_csrf},
+                json={
+                    "currentPassword": ADMIN_PASSWORD,
+                    "newPassword": "admin-password-5678",
+                },
+            )
+            assert changed_password.status_code == 204
+            assert (await admin_client.get("/api/v1/auth/me")).status_code == 200
+            assert (await other_admin_client.get("/api/v1/auth/me")).status_code == 401
+            assert (
+                await other_admin_client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "owner", "password": ADMIN_PASSWORD},
+                )
+            ).status_code == 401
+            await login(other_admin_client, "owner", "admin-password-5678")
 
             initial = await admin_client.get("/api/v1/admin/users")
             assert initial.status_code == 200
@@ -156,4 +196,9 @@ async def test_admin_manages_user_account_lifecycle(tmp_path: Path) -> None:
 
             audit = await admin_client.get("/api/v1/admin/audit")
             actions = {row["action"] for row in audit.json()}
-            assert {"CREATE_USER", "RESET_USER_PASSWORD", "DEACTIVATE_USER"} <= actions
+            assert {
+                "CHANGE_PASSWORD",
+                "CREATE_USER",
+                "RESET_USER_PASSWORD",
+                "DEACTIVATE_USER",
+            } <= actions

@@ -8,7 +8,7 @@ from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.models import AuditEvent, User, UserSession
 from libtv_agent.services.auth import PasswordService
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -16,6 +16,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=512)
+
+
+class ChangePasswordRequest(BaseModel):
+    currentPassword: str = Field(min_length=1, max_length=512)
+    newPassword: str = Field(min_length=12, max_length=512)
 
 
 class PromptConfirmationPreferenceRequest(BaseModel):
@@ -116,6 +121,54 @@ async def patch_prompt_confirmation_preference(
         )
         await session.commit()
     return {"automatic": actor.auto_confirm_prompts}
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    actor: Actor,
+    request: Request,
+    session: Session,
+) -> Response:
+    settings = request.app.state.settings
+    if not settings.shared_authentication:
+        raise HTTPException(status.HTTP_409_CONFLICT, "password login is not enabled")
+
+    password_service = PasswordService()
+    if not password_service.verify(actor.password_hash, payload.currentPassword):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "CURRENT_PASSWORD_INVALID", "message": "current password is incorrect"},
+        )
+    if password_service.verify(actor.password_hash, payload.newPassword):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "PASSWORD_UNCHANGED", "message": "new password must be different"},
+        )
+
+    actor.password_hash = password_service.hash(payload.newPassword)
+    current_token = request.cookies.get(settings.session_cookie_name)
+    current_token_hash = _token_hash(current_token) if current_token else None
+    revoke = update(UserSession).where(
+        UserSession.user_id == actor.id,
+        UserSession.revoked_at.is_(None),
+    )
+    if current_token_hash:
+        revoke = revoke.where(UserSession.token_hash != current_token_hash)
+    await session.execute(revoke.values(revoked_at=datetime.now(UTC)))
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="CHANGE_PASSWORD",
+            entity_type="app_user",
+            entity_id=str(actor.id),
+            reason="user changed own password",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
