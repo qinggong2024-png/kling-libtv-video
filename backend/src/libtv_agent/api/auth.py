@@ -18,6 +18,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=512)
 
 
+class PromptConfirmationPreferenceRequest(BaseModel):
+    automatic: bool
+
+
 def _token_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -80,6 +84,38 @@ async def login(
 @router.get("/me")
 async def me(actor: Actor) -> dict[str, str]:
     return {"userId": str(actor.id), "username": actor.username, "role": actor.role.value}
+
+
+@router.get("/preferences/prompt-confirmation")
+async def get_prompt_confirmation_preference(actor: Actor) -> dict[str, bool]:
+    return {"automatic": actor.auto_confirm_prompts}
+
+
+@router.patch("/preferences/prompt-confirmation")
+async def patch_prompt_confirmation_preference(
+    payload: PromptConfirmationPreferenceRequest,
+    actor: Actor,
+    session: Session,
+) -> dict[str, bool]:
+    if actor.auto_confirm_prompts != payload.automatic:
+        actor.auto_confirm_prompts = payload.automatic
+        session.add(
+            AuditEvent(
+                actor_id=actor.id,
+                action="UPDATE_PROMPT_CONFIRMATION_PREFERENCE",
+                entity_type="app_user",
+                entity_id=str(actor.id),
+                reason=(
+                    "automatic prompt confirmation enabled"
+                    if payload.automatic
+                    else "manual prompt confirmation enabled"
+                ),
+                correlation_id=str(uuid.uuid4()),
+                evidence_refs_json=[],
+            )
+        )
+        await session.commit()
+    return {"automatic": actor.auto_confirm_prompts}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

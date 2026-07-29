@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
+import { cancelTask, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -67,6 +67,23 @@ describe('API request identity and CSRF contracts', () => {
     expect(call[1]?.method).toBe('POST')
     expect(new Headers(call[1]?.headers).get('X-User-Id')).toBe(ADMIN_ID)
     expect(JSON.parse(String(call[1]?.body))).toEqual({ expectedVersion: 3, automatic: true })
+  })
+
+  it('reads and updates the current user prompt confirmation preference', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ automatic: false }))
+      .mockResolvedValueOnce(jsonResponse({ automatic: true }))
+
+    await getPersonalPromptAutoConfirmation()
+    await setPersonalPromptAutoConfirmation(true)
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(String(calls[0][0])).toBe('/api/v1/auth/preferences/prompt-confirmation')
+    expect(calls[0][1]?.method).toBeUndefined()
+    expect(String(calls[1][0])).toBe('/api/v1/auth/preferences/prompt-confirmation')
+    expect(calls[1][1]?.method).toBe('PATCH')
+    expect(new Headers(calls[1][1]?.headers).get('X-User-Id')).toBe(USER_ID)
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ automatic: true })
   })
 
   it('sends prompt edits and assistant instructions with the current task version', async () => {

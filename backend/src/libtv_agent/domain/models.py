@@ -65,6 +65,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = enum_column(UserRole, default=UserRole.USER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_confirm_prompts: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -513,6 +513,18 @@ async def test_prompts_can_be_edited_and_revised_before_confirmation(tmp_path: P
 @pytest.mark.asyncio
 async def test_auto_confirmation_only_advances_pass_tasks(tmp_path: Path) -> None:
     async with running_app(tmp_path) as (client, app):
+        preference = await client.get(
+            "/api/v1/auth/preferences/prompt-confirmation", headers=user_headers()
+        )
+        assert preference.status_code == 200
+        assert preference.json() == {"automatic": False}
+        preference = await client.patch(
+            "/api/v1/auth/preferences/prompt-confirmation",
+            headers=user_headers(),
+            json={"automatic": True},
+        )
+        assert preference.status_code == 200
+        assert preference.json() == {"automatic": True}
         passed = await create_analyzed_task(client, client_task_id="auto-pass")
         warning = await create_analyzed_task(client, client_task_id="auto-warning")
         review = await create_analyzed_task(client, client_task_id="auto-review")
@@ -539,17 +551,17 @@ async def test_auto_confirmation_only_advances_pass_tasks(tmp_path: Path) -> Non
             config = deepcopy(runtime.config_json)
             config["globalPaused"] = False
             config["paidSubmissionsPaused"] = False
-            config["promptConfirmationRequired"] = False
+            config["promptConfirmationRequired"] = True
             updated = await update_runtime_config(
                 session,
                 app.state.settings,
                 config=config,
                 actor_id=None,
-                reason="enable automatic prompt confirmation",
+                reason="enable submissions for user preference test",
                 expected_version=runtime.version,
             )
             await session.commit()
-            assert updated.config_json["promptConfirmationRequired"] is False
+            assert updated.config_json["promptConfirmationRequired"] is True
             assert (
                 await auto_confirm_pass_tasks(
                     session,

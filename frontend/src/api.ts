@@ -86,6 +86,11 @@ const developmentHeaders = (): Record<string, string> => developmentUserId ? { '
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
+export const getPersonalPromptAutoConfirmation = () => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation')
+export const setPersonalPromptAutoConfirmation = (automatic: boolean) => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation', {
+  method: 'PATCH',
+  body: JSON.stringify({ automatic }),
+})
 export type TaskPage = { items: Task[]; nextCursor: string | null }
 
 export async function getTaskPage(cursor?: string): Promise<TaskPage> {

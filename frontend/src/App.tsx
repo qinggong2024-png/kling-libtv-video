@@ -69,6 +69,7 @@ import {
   getLibTVAccountStatus,
   getKlingStatus,
   getOperations,
+  getPersonalPromptAutoConfirmation,
   loginKling,
   logoutKling,
   startLibTVLogin,
@@ -81,6 +82,7 @@ import {
   runPromptAssistant,
   saveTaskPrompts,
   setPromptAutoConfirmation,
+  setPersonalPromptAutoConfirmation,
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
@@ -1644,6 +1646,68 @@ function BrowserNotificationSetting({
   </section>
 }
 
+function PersonalPromptConfirmationSetting() {
+  const [automatic, setAutomatic] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    try {
+      const preference = await getPersonalPromptAutoConfirmation()
+      setAutomatic(preference.automatic)
+      setReady(true)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取自动确认设置')
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const preference = await setPersonalPromptAutoConfirmation(enabled)
+      setAutomatic(preference.automatic)
+      setNotice(preference.automatic
+        ? '已开启，你的普通方案将跳过人工确认并直接生成。'
+        : '已关闭，你的方案将在生成前等待人工确认。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '自动确认设置保存失败')
+      await load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="settings-section prompt-confirmation-section">
+    <div className="settings-section-heading">
+      <div><span>生成流程</span><h2>自动确认提示词</h2><p>{automatic ? '你的普通方案分析完成后会跳过人工确认，直接进入生成。需要质量复核或被系统拦截的方案仍需人工处理。' : '默认关闭。你的方案分析完成后，需要检查并确认提示词才会开始生成。'}</p></div>
+      <div className="prompt-confirmation-control">
+        <span className={`prompt-confirmation-state${automatic ? ' is-active' : ''}`}>{busy && !ready ? '读取中' : automatic ? '已开启' : '已关闭'}</span>
+        <label className="settings-switch" title="自动确认提示词">
+          <input type="checkbox" checked={automatic} disabled={busy || !ready} aria-label="自动确认提示词" onChange={(event) => void toggle(event.target.checked)} />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+    </div>
+    <div className="prompt-confirmation-feedback" aria-live="polite">
+      {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
+      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
+    </div>
+  </section>
+}
+
 function SettingsView({
   system,
   onLogout,
@@ -1701,6 +1765,7 @@ function SettingsView({
         </label>
       </div>
     </section>
+    <PersonalPromptConfirmationSetting />
     <BrowserNotificationSetting
       enabled={browserNotificationsEnabled}
       permission={browserNotificationPermission}
