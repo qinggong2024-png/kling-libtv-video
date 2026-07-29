@@ -1,4 +1,5 @@
 import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SystemStatus, Task, UploadResult, VariantKind } from './types'
+import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -81,7 +82,7 @@ async function request<T>(path: string, init: RequestInit = {}, policy: RequestP
   return response.json() as Promise<T>
 }
 
-const key = () => crypto.randomUUID()
+const key = () => createUuid()
 const developmentHeaders = (): Record<string, string> => developmentUserId ? { 'X-User-Id': developmentUserId } : {}
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
@@ -155,7 +156,7 @@ export function createTask(
     method: 'POST',
     headers: { 'Idempotency-Key': key() },
     body: JSON.stringify({
-      clientTaskId: crypto.randomUUID(),
+      clientTaskId: createUuid(),
       title,
       userRequirement: requirement,
       analysisModel: preferences.analysisModel,
@@ -174,7 +175,7 @@ export function reuseTask(task: Task, variants: VariantKind[]) {
     method: 'POST',
     headers: { 'Idempotency-Key': key() },
     body: JSON.stringify({
-      clientTaskId: crypto.randomUUID(),
+      clientTaskId: createUuid(),
       title: `${task.title} · 复用`,
       expectedSourceStateVersion: task.stateVersion,
       variants,

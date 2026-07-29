@@ -93,6 +93,7 @@ import { OperationsPanel } from './OperationsPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
 import { formatRiskFlags } from './riskLabels'
 import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
+import { createUuid } from './uuid'
 import {
   readBrowserNotificationPreference,
   shouldCloseTaskNotification,
@@ -644,8 +645,8 @@ function ProductionComposer({ seed, onCreated, system }: {
   onCreated: (task: Task, open?: boolean) => void
   system: SystemStatus | null
 }) {
-  const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
-  const [products, setProducts] = useState<Material[]>(() => seed?.products.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
+  const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: createUuid(), file })) ?? [])
+  const [products, setProducts] = useState<Material[]>(() => seed?.products.map((file) => ({ id: createUuid(), file })) ?? [])
   const [analysisModel] = useState(() => readDefaultAnalysisModel(system?.openaiModel))
   const [generationProvider] = useState<GenerationProvider>(() => (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv')
   const [outputVariants, setOutputVariants] = useState<OutputVariantSelection>(readOutputVariantSelection)
@@ -667,7 +668,7 @@ function ProductionComposer({ seed, onCreated, system }: {
     const rejectedCount = files.length - images.length
     const limit = bucket === 'storyboard' ? 7 : 5
     const current = bucket === 'storyboard' ? storyboards : products
-    const accepted = images.slice(0, Math.max(0, limit - current.length)).map((file) => ({ id: crypto.randomUUID(), file }))
+    const accepted = images.slice(0, Math.max(0, limit - current.length)).map((file) => ({ id: createUuid(), file }))
     const notices: string[] = []
     if (rejectedCount) notices.push(`${rejectedCount} 个文件不是支持的 JPG、PNG 或 WEBP 图片`)
     if (images.length !== accepted.length) notices.push(bucket === 'storyboard' ? '分镜图最多添加 7 张，超出部分未添加' : '产品图最多添加 5 张，超出部分未添加')
@@ -2458,7 +2459,7 @@ function App() {
       const assets = [...task.assets].sort((a, b) => a.order - b.order)
       const loaded = await Promise.all(assets.map(async (asset) => ({ asset, file: await fetchAssetFile(asset.thumbnailUrl, asset.originalFilename) })))
       setSeed({
-        id: crypto.randomUUID(),
+        id: createUuid(),
         storyboards: loaded.filter(({ asset }) => asset.role !== 'PRODUCT' && asset.usedForGeneration !== false).map(({ file }) => file),
         products: loaded.filter(({ asset }) => asset.role === 'PRODUCT' || asset.usedForGeneration === false).map(({ file }) => file),
         requirement: '',
