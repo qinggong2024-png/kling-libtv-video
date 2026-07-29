@@ -2337,14 +2337,14 @@ function App() {
       <ProductLogo />
       <nav className="sidebar-main-nav" aria-label="主导航">{nav.filter((item) => item.value !== 'settings').map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
       <div className="sidebar-bottom">
-        <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.libtvAdapter === 'live' ? '生产服务已连接' : '测试环境'}</span></div>
+        <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.environment === 'test' ? '测试版' : '正式版'}</span></div>
         <button className={`sidebar-settings ${view === 'settings' ? 'is-active' : ''}`} onClick={() => switchView('settings')}><Settings size={18} /><span>设置</span></button>
         <div className="sidebar-utility"><button onClick={() => setSidebarInfo((current) => current === 'help' ? null : 'help')} aria-label="帮助" title="帮助"><HelpCircle size={17} /></button><button onClick={() => setSidebarInfo((current) => current === 'account' ? null : 'account')} aria-label="账号" title="账号"><UserRound size={17} /></button></div>
         {sidebarInfo ? <div className="sidebar-popover" role="status"><strong>{sidebarInfo === 'help' ? '制作帮助' : '当前账号'}</strong><p>{sidebarInfo === 'help' ? '上传服装与参考图后，确认方案即可开始生成。历史视频可在记录中继续处理。' : `${actor?.username ?? '生产账号'} · ${actor?.role === 'ADMIN' ? '管理员' : actor?.role === 'OPERATOR' ? '运营人员' : '普通用户'}`}</p>{sidebarInfo === 'account' && system?.sharedAuthentication ? <button onClick={() => void signOut()}>退出登录</button> : sidebarInfo === 'account' && system?.phaseOneAdminId ? <button onClick={switchDevelopmentActor}>切换为{devActorRole === 'admin' ? '普通用户' : '管理员'}</button> : <button onClick={() => setSidebarInfo(null)}>关闭</button>}</div> : null}
       </div>
     </aside>
     <div className="app-body">
-      <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : '服务正常'}</div></header>
+      <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></header>
       <main id="main-content">{loading ? <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载生产任务</strong></div> : <>
       {error ? <div className="service-banner"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => void refresh()}><RefreshCw size={15} />重新连接</button></div> : null}
       {showNotificationPrompt ? <div className="notification-permission-banner" role="region" aria-label="浏览器通知">
