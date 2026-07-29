@@ -449,6 +449,21 @@ async def put_variant_feedback(
             )
     else:
         context = feedback_context(task.analysis_result_json, variant.variant_type)
+        feedback_changed = previous != payload.feedback
+        reason_codes = (
+            [reason.value for reason in payload.reasons]
+            if "reasons" in payload.model_fields_set and payload.reasons is not None
+            else (
+                []
+                if feedback_changed or existing is None
+                else list(existing.reason_codes_json or [])
+            )
+        )
+        comment = (
+            payload.comment
+            if "comment" in payload.model_fields_set
+            else (None if feedback_changed or existing is None else existing.comment)
+        )
         if existing is None:
             session.add(
                 GenerationFeedback(
@@ -460,6 +475,8 @@ async def put_variant_feedback(
                     scene_key=context["sceneKey"],
                     context_json=context,
                     prompt_snapshot=variant.prompt_text,
+                    reason_codes_json=reason_codes,
+                    comment=comment,
                 )
             )
         else:
@@ -467,6 +484,8 @@ async def put_variant_feedback(
             existing.scene_key = context["sceneKey"]
             existing.context_json = context
             existing.prompt_snapshot = variant.prompt_text
+            existing.reason_codes_json = reason_codes
+            existing.comment = comment
     session.add(
         AuditEvent(
             action="GENERATION_FEEDBACK_UPDATED",

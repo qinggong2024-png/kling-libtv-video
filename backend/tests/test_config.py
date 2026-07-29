@@ -5,7 +5,9 @@ from libtv_agent.config import Settings
 def test_contract_defaults() -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.openai_model == "gpt-5.6-sol"
+    assert settings.openai_model == "gpt-5.6-terra"
+    assert settings.openai_analysis_fallback_model == "gpt-5.6-sol"
+    assert settings.openai_reasoning_effort == "low"
     assert settings.analysis_timeout_for_image_count(4) == 180
     assert settings.analysis_timeout_for_image_count(8) == 360
     assert settings.analysis_timeout_for_image_count(20) == 600

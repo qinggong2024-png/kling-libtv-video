@@ -58,10 +58,33 @@ uv run uvicorn libtv_agent.app:create_app --factory --app-dir backend/src --relo
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-stack.ps1
 ```
 
+投入团队使用时，通过局域网启动脚本启用账号登录并输出其他设备可访问的地址：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-lan-stack.ps1
+```
+
+脚本会自动选择当前局域网 IPv4、生成并持久化本机 Session 密钥，同时保持 API 只监听本机，
+由前端同源代理访问。首次使用前创建管理员账号：
+
+```powershell
+uv run python scripts/create_user.py lan-admin --role ADMIN
+```
+
+手机、平板或其他电脑与服务器处于同一可信网络时，打开脚本输出的
+`http://<服务器局域网 IP>:5173`。如果 Windows 将当前网络标记为“公用网络”，需要先将可信
+局域网改为“专用网络”，或在防火墙中仅为该网络放行 Node.js 的 TCP 5173 入站访问。
+
 Windows 当前用户登录后自动启动，并在 API 或前端意外退出时自动恢复：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\manage-local-autostart.ps1 -Action Install
+```
+
+需要长期供局域网设备使用时，将自启动切换为带账号登录的 `Lan` 模式：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\manage-local-autostart.ps1 -Action Install -Mode Lan
 ```
 
 查看或移除自启动任务：

@@ -396,6 +396,7 @@ def _build_task_read(
     for variant in sorted(task.variants, key=lambda value: value.variant_type.value):
         attempt = attempts_by_variant.get(variant.id)
         artifact = artifacts_by_attempt.get(attempt.id) if attempt else None
+        feedback = feedback_by_variant.get(variant.id)
         variant_reads.append(
             VariantRead(
                 id=variant.id,
@@ -408,11 +409,9 @@ def _build_task_read(
                 validation_status=variant.validation_status,
                 download_artifact_id=artifact.id if artifact else None,
                 error_code=attempt.last_error_code if attempt else None,
-                feedback=(
-                    feedback_by_variant[variant.id].value
-                    if variant.id in feedback_by_variant
-                    else None
-                ),
+                feedback=feedback.value if feedback else None,
+                feedback_reasons=list(feedback.reason_codes_json or []) if feedback else [],
+                feedback_comment=feedback.comment if feedback else None,
             )
         )
     can_confirm = task.phase in {
@@ -443,7 +442,7 @@ def _build_task_read(
         title=task.title,
         asset_count=task.asset_count,
         user_requirement=task.user_requirement_raw,
-        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-sol"),
+        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-terra"),
         generation_provider=str(preference_snapshot.get("generationProvider") or "libtv"),
         phase=task.phase,
         phase_reason_code=task.phase_reason_code,
@@ -684,7 +683,13 @@ def _build_task_timing(
     )
 
     download_started_at = min(generation_ends, default=None)
-    if ready_artifacts:
+    download_is_terminal = task.phase in {
+        ParentTaskPhase.DELIVERABLE,
+        ParentTaskPhase.PARTIALLY_DELIVERABLE,
+    }
+    if (attempts and len(ready_artifacts) == len(attempts)) or (
+        download_is_terminal and ready_artifacts
+    ):
         download_status = "COMPLETED"
         download_duration = _duration(
             download_started_at,

@@ -31,8 +31,9 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
-    openai_model: str = "gpt-5.6-sol"
-    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "medium"
+    openai_model: str = "gpt-5.6-terra"
+    openai_analysis_fallback_model: str | None = "gpt-5.6-sol"
+    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
     openai_analysis_timeout_seconds: float = Field(default=180.0, gt=0, le=900)
     openai_analysis_timeout_base_image_count: int = Field(default=4, ge=1, le=20)
     openai_analysis_timeout_per_extra_image_seconds: float = Field(default=45.0, ge=0, le=300)

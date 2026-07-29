@@ -68,8 +68,8 @@ async def test_openai_contract_binds_each_asset_and_order_without_network() -> N
 
     assert result.model_version == "fake-2.1"
     assert client.responses.request is not None
-    assert client.responses.request["model"] == "gpt-5.6-sol"
-    assert client.responses.request["reasoning"] == {"effort": "medium"}
+    assert client.responses.request["model"] == "gpt-5.6-terra"
+    assert client.responses.request["reasoning"] == {"effort": "low"}
     request_input = client.responses.request["input"]
     content = request_input[0]["content"]  # type: ignore[index]
     assert content[0]["text"].startswith("ANALYSIS_PROMPT_VERSION: analysis-v2.4.0")

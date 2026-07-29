@@ -1,4 +1,6 @@
 param(
+    [ValidateSet('Local', 'Lan')]
+    [string]$Mode = 'Local',
     [ValidateRange(10, 3600)]
     [int]$PollSeconds = 30,
     [ValidateRange(15, 600)]
@@ -7,7 +9,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$startScript = Join-Path $PSScriptRoot 'start-local-stack.ps1'
+$startScript = Join-Path $PSScriptRoot $(if ($Mode -eq 'Lan') { 'start-lan-stack.ps1' } else { 'start-local-stack.ps1' })
 $logDir = Join-Path $projectRoot 'var\logs'
 $logPath = Join-Path $logDir 'stack-watchdog.log'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -29,12 +31,19 @@ if (-not (Test-Path -LiteralPath $startScript)) {
     throw "Local stack startup script not found: $startScript"
 }
 
-Write-WatchdogLog "Watchdog started (PID $PID)."
+Write-WatchdogLog "Watchdog started (PID $PID, mode=$Mode)."
 $lastState = $null
 
 while ($true) {
     $apiReady = Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready'
     $frontendReady = Test-Ready 'http://127.0.0.1:5173/'
+    if ($apiReady -and $Mode -eq 'Lan') {
+        try {
+            $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/system/status' -TimeoutSec 3
+            $apiReady = $status.sharedAuthentication -eq $true
+        }
+        catch { $apiReady = $false }
+    }
 
     if ($apiReady -and $frontendReady) {
         if ($lastState -ne 'ready') {

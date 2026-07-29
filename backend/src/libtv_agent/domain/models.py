@@ -65,6 +65,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = enum_column(UserRole, default=UserRole.USER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_confirm_prompts: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -308,6 +309,8 @@ class GenerationFeedback(Base):
     scene_key: Mapped[str] = mapped_column(String(64))
     context_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     prompt_snapshot: Mapped[str] = mapped_column(Text)
+    reason_codes_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    comment: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), server_default=func.now()
     )

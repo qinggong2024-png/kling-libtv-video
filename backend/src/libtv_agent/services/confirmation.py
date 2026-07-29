@@ -24,6 +24,7 @@ from libtv_agent.domain.models import (
     OutboxEvent,
     ParentTask,
     TaskConfirmationVersion,
+    User,
 )
 from libtv_agent.services.generation_safety import (
     build_generation_preview,
@@ -362,8 +363,6 @@ async def auto_confirm_pass_tasks(
     runtime = await get_runtime_config(session, settings)
     if runtime is None or "PASS" not in runtime.config_json.get("autoConfirmLevels", []):
         return 0
-    if runtime.config_json.get("promptConfirmationRequired", True):
-        return 0
     if runtime.config_json.get("globalPaused", True) or runtime.config_json.get(
         "paidSubmissionsPaused", True
     ):
@@ -372,18 +371,23 @@ async def auto_confirm_pass_tasks(
         await ensure_paid_submission_allowed(session, settings)
     except RuntimeControlBlockedError:
         return 0
+    query = (
+        select(ParentTask)
+        .where(
+            ParentTask.phase == ParentTaskPhase.AWAITING_CONFIRMATION,
+            ParentTask.consistency_level == ConsistencyLevel.PASS,
+        )
+        .options(selectinload(ParentTask.assets), selectinload(ParentTask.variants))
+        .order_by(ParentTask.created_at, ParentTask.id)
+        .limit(max(1, limit))
+    )
+    if runtime.config_json.get("promptConfirmationRequired", True):
+        query = query.join(User, User.id == ParentTask.user_id).where(
+            User.auto_confirm_prompts.is_(True)
+        )
     tasks = list(
         (
-            await session.scalars(
-                select(ParentTask)
-                .where(
-                    ParentTask.phase == ParentTaskPhase.AWAITING_CONFIRMATION,
-                    ParentTask.consistency_level == ConsistencyLevel.PASS,
-                )
-                .options(selectinload(ParentTask.assets), selectinload(ParentTask.variants))
-                .order_by(ParentTask.created_at, ParentTask.id)
-                .limit(max(1, limit))
-            )
+            await session.scalars(query)
         ).unique()
     )
     confirmed = 0

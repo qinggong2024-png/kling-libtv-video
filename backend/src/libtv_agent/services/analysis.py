@@ -10,6 +10,7 @@ from libtv_agent.adapters.kling_official_cli import KlingCliError, KlingOfficial
 from libtv_agent.adapters.object_store import ObjectStore
 from libtv_agent.adapters.openai_analysis import (
     AnalysisImageInput,
+    AnalysisResult,
     FakeAnalysisAdapter,
     OpenAIAnalysisAdapter,
     ReplayAnalysisAdapter,
@@ -320,6 +321,105 @@ async def _await_provider_with_heartbeat(
         raise
 
 
+def _validated_analysis_timelines(
+    analysis_json: dict[str, Any], required_asset_ids: list[str]
+) -> dict[VariantKind, list[Any]]:
+    plans = {
+        VariantKind.STABLE: analysis_json["stablePlan"],
+        VariantKind.DYNAMIC: analysis_json["dynamicPlan"],
+    }
+    timelines = {kind: calculate_timeline(plan["shots"], 10.0) for kind, plan in plans.items()}
+    for timeline in timelines.values():
+        validate_required_coverage(timeline, required_asset_ids)
+    validate_ab_action_difference(timelines[VariantKind.STABLE], timelines[VariantKind.DYNAMIC])
+    if count_ab_differences(timelines[VariantKind.STABLE], timelines[VariantKind.DYNAMIC]) < 2:
+        raise ValueError("stable and dynamic plans must differ in at least two dimensions")
+    return timelines
+
+
+def _analysis_fallback_model(settings: Settings, primary_model: str) -> str | None:
+    fallback_model = (settings.openai_analysis_fallback_model or "").strip()
+    return fallback_model if fallback_model and fallback_model != primary_model else None
+
+
+async def _run_openai_analysis_request(
+    session: AsyncSession,
+    task: ParentTask,
+    settings: Settings,
+    analysis_run_id: uuid.UUID,
+    model: str,
+    prompt: str,
+    images: list[AnalysisImageInput],
+    asset_ids: list[str],
+) -> AnalysisResult:
+    adapter = OpenAIAnalysisAdapter(settings.model_copy(update={"openai_model": model}))
+    correlation_id = analysis_run_id.hex
+    session.add(
+        AuditEvent(
+            action="OPENAI_ANALYSIS_REQUEST_STARTED",
+            entity_type="ParentTask",
+            entity_id=str(task.id),
+            reason=model,
+            correlation_id=correlation_id,
+            evidence_refs_json=[
+                ANALYSIS_PROMPT_VERSION,
+                f"analysisRun:{analysis_run_id}",
+                *asset_ids,
+            ],
+        )
+    )
+    await session.commit()
+    try:
+        result = await _await_provider_with_heartbeat(
+            session,
+            task.id,
+            analysis_run_id,
+            adapter,
+            prompt,
+            images,
+        )
+    except Exception as exc:
+        await touch_analysis_run(
+            session,
+            task.id,
+            analysis_run_id,
+            ANALYSIS_STAGE_PROVIDER_RUNNING,
+        )
+        session.add(
+            AuditEvent(
+                action="OPENAI_ANALYSIS_REQUEST_FAILED",
+                entity_type="ParentTask",
+                entity_id=str(task.id),
+                reason=type(exc).__name__,
+                correlation_id=correlation_id,
+                evidence_refs_json=[
+                    ANALYSIS_PROMPT_VERSION,
+                    f"analysisRun:{analysis_run_id}",
+                    f"model:{model}",
+                ],
+            )
+        )
+        await session.commit()
+        raise
+    response_id = adapter.provider_response_id
+    session.add(
+        AuditEvent(
+            action="OPENAI_ANALYSIS_REQUEST_SUCCEEDED",
+            entity_type="ParentTask",
+            entity_id=str(task.id),
+            reason=model,
+            correlation_id=correlation_id,
+            evidence_refs_json=[
+                ANALYSIS_PROMPT_VERSION,
+                f"analysisRun:{analysis_run_id}",
+                *([f"response:{response_id}"] if response_id else []),
+            ],
+        )
+    )
+    await session.commit()
+    return result
+
+
 async def analyze_task(
     session: AsyncSession,
     task: ParentTask,
@@ -362,7 +462,7 @@ async def analyze_task(
         raise ValueError("selected generation provider is unavailable")
     if generation_provider == "kling" and not settings.kling_cli_enabled:
         raise KlingCliError("KLING_CAPABILITY_UNSUPPORTED", "Kling CLI Provider is disabled")
-    analysis_settings = settings.model_copy(update={"openai_model": analysis_model})
+    fallback_model = _analysis_fallback_model(settings, analysis_model)
     ordered_hash = ordered_assets_hash(
         {"assetId": str(asset.id), "sha256": asset.sha256, "order": asset.order_no}
         for asset in ordered
@@ -382,12 +482,14 @@ async def analyze_task(
             "productReferenceContentHash": product_content_hash,
             "userRequirementNormalized": normalized_requirement,
             "modelVersion": analysis_model,
+            "fallbackModelVersion": fallback_model,
             "schemaVersion": "2.1",
             "analysisPromptVersion": ANALYSIS_PROMPT_VERSION,
         }
     )
     asset_ids = [str(asset.id) for asset in ordered]
     product_asset_ids = [str(asset.id) for asset in product_references]
+    required_ids = [str(asset.id) for asset in ordered if asset.required]
     canonical_to_current = {
         **{f"STORYBOARD_{index}": asset_id for index, asset_id in enumerate(asset_ids, start=1)},
         **{
@@ -406,11 +508,9 @@ async def analyze_task(
             ANALYSIS_STAGE_VALIDATING,
         )
     else:
-        if settings.ai_adapter_mode == "openai":
-            adapter = OpenAIAnalysisAdapter(analysis_settings)
-        elif settings.ai_adapter_mode == "replay":
+        if settings.ai_adapter_mode == "replay":
             adapter = ReplayAnalysisAdapter(settings.ai_replay_fixture, asset_ids)
-        else:
+        elif settings.ai_adapter_mode == "fake":
             adapter = FakeAnalysisAdapter(asset_ids, task.user_requirement_raw)
         images = await _prepare_analysis_images(
             session,
@@ -426,72 +526,69 @@ async def analyze_task(
             analysis_run_id,
             ANALYSIS_STAGE_PROVIDER_RUNNING,
         )
-        correlation_id = analysis_run_id.hex
+        prompt = render_analysis_prompt(asset_ids, task.user_requirement_raw, product_asset_ids)
         if settings.ai_adapter_mode == "openai":
-            session.add(
-                AuditEvent(
-                    action="OPENAI_ANALYSIS_REQUEST_STARTED",
-                    entity_type="ParentTask",
-                    entity_id=str(task.id),
-                    reason=analysis_model,
-                    correlation_id=correlation_id,
-                    evidence_refs_json=[
-                        ANALYSIS_PROMPT_VERSION,
-                        f"analysisRun:{analysis_run_id}",
-                        *asset_ids,
-                    ],
+            try:
+                result = await _run_openai_analysis_request(
+                    session,
+                    task,
+                    settings,
+                    analysis_run_id,
+                    analysis_model,
+                    prompt,
+                    images,
+                    asset_ids,
                 )
-            )
-            await session.commit()
-        try:
+                analysis_json = normalize_analysis_motion(
+                    result.model_dump(mode="json", by_alias=True)
+                )
+                _validated_analysis_timelines(analysis_json, required_ids)
+            except (RuntimeError, ValueError) as exc:
+                if fallback_model is None:
+                    raise
+                session.add(
+                    AuditEvent(
+                        action="OPENAI_ANALYSIS_FALLBACK_STARTED",
+                        entity_type="ParentTask",
+                        entity_id=str(task.id),
+                        reason=type(exc).__name__,
+                        correlation_id=analysis_run_id.hex,
+                        evidence_refs_json=[
+                            ANALYSIS_PROMPT_VERSION,
+                            f"analysisRun:{analysis_run_id}",
+                            f"primaryModel:{analysis_model}",
+                            f"fallbackModel:{fallback_model}",
+                        ],
+                    )
+                )
+                await session.commit()
+                result = await _run_openai_analysis_request(
+                    session,
+                    task,
+                    settings,
+                    analysis_run_id,
+                    fallback_model,
+                    prompt,
+                    images,
+                    asset_ids,
+                )
+                analysis_json = normalize_analysis_motion(
+                    result.model_dump(mode="json", by_alias=True)
+                )
+                _validated_analysis_timelines(analysis_json, required_ids)
+        else:
             result = await _await_provider_with_heartbeat(
                 session,
                 task.id,
                 analysis_run_id,
                 adapter,
-                render_analysis_prompt(asset_ids, task.user_requirement_raw, product_asset_ids),
+                prompt,
                 images,
             )
-        except Exception as exc:
-            await touch_analysis_run(
-                session,
-                task.id,
-                analysis_run_id,
-                ANALYSIS_STAGE_PROVIDER_RUNNING,
+            analysis_json = normalize_analysis_motion(
+                result.model_dump(mode="json", by_alias=True)
             )
-            if settings.ai_adapter_mode == "openai":
-                session.add(
-                    AuditEvent(
-                        action="OPENAI_ANALYSIS_REQUEST_FAILED",
-                        entity_type="ParentTask",
-                        entity_id=str(task.id),
-                        reason=type(exc).__name__,
-                        correlation_id=correlation_id,
-                        evidence_refs_json=[
-                            ANALYSIS_PROMPT_VERSION,
-                            f"analysisRun:{analysis_run_id}",
-                        ],
-                    )
-                )
-                await session.commit()
-            raise
-        if settings.ai_adapter_mode == "openai":
-            response_id = getattr(adapter, "provider_response_id", None)
-            session.add(
-                AuditEvent(
-                    action="OPENAI_ANALYSIS_REQUEST_SUCCEEDED",
-                    entity_type="ParentTask",
-                    entity_id=str(task.id),
-                    reason=analysis_model,
-                    correlation_id=correlation_id,
-                    evidence_refs_json=[
-                        ANALYSIS_PROMPT_VERSION,
-                        f"analysisRun:{analysis_run_id}",
-                        *([f"response:{response_id}"] if response_id else []),
-                    ],
-                )
-            )
-        analysis_json = normalize_analysis_motion(result.model_dump(mode="json", by_alias=True))
+            _validated_analysis_timelines(analysis_json, required_ids)
         current_to_canonical = {value: key for key, value in canonical_to_current.items()}
         cached_facts = _replace_asset_ids(analysis_json, current_to_canonical)
         await _store_visual_fact_cache(
@@ -520,17 +617,7 @@ async def analyze_task(
     )
     normalized_user_requirement = analysis_json["userRequirementNormalized"]
     consistency_level = decide_consistency(analysis_json)
-    required_ids = [str(asset.id) for asset in ordered if asset.required]
-    plans = {
-        VariantKind.STABLE: analysis_json["stablePlan"],
-        VariantKind.DYNAMIC: analysis_json["dynamicPlan"],
-    }
-    timelines = {kind: calculate_timeline(plan["shots"], 10.0) for kind, plan in plans.items()}
-    for timeline in timelines.values():
-        validate_required_coverage(timeline, required_ids)
-    validate_ab_action_difference(timelines[VariantKind.STABLE], timelines[VariantKind.DYNAMIC])
-    if count_ab_differences(timelines[VariantKind.STABLE], timelines[VariantKind.DYNAMIC]) < 2:
-        raise ValueError("stable and dynamic plans must differ in at least two dimensions")
+    timelines = _validated_analysis_timelines(analysis_json, required_ids)
     mode_type = select_mode_type(len(ordered), snapshot.schema_json)
     model_key = snapshot.model_key if generation_provider == "kling" else "kling-v3-omni"
     config = {

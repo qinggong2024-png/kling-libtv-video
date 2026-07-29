@@ -47,6 +47,7 @@ import { createPortal } from 'react-dom'
 import {
   ApiError,
   analyzeTask,
+  changePassword,
   confirmTask,
   createAdminUser,
   createTask,
@@ -69,6 +70,7 @@ import {
   getLibTVAccountStatus,
   getKlingStatus,
   getOperations,
+  getPersonalPromptAutoConfirmation,
   loginKling,
   logoutKling,
   startLibTVLogin,
@@ -81,10 +83,12 @@ import {
   runPromptAssistant,
   saveTaskPrompts,
   setPromptAutoConfirmation,
+  setPersonalPromptAutoConfirmation,
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
 import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingStatus, LibTVAccountStatus, StatusTone, SystemStatus, Task, Variant, VariantKind } from './types'
+import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { OperationsPanel } from './OperationsPanel'
 import { formatRiskFlags } from './riskLabels'
 import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
@@ -158,7 +162,14 @@ function validateCompatibleBaseUrl(value: string): string {
   return ''
 }
 const FAILED_PHASES = new Set(['ACTION_REQUIRED'])
-const DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-sol'
+const DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-terra'
+const LEGACY_ANALYSIS_MODEL = 'gpt-5.6-sol'
+
+function readDefaultAnalysisModel(configuredModel?: string): string {
+  const stored = localStorage.getItem('default-model')?.trim()
+  const configured = configuredModel?.trim() || DEFAULT_ANALYSIS_MODEL
+  return !stored || stored === LEGACY_ANALYSIS_MODEL ? configured : stored
+}
 const ANALYSIS_FAILURE_CODES = new Set([
   'ANALYSIS_TIMEOUT',
   'ANALYSIS_CANCELLED',
@@ -257,6 +268,28 @@ function taskTimingStageLabel(key: TaskTimingStage['key'], provider: string): st
   return '成品下载'
 }
 
+function taskTimingStageShortLabel(key: TaskTimingStage['key']): string {
+  if (key === 'SOURCE_UPLOAD') return '素材'
+  if (key === 'ANALYSIS') return '分析'
+  if (key === 'CONFIRMATION') return '确认'
+  if (key === 'MATERIALIZATION') return '上传'
+  if (key === 'GENERATION') return '生成'
+  return '下载'
+}
+
+function formatCompactDurationSeconds(value: number): string {
+  const seconds = Math.max(0, Math.floor(value))
+  if (seconds < 60) return `${seconds}秒`
+  if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60)
+    const remainder = seconds % 60
+    return remainder ? `${minutes}分${remainder}秒` : `${minutes}分钟`
+  }
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return minutes ? `${hours}时${minutes}分` : `${hours}小时`
+}
+
 function stageElapsedSeconds(stage: TaskTimingStage, now: number): number | null {
   const recorded = stage.durationSeconds ?? 0
   if (stage.status !== 'ACTIVE' || !stage.activeStartedAt) {
@@ -316,16 +349,17 @@ function TaskTimingTimeline({ task }: { task: Task }) {
       {stages.map(({ key, category, stage }, index) => {
         const elapsed = stageElapsedSeconds(stage, now)
         const statusText = stage.status === 'ACTIVE'
-          ? `已进行 ${formatDurationSeconds(elapsed ?? 0)}`
+          ? formatCompactDurationSeconds(elapsed ?? 0)
           : stage.status === 'COMPLETED'
-            ? elapsed === null ? '已完成' : formatDurationSeconds(elapsed)
-            : stage.status === 'FAILED' ? '未完成' : '等待中'
-        return <li key={key} className={`task-timing-stage is-${stage.status.toLowerCase()}`} aria-current={stage.status === 'ACTIVE' ? 'step' : undefined}>
+            ? elapsed === null ? '已完成' : formatCompactDurationSeconds(elapsed)
+            : stage.status === 'FAILED' ? '未完成' : '待执行'
+        const fullLabel = taskTimingStageLabel(key, task.generationProvider)
+        return <li key={key} className={`task-timing-stage is-${stage.status.toLowerCase()}`} aria-label={`${fullLabel}，${category === 'user' ? '用户等待' : '系统处理'}，${statusText}`} aria-current={stage.status === 'ACTIVE' ? 'step' : undefined}>
           <span className="task-timing-marker" aria-hidden="true">
             {stage.status === 'COMPLETED' ? <Check size={15} /> : stage.status === 'ACTIVE' ? <LoaderCircle className="spin" size={15} /> : stage.status === 'FAILED' ? <AlertTriangle size={15} /> : index + 1}
           </span>
           <span className="task-timing-copy">
-            <strong>{taskTimingStageLabel(key, task.generationProvider)}</strong>
+            <strong><span className="task-timing-label-full">{fullLabel}</span><span className="task-timing-label-short">{taskTimingStageShortLabel(key)}</span></strong>
             <small>{category === 'user' ? '用户等待' : '系统处理'}{stage.attemptCount && stage.attemptCount > 1 ? ` · 共 ${stage.attemptCount} 次` : ''}</small>
           </span>
           <span className="task-timing-duration">{statusText}</span>
@@ -474,11 +508,25 @@ function ProductLogo() {
   return <span className="brand-lockup"><span className="brand-mark"><Clapperboard size={19} /></span><span><strong>衣影工坊</strong><small>LibTV 视频生产</small></span></span>
 }
 
+function loginErrorMessage(cause: unknown): string {
+  if (!(cause instanceof ApiError)) return '无法连接生产服务，请检查网络后重试'
+  if (cause.status === 401) return '账号或密码不正确，请重新输入'
+  if (cause.status === 408) return '生产服务响应超时，请稍后重试'
+  if (cause.status === 409) return '当前服务尚未启用团队账号登录'
+  if (cause.status >= 500) return '生产服务暂时不可用，请稍后重试'
+  return cause.message || '登录失败，请稍后重试'
+}
+
 function LoginScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  useEffect(() => {
+    document.body.classList.add('login-open')
+    return () => document.body.classList.remove('login-open')
+  }, [])
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setBusy(true)
@@ -487,18 +535,38 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void>
       await login(username.trim(), password)
       await onAuthenticated()
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '登录失败，请检查账号和密码')
+      setError(loginErrorMessage(cause))
     } finally { setBusy(false) }
   }
   return <main className="login-view">
-    <form className="login-panel" onSubmit={(event) => void submit(event)}>
-      <ProductLogo />
-      <div className="login-heading"><span>生产系统</span><h1>登录衣影工坊</h1><p>使用管理员分配的生产账号继续。</p></div>
-      <label htmlFor="login-username"><span>账号</span><input id="login-username" name="username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" spellCheck={false} required /></label>
-      <label htmlFor="login-password"><span>密码</span><input id="login-password" name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
-      {error ? <div className="inline-alert inline-alert--danger login-error" role="alert"><AlertTriangle size={17} />{error}</div> : null}
-      <button className="primary-button primary-button--large" type="submit" disabled={busy || !username.trim() || !password}>{busy ? <LoaderCircle className="spin" size={18} /> : <LockKeyhole size={18} />}{busy ? '正在登录…' : '安全登录'}</button>
-    </form>
+    <section className="login-shell" aria-label="衣影工坊账号登录">
+      <aside className="login-brand-panel">
+        <ProductLogo />
+        <div className="login-brand-copy">
+          <span>LIBTV PRODUCTION</span>
+          <h1>衣影工坊</h1>
+          <p>视频生产管理系统</p>
+        </div>
+        <div className="login-environment"><span aria-hidden="true" />团队生产环境</div>
+      </aside>
+      <form className="login-panel" onSubmit={(event) => void submit(event)} aria-busy={busy}>
+        <div className="login-mobile-brand"><ProductLogo /></div>
+        <div className="login-heading"><span>账号登录</span><h2>欢迎回来</h2><p>使用管理员分配的生产账号进入工作台。</p></div>
+        <div className="login-field">
+          <label htmlFor="login-username">账号</label>
+          <span className="login-input-wrap"><UserRound size={18} aria-hidden="true" /><input id="login-username" name="username" value={username} onChange={(event) => { setUsername(event.target.value); setError('') }} autoComplete="username" autoCapitalize="none" spellCheck={false} disabled={busy} aria-invalid={Boolean(error)} aria-describedby={error ? 'login-error' : undefined} autoFocus required /></span>
+        </div>
+        <div className="login-field">
+          <label htmlFor="login-password">密码</label>
+          <span className="login-input-wrap"><KeyRound size={18} aria-hidden="true" /><input id="login-password" name="password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => { setPassword(event.target.value); setError('') }} autoComplete="current-password" disabled={busy} aria-invalid={Boolean(error)} aria-describedby={error ? 'login-error' : undefined} required /><button type="button" className="login-password-toggle" onClick={() => setShowPassword((current) => !current)} disabled={busy} aria-label={showPassword ? '隐藏密码' : '显示密码'} title={showPassword ? '隐藏密码' : '显示密码'}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span>
+        </div>
+        <div className="login-feedback" aria-live="polite">
+          {error ? <div id="login-error" className="inline-alert inline-alert--danger login-error" role="alert"><AlertTriangle size={17} />{error}</div> : null}
+        </div>
+        <button className="primary-button primary-button--large" type="submit" disabled={busy || !username.trim() || !password}>{busy ? <LoaderCircle className="spin" size={18} /> : <LogIn size={18} />}{busy ? '正在验证账号' : '登录'}</button>
+        <p className="login-security-note"><ShieldCheck size={16} aria-hidden="true" />账号权限和操作记录由系统统一管理</p>
+      </form>
+    </section>
   </main>
 }
 
@@ -577,7 +645,7 @@ function ProductionComposer({ seed, onCreated, system }: {
 }) {
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
   const [products, setProducts] = useState<Material[]>(() => seed?.products.map((file) => ({ id: crypto.randomUUID(), file })) ?? [])
-  const [analysisModel] = useState(() => localStorage.getItem('default-model')?.trim() || DEFAULT_ANALYSIS_MODEL)
+  const [analysisModel] = useState(() => readDefaultAnalysisModel(system?.openaiModel))
   const [generationProvider] = useState<GenerationProvider>(() => (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv')
   const [outputVariants, setOutputVariants] = useState<OutputVariantSelection>(readOutputVariantSelection)
   const [requirement, setRequirement] = useState(seed?.requirement ?? '')
@@ -797,6 +865,8 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
   const [feedbackBusy, setFeedbackBusy] = useState<FeedbackValue | null>(null)
   const [feedbackMessage, setFeedbackMessage] = useState('')
   const [animatedFeedback, setAnimatedFeedback] = useState<FeedbackValue | null>(null)
+  const [feedbackPanel, setFeedbackPanel] = useState<FeedbackValue | null>(null)
+  const feedbackAnchorRef = useRef<HTMLDivElement>(null)
   const submitFeedback = async (value: FeedbackValue) => {
     const nextValue = variant.feedback === value ? null : value
     setFeedbackBusy(value)
@@ -805,7 +875,8 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       const changed = await setVariantFeedback(task.id, variant.id, nextValue)
       onFeedbackChanged(changed)
       setAnimatedFeedback(nextValue)
-      setFeedbackMessage(nextValue ? '已记录，将优化后续同类场景' : '已取消反馈')
+      setFeedbackPanel(nextValue)
+      setFeedbackMessage(nextValue ? '已记录，可选择具体原因' : '已取消反馈')
       window.setTimeout(() => setAnimatedFeedback(null), 320)
     } catch (cause) {
       setFeedbackMessage(cause instanceof Error ? cause.message : '反馈提交失败，请重试')
@@ -813,7 +884,23 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       setFeedbackBusy(null)
     }
   }
-  return <article className="result-card">
+  const saveFeedbackDetails = async (reasons: Variant['feedbackReasons'], comment: string | null) => {
+    if (!feedbackPanel) return false
+    setFeedbackBusy(feedbackPanel)
+    setFeedbackMessage('')
+    try {
+      const changed = await setVariantFeedback(task.id, variant.id, feedbackPanel, { reasons, comment })
+      onFeedbackChanged(changed)
+      setFeedbackMessage('详细反馈已保存，将优化后续同类场景')
+      return true
+    } catch (cause) {
+      setFeedbackMessage(cause instanceof Error ? cause.message : '详细反馈保存失败，请重试')
+      return false
+    } finally {
+      setFeedbackBusy(null)
+    }
+  }
+  return <article className={`result-card${feedbackPanel ? ' has-feedback-panel' : ''}`}>
     <button className="result-cover" onClick={ready ? onPlay : onOpen} aria-label={ready ? `播放 ${task.title}` : `查看 ${task.title}`}>
       {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
       <span className={`variant-label ${variant.kind === 'STABLE' ? 'variant-label--a' : 'variant-label--b'}`}>{variant.kind === 'STABLE' ? 'A' : 'B'}</span>
@@ -821,12 +908,21 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       <span className="duration">10s</span>
     </button>
     <div className="result-body"><div><strong>{task.title}</strong><span>{variant.kind === 'STABLE' ? '稳定展示' : '动态广告'} · {formatTime(task.updatedAt)}</span></div>
-    {ready ? <div className="result-feedback">
+    {ready ? <div ref={feedbackAnchorRef} className="result-feedback">
       <span className="feedback-copy" aria-live="polite">{feedbackMessage || (variant.feedback ? '感谢反馈，系统会持续学习' : '这个结果怎么样？')}</span>
       <span className="feedback-buttons">
         <button className={`feedback-button${variant.feedback === 'LIKE' ? ' is-selected is-positive' : ''}${animatedFeedback === 'LIKE' ? ' is-animating' : ''}`} disabled={feedbackBusy !== null} onClick={() => void submitFeedback('LIKE')} aria-label={variant.feedback === 'LIKE' ? '取消点赞' : '点赞此视频'} aria-pressed={variant.feedback === 'LIKE'} title="点赞"><span>{feedbackBusy === 'LIKE' ? <LoaderCircle className="spin" size={17} /> : <ThumbsUp size={18} />}</span></button>
         <button className={`feedback-button${variant.feedback === 'DISLIKE' ? ' is-selected is-negative' : ''}${animatedFeedback === 'DISLIKE' ? ' is-animating' : ''}`} disabled={feedbackBusy !== null} onClick={() => void submitFeedback('DISLIKE')} aria-label={variant.feedback === 'DISLIKE' ? '取消点踩' : '点踩此视频'} aria-pressed={variant.feedback === 'DISLIKE'} title="点踩"><span>{feedbackBusy === 'DISLIKE' ? <LoaderCircle className="spin" size={17} /> : <ThumbsDown size={18} />}</span></button>
       </span>
+      {feedbackPanel ? <GenerationFeedbackPanel
+        key={`${variant.id}-${feedbackPanel}`}
+        value={feedbackPanel}
+        initialReasons={variant.feedback === feedbackPanel ? (variant.feedbackReasons ?? []) : []}
+        initialComment={variant.feedback === feedbackPanel ? variant.feedbackComment : null}
+        anchorRef={feedbackAnchorRef}
+        onClose={() => setFeedbackPanel(null)}
+        onSave={saveFeedbackDetails}
+      /> : null}
     </div> : null}
     <div className="result-actions">
       {ready ? <><button className="icon-button" onClick={onPlay} aria-label="播放视频" title="播放"><Play size={17} /></button><button className="icon-button" onClick={() => void saveArtifact(variant.downloadArtifactId!, `${task.title}-${variant.kind.toLowerCase()}.mp4`)} aria-label="下载视频" title="下载"><Download size={17} /></button><button className="icon-button" onClick={onOpen} aria-label="查看任务详情" title="查看任务详情"><Eye size={17} /></button></> : <button className="compact-button" onClick={onOpen}>查看状态</button>}
@@ -1637,6 +1733,68 @@ function BrowserNotificationSetting({
   </section>
 }
 
+function PersonalPromptConfirmationSetting() {
+  const [automatic, setAutomatic] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy(true)
+    try {
+      const preference = await getPersonalPromptAutoConfirmation()
+      setAutomatic(preference.automatic)
+      setReady(true)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取自动确认设置')
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const toggle = async (enabled: boolean) => {
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const preference = await setPersonalPromptAutoConfirmation(enabled)
+      setAutomatic(preference.automatic)
+      setNotice(preference.automatic
+        ? '已开启，你的普通方案将跳过人工确认并直接生成。'
+        : '已关闭，你的方案将在生成前等待人工确认。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '自动确认设置保存失败')
+      await load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="settings-section prompt-confirmation-section">
+    <div className="settings-section-heading">
+      <div><span>生成流程</span><h2>自动确认提示词</h2><p>{automatic ? '你的普通方案分析完成后会跳过人工确认，直接进入生成。需要质量复核或被系统拦截的方案仍需人工处理。' : '默认关闭。你的方案分析完成后，需要检查并确认提示词才会开始生成。'}</p></div>
+      <div className="prompt-confirmation-control">
+        <span className={`prompt-confirmation-state${automatic ? ' is-active' : ''}`}>{busy && !ready ? '读取中' : automatic ? '已开启' : '已关闭'}</span>
+        <label className="settings-switch" title="自动确认提示词">
+          <input type="checkbox" checked={automatic} disabled={busy || !ready} aria-label="自动确认提示词" onChange={(event) => void toggle(event.target.checked)} />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+    </div>
+    <div className="prompt-confirmation-feedback" aria-live="polite">
+      {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
+      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
+    </div>
+  </section>
+}
+
 function SettingsView({
   system,
   onLogout,
@@ -1654,7 +1812,7 @@ function SettingsView({
 }) {
   const [saved, setSaved] = useState(false)
   const [settings, setSettings] = useState(() => ({
-    model: localStorage.getItem('default-model') ?? system?.openaiModel ?? DEFAULT_ANALYSIS_MODEL,
+    model: readDefaultAnalysisModel(system?.openaiModel),
     provider: (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv',
     outputVariants: readOutputVariantSelection(),
   }))
@@ -1694,6 +1852,7 @@ function SettingsView({
         </label>
       </div>
     </section>
+    <PersonalPromptConfirmationSetting />
     <BrowserNotificationSetting
       enabled={browserNotificationsEnabled}
       permission={browserNotificationPermission}
@@ -1703,12 +1862,16 @@ function SettingsView({
   </div>
 }
 
-function UserManagement({ adminId }: { adminId: string }) {
+function UserManagement({ adminId, sharedAuthentication }: { adminId: string; sharedAuthentication: boolean }) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [resetUserId, setResetUserId] = useState<string | null>(null)
   const [resetPassword, setResetPassword] = useState('')
+  const [changeOpen, setChangeOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState('')
   const [busy, setBusy] = useState<string | null>('load')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -1771,6 +1934,28 @@ function UserManagement({ adminId }: { adminId: string }) {
     }
   }
 
+  const changeOwnPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (newPassword.length < 12 || newPassword !== newPasswordConfirmation) return
+    setBusy('change-own-password')
+    setError('')
+    setNotice('')
+    try {
+      await changePassword(currentPassword, newPassword)
+      setChangeOpen(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setNewPasswordConfirmation('')
+      setNotice('你的密码已修改，其他设备上的旧登录会话已退出。')
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === 'CURRENT_PASSWORD_INVALID') setError('当前密码不正确，请重新输入。')
+      else if (cause instanceof ApiError && cause.code === 'PASSWORD_UNCHANGED') setError('新密码不能与当前密码相同。')
+      else setError(cause instanceof ApiError ? cause.message : '密码修改失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const deactivate = async (user: AdminUser) => {
     if (!window.confirm(`停用账号“${user.username}”后，该账号会立即退出且无法继续登录。确定停用吗？`)) return
     setBusy(`deactivate:${user.id}`)
@@ -1812,6 +1997,9 @@ function UserManagement({ adminId }: { adminId: string }) {
         <span className="account-avatar" aria-hidden="true"><UserRound size={18} /></span>
         <div className="account-identity"><strong>{user.username}</strong><span>{roleLabels[user.role]} · 创建于 {formatTime(user.createdAt)}</span></div>
         <span className={`account-state${user.isActive ? ' is-active' : ''}`}>{user.isActive ? '正常' : '已停用'}</span>
+        {user.id === adminId && user.isActive && sharedAuthentication ? <div className="account-actions">
+          <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setChangeOpen(true); setResetUserId(null); setCurrentPassword(''); setNewPassword(''); setNewPasswordConfirmation(''); setNotice(''); setError('') }}><KeyRound size={15} />修改密码</button>
+        </div> : null}
         {user.role === 'USER' && user.isActive ? <div className="account-actions">
           <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setResetUserId(user.id); setResetPassword(''); setNotice(''); setError('') }}><KeyRound size={15} />重置密码</button>
           <button className="danger-button" type="button" disabled={busy !== null} onClick={() => void deactivate(user)}>{busy === `deactivate:${user.id}` ? <LoaderCircle className="spin" size={15} /> : <LogOut size={15} />}停用</button>
@@ -1819,6 +2007,12 @@ function UserManagement({ adminId }: { adminId: string }) {
         {resetUserId === user.id ? <form className="account-reset-form" onSubmit={(event) => void reset(event, user)}>
           <label htmlFor={`reset-password-${user.id}`}><span>为“{user.username}”设置新密码</span><input id={`reset-password-${user.id}`} type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} minLength={12} maxLength={512} autoComplete="new-password" placeholder="至少 12 个字符" required /></label>
           <div><button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setResetUserId(null); setResetPassword('') }}>取消</button><button className="primary-button" type="submit" disabled={busy !== null || resetPassword.length < 12}>{busy === `reset:${user.id}` ? <LoaderCircle className="spin" size={15} /> : <KeyRound size={15} />}确认重置</button></div>
+        </form> : null}
+        {user.id === adminId && changeOpen ? <form className="account-reset-form account-change-password-form" onSubmit={(event) => void changeOwnPassword(event)}>
+          <label htmlFor="current-account-password"><span>当前密码</span><input id="current-account-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} maxLength={512} autoComplete="current-password" required /></label>
+          <label htmlFor="new-account-password-self"><span>新密码</span><input id="new-account-password-self" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} maxLength={512} autoComplete="new-password" placeholder="至少 12 个字符" required /></label>
+          <label htmlFor="confirm-account-password-self"><span>确认新密码</span><input id="confirm-account-password-self" type="password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} minLength={12} maxLength={512} autoComplete="new-password" aria-invalid={Boolean(newPasswordConfirmation && newPassword !== newPasswordConfirmation)} required /></label>
+          <div><button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setChangeOpen(false); setCurrentPassword(''); setNewPassword(''); setNewPasswordConfirmation('') }}>取消</button><button className="primary-button" type="submit" disabled={busy !== null || !currentPassword || newPassword.length < 12 || newPassword !== newPasswordConfirmation}>{busy === 'change-own-password' ? <LoaderCircle className="spin" size={15} /> : <KeyRound size={15} />}保存新密码</button></div>
         </form> : null}
       </article>)}
       {!users.length && busy !== 'load' ? <EmptyState icon={<UserRound size={24} />} title="还没有成员账号" description="创建第一个普通用户账号后，对方即可从登录页进入。" /> : null}
@@ -1868,7 +2062,7 @@ function AdminCenterView({
         </section>
         <section className="settings-section admin-operations-card"><OperationsPanel adminId={actor?.userId ?? null} /></section>
       </> : null}
-      {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} /> : null}
+      {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
         <KlingCliSettings adminId={actor!.userId} onChanged={onKlingChanged} />
         <LibTVAccountSettings adminId={actor!.userId} />
@@ -2337,14 +2531,14 @@ function App() {
       <ProductLogo />
       <nav className="sidebar-main-nav" aria-label="主导航">{nav.filter((item) => item.value !== 'settings').map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
       <div className="sidebar-bottom">
-        <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.libtvAdapter === 'live' ? '生产服务已连接' : '测试环境'}</span></div>
+        <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.environment === 'test' ? '测试版' : '正式版'}</span></div>
         <button className={`sidebar-settings ${view === 'settings' ? 'is-active' : ''}`} onClick={() => switchView('settings')}><Settings size={18} /><span>设置</span></button>
         <div className="sidebar-utility"><button onClick={() => setSidebarInfo((current) => current === 'help' ? null : 'help')} aria-label="帮助" title="帮助"><HelpCircle size={17} /></button><button onClick={() => setSidebarInfo((current) => current === 'account' ? null : 'account')} aria-label="账号" title="账号"><UserRound size={17} /></button></div>
         {sidebarInfo ? <div className="sidebar-popover" role="status"><strong>{sidebarInfo === 'help' ? '制作帮助' : '当前账号'}</strong><p>{sidebarInfo === 'help' ? '上传服装与参考图后，确认方案即可开始生成。历史视频可在记录中继续处理。' : `${actor?.username ?? '生产账号'} · ${actor?.role === 'ADMIN' ? '管理员' : actor?.role === 'OPERATOR' ? '运营人员' : '普通用户'}`}</p>{sidebarInfo === 'account' && system?.sharedAuthentication ? <button onClick={() => void signOut()}>退出登录</button> : sidebarInfo === 'account' && system?.phaseOneAdminId ? <button onClick={switchDevelopmentActor}>切换为{devActorRole === 'admin' ? '普通用户' : '管理员'}</button> : <button onClick={() => setSidebarInfo(null)}>关闭</button>}</div> : null}
       </div>
     </aside>
     <div className="app-body">
-      <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : '服务正常'}</div></header>
+      <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></header>
       <main id="main-content">{loading ? <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载生产任务</strong></div> : <>
       {error ? <div className="service-banner"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => void refresh()}><RefreshCw size={15} />重新连接</button></div> : null}
       {showNotificationPrompt ? <div className="notification-permission-banner" role="region" aria-label="浏览器通知">

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
+import { cancelTask, changePassword, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -39,6 +39,24 @@ describe('API request identity and CSRF contracts', () => {
     expect(writeHeaders.get('X-User-Id')).toBe(USER_ID)
   })
 
+  it('changes the current account password without an administrator target id', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-from-login' }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await login('operator', 'current-password-1234')
+    await changePassword('current-password-1234', 'replacement-password-1234')
+
+    const call = vi.mocked(fetch).mock.calls[1]
+    expect(String(call[0])).toBe('/api/v1/auth/password')
+    expect(call[1]?.method).toBe('POST')
+    expect(new Headers(call[1]?.headers).get('X-CSRF-Token')).toBe('csrf-from-login')
+    expect(JSON.parse(String(call[1]?.body))).toEqual({
+      currentPassword: 'current-password-1234',
+      newPassword: 'replacement-password-1234',
+    })
+  })
+
   it('keeps an explicit administrator identity local to its own request', async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input)
@@ -67,6 +85,23 @@ describe('API request identity and CSRF contracts', () => {
     expect(call[1]?.method).toBe('POST')
     expect(new Headers(call[1]?.headers).get('X-User-Id')).toBe(ADMIN_ID)
     expect(JSON.parse(String(call[1]?.body))).toEqual({ expectedVersion: 3, automatic: true })
+  })
+
+  it('reads and updates the current user prompt confirmation preference', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ automatic: false }))
+      .mockResolvedValueOnce(jsonResponse({ automatic: true }))
+
+    await getPersonalPromptAutoConfirmation()
+    await setPersonalPromptAutoConfirmation(true)
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(String(calls[0][0])).toBe('/api/v1/auth/preferences/prompt-confirmation')
+    expect(calls[0][1]?.method).toBeUndefined()
+    expect(String(calls[1][0])).toBe('/api/v1/auth/preferences/prompt-confirmation')
+    expect(calls[1][1]?.method).toBe('PATCH')
+    expect(new Headers(calls[1][1]?.headers).get('X-User-Id')).toBe(USER_ID)
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ automatic: true })
   })
 
   it('sends prompt edits and assistant instructions with the current task version', async () => {
@@ -154,6 +189,23 @@ describe('API request identity and CSRF contracts', () => {
     expect(String(call[0])).toBe('/api/v1/tasks/task-1/variants/variant-a/feedback')
     expect(call[1]?.method).toBe('PUT')
     expect(JSON.parse(String(call[1]?.body))).toEqual({ feedback: 'LIKE' })
+  })
+
+  it('sends optional detailed generation feedback', async () => {
+    const task = { id: 'task-1' } as Task
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(task))
+
+    await setVariantFeedback('task-1', 'variant-a', 'DISLIKE', {
+      reasons: ['CAMERA_TOO_FAST', 'PRODUCT_UNCLEAR'],
+      comment: '最后一个镜头商品不够清楚',
+    })
+
+    const call = vi.mocked(fetch).mock.calls[0]
+    expect(JSON.parse(String(call[1]?.body))).toEqual({
+      feedback: 'DISLIKE',
+      reasons: ['CAMERA_TOO_FAST', 'PRODUCT_UNCLEAR'],
+      comment: '最后一个镜头商品不够清楚',
+    })
   })
 
   it('exposes the next task cursor from the response header', async () => {

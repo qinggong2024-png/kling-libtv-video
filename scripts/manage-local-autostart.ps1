@@ -1,6 +1,8 @@
 param(
     [ValidateSet('Install', 'Uninstall', 'Status')]
     [string]$Action = 'Status',
+    [ValidateSet('Local', 'Lan')]
+    [string]$Mode = 'Local',
     [string]$TaskName = 'LibTV Local Stack Watchdog'
 )
 
@@ -24,6 +26,7 @@ function Get-AutostartStatus {
     }
 
     $info = Get-ScheduledTaskInfo -TaskName $TaskName
+    $arguments = @($task.Actions)[0].Arguments
     return [pscustomobject]@{
         TaskName = $TaskName
         Installed = $true
@@ -33,6 +36,7 @@ function Get-AutostartStatus {
         User = $task.Principal.UserId
         Trigger = 'At user logon'
         ExecutionTimeLimit = [string]$task.Settings.ExecutionTimeLimit
+        Mode = if ($arguments -match '(?i)-Mode\s+Lan') { 'Lan' } else { 'Local' }
         WatchdogScript = $watchdogScript
     }
 }
@@ -43,7 +47,7 @@ switch ($Action) {
             throw "Watchdog script not found: $watchdogScript"
         }
 
-        $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchdogScript`""
+        $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchdogScript`" -Mode $Mode"
         $taskAction = New-ScheduledTaskAction `
             -Execute $powershell `
             -Argument $arguments `
@@ -62,13 +66,14 @@ switch ($Action) {
             -ExecutionTimeLimit ([TimeSpan]::Zero) `
             -MultipleInstances IgnoreNew
 
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         Register-ScheduledTask `
             -TaskName $TaskName `
             -Action $taskAction `
             -Trigger $trigger `
             -Principal $principal `
             -Settings $settings `
-            -Description 'Keep the local LibTV API, runner, and frontend available after Windows logon.' `
+            -Description "Keep the LibTV API, runner, and frontend available after Windows logon ($Mode mode)." `
             -Force | Out-Null
 
         foreach ($legacyTaskName in $legacyTaskNames) {

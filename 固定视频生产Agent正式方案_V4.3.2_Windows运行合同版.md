@@ -394,7 +394,7 @@ allowedStoryboardCount = min(7, realtimeSchema.maxMediaCount)
 
 ### 10.1 调用原则
 
-第一期 AI Adapter 使用 OpenAI Platform API Key、Responses API 和结构化 JSON 输出，主模型固定为 `gpt-5.6-sol`。密钥只通过部署环境或本地 `.env` 注入，不写入仓库；正式接入前必须以真实 API 请求验证账号对该模型的权限。默认不启用 Pro、持久化推理、Programmatic Tool Calling 或多 Agent beta，新增能力须单独评估和验证。
+第一期 AI Adapter 使用 OpenAI Platform API Key、Responses API 和结构化 JSON 输出，主模型为 `gpt-5.6-terra`，结构解析或确定性方案校验失败时回退到 `gpt-5.6-sol`。密钥只通过部署环境或本地 `.env` 注入，不写入仓库；正式接入前必须以真实 API 请求验证账号对这两个模型的权限。默认不启用 Pro、持久化推理、Programmatic Tool Calling 或多 Agent beta，新增能力须单独评估和验证。
 
 普通任务使用一次主要多模态调用完成：
 
@@ -2407,7 +2407,7 @@ object_storage:
 ai:
   provider: openai
   api: responses
-  model: gpt-5.6-sol
+  model: gpt-5.6-terra
   structured_output: true
 
 auth:
