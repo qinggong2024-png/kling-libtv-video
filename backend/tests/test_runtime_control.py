@@ -83,7 +83,7 @@ def test_runtime_config_allows_pass_only_auto_confirmation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_libtv_auth_required_pauses_paid_work_without_auto_unpausing(
+async def test_libtv_auth_required_blocks_only_libtv_provider(
     tmp_path: Path,
 ) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'auth.db').as_posix()}")
@@ -97,6 +97,7 @@ async def test_libtv_auth_required_pauses_paid_work_without_auto_unpausing(
         paid_generation_enabled=True,
         paid_generation_confirmation="I_ACCEPT_LIBTV_POINT_CHARGES",
         paid_submissions_paused=False,
+        kling_api_enabled=True,
         _env_file=None,
     )
 
@@ -111,8 +112,12 @@ async def test_libtv_auth_required_pauses_paid_work_without_auto_unpausing(
         current = await get_runtime_config(session, settings)
         assert current is not None
         assert current.config_json["libtvAuthRequired"] is True
-        assert current.config_json["paidSubmissionsPaused"] is True
+        assert current.config_json["paidSubmissionsPaused"] is False
         assert not await generation_claims_allowed(session, settings)
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_paid_submission_allowed(session, settings)
+        assert captured.value.code == "LIBTV_AUTH_REQUIRED"
+        await ensure_provider_submission_allowed(session, settings, "kling")
 
         await set_libtv_auth_required(
             session,
@@ -124,8 +129,37 @@ async def test_libtv_auth_required_pauses_paid_work_without_auto_unpausing(
         recovered = await get_runtime_config(session, settings)
         assert recovered is not None
         assert recovered.config_json["libtvAuthRequired"] is False
-        assert recovered.config_json["paidSubmissionsPaused"] is True
+        assert recovered.config_json["paidSubmissionsPaused"] is False
         assert await generation_claims_allowed(session, settings)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_libtv_auth_required_preserves_existing_paid_pause(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'auth-paused.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        app_env="development",
+        libtv_adapter_mode="real",
+        paid_submissions_paused=True,
+        _env_file=None,
+    )
+
+    async with factory() as session:
+        await set_libtv_auth_required(
+            session,
+            settings,
+            required=True,
+            reason="test expired login while globally paused",
+        )
+        await session.commit()
+        current = await get_runtime_config(session, settings)
+        assert current is not None
+        assert current.config_json["libtvAuthRequired"] is True
+        assert current.config_json["paidSubmissionsPaused"] is True
 
     await engine.dispose()
 

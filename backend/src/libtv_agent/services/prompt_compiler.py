@@ -16,6 +16,7 @@ from libtv_agent.templates.video_templates import (
 class PromptCompileInput:
     template: VideoTemplate
     storyboard_count: int
+    result_count: int
     action_intensity: ActionIntensity
     camera_tempo: CameraTempo
     cut_mode: CutMode
@@ -140,8 +141,10 @@ def compile_video_plan(
         raise ValueError(f"site style profile evidence is not verified: {value.site_profile.id}")
     if not template.min_images <= value.storyboard_count <= template.max_images:
         raise ValueError("storyboard count is incompatible with video template")
-    if not 1 <= value.variant_index <= 4:
-        raise ValueError("variant index must be between 1 and 4")
+    if not 1 <= value.result_count <= 4:
+        raise ValueError("result count must be between 1 and 4")
+    if not 1 <= value.variant_index <= value.result_count:
+        raise ValueError("variant index must be between 1 and result count")
 
     action = template.action_presets[value.action_intensity]
     camera = template.camera_presets[value.camera_tempo]
@@ -180,6 +183,11 @@ def compile_video_plan(
         (f"{shot.start_seconds:g}-{shot.end_seconds:g}秒（输入图{shot.order}）：{shot.instruction}")
         for shot in shots
     )
+    result_scope = (
+        "当前结果相对输入"
+        if value.result_count == 1
+        else f"本次生成的{value.result_count}个结果相对输入都"
+    )
     master_prompt = "。".join(
         (
             (
@@ -193,7 +201,10 @@ def compile_video_plan(
             tempo.instruction,
             style_instruction,
             variant_modifier,
-            ("所有未明确允许变化的输入事实永久不变；四个版本只允许改变动作、神态、视频风格和节奏"),
+            (
+                "所有未明确允许变化的输入事实永久不变；"
+                f"{result_scope}只允许改变动作、神态、视频风格和节奏"
+            ),
             "皮肤保留真实纹理和自然细节，避免过度磨皮、塑料感和蜡感",
             "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
             "；".join(invariants),

@@ -195,6 +195,7 @@ def test_prompt_compiler_rejects_draft_template_for_production() -> None:
             PromptCompileInput(
                 template=draft_template,
                 storyboard_count=1,
+                result_count=1,
                 action_intensity="standard",
                 camera_tempo="standard",
                 cut_mode="explicit_cuts",
@@ -209,6 +210,7 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
         PromptCompileInput(
             template=template,
             storyboard_count=3,
+            result_count=4,
             action_intensity="standard",
             camera_tempo="slow",
             cut_mode="explicit_cuts",
@@ -220,6 +222,7 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
         PromptCompileInput(
             template=template,
             storyboard_count=3,
+            result_count=4,
             action_intensity="standard",
             camera_tempo="slow",
             cut_mode="explicit_cuts",
@@ -257,6 +260,7 @@ def test_prompt_compiler_injects_site_style_without_rewriting_image_facts() -> N
         PromptCompileInput(
             template=get_video_template("mood_model"),
             storyboard_count=2,
+            result_count=1,
             action_intensity="standard",
             camera_tempo="standard",
             cut_mode="explicit_cuts",
@@ -281,6 +285,7 @@ def test_variants_have_limited_differences_without_changing_invariants() -> None
             PromptCompileInput(
                 template=template,
                 storyboard_count=2,
+                result_count=4,
                 action_intensity="standard",
                 camera_tempo="standard",
                 cut_mode="explicit_cuts",
@@ -323,6 +328,7 @@ def test_all_production_prompt_combinations_fit_kling_limit() -> None:
                     PromptCompileInput(
                         template=template,
                         storyboard_count=template.max_images,
+                        result_count=4,
                         action_intensity="standard",
                         camera_tempo="standard",
                         cut_mode="explicit_cuts",
@@ -339,6 +345,7 @@ def test_restricted_site_profile_cannot_enter_production() -> None:
             PromptCompileInput(
                 template=get_video_template("ootd_walk"),
                 storyboard_count=1,
+                result_count=1,
                 action_intensity="standard",
                 camera_tempo="standard",
                 cut_mode="explicit_cuts",
@@ -568,6 +575,18 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             )
             assert {variant["kind"] for variant in task["variants"]} == {"STABLE"}
             assert len(task["compiledPlan"]["variants"]) == result_count
+            expected_scope = (
+                "当前结果相对输入只允许改变动作、神态、视频风格和节奏"
+                if result_count == 1
+                else (
+                    f"本次生成的{result_count}个结果相对输入都只允许改变动作、神态、视频风格和节奏"
+                )
+            )
+            for compiled_variant in task["compiledPlan"]["variants"]:
+                prompt = compiled_variant["master_prompt"]
+                assert "所有未明确允许变化的输入事实永久不变" in prompt
+                assert expected_scope in prompt
+                assert "四个版本" not in prompt
             assert task["materialValidation"]["valid"] is True
             assert task["settings"]["smartStoryboard"] is True
             assert task["paidSubmissionConsentAt"] is not None

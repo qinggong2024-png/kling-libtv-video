@@ -312,8 +312,6 @@ async def set_libtv_auth_required(
         return None
     config = deepcopy(current.config_json)
     config["libtvAuthRequired"] = required
-    if required:
-        config["paidSubmissionsPaused"] = True
     if config == current.config_json:
         return current
     return await update_runtime_config(
