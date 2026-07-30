@@ -93,7 +93,6 @@ import {
 import { mapWithConcurrency } from './concurrency'
 import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
-import { KlingElementsPanel } from './KlingElementsPanel'
 import { KlingSubjectsLibrary } from './KlingSubjectsLibrary'
 import { OperationsPanel } from './OperationsPanel'
 import { SubjectInputPanel } from './SubjectInputPanel'
@@ -2385,7 +2384,6 @@ function AdminCenterView({
       {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
         <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
-        <KlingElementsPanel adminId={actor!.userId} />
       </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="可灵官方 API 密钥、端点与能力验证仅允许管理员修改。" /> : null}
       {section === 'security' ? <>
         <PromptConfirmationSetting adminId={actor!.userId} />
