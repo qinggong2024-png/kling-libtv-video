@@ -1,10 +1,103 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
+from enum import StrEnum
 from typing import Literal
 
 ActionCategory = Literal["outfit", "detail", "back", "interaction", "product"]
 ActionRiskLevel = Literal["low", "conditional"]
+
+
+class ActionCapability(StrEnum):
+    """Facts that must be confirmed from the input before an action is safe."""
+
+    FORWARD_STEP_SPACE = "forward_step_space"
+    WALK_DEPTH = "walk_depth"
+    LATERAL_STEP_SPACE = "lateral_step_space"
+    OPEN_ENTRY_SPACE = "open_entry_space"
+    HORIZONTAL_MOVEMENT_SPACE = "horizontal_movement_space"
+    DIAGONAL_STEP_SPACE = "diagonal_step_space"
+    COMPOSITION_REPOSITIONING = "composition_repositioning"
+    FRONT_PRINT_VISIBLE = "front_print_visible"
+    FREE_HAND = "free_hand"
+    SAFE_HAND_PATH = "safe_hand_path"
+    HEM_REACHABLE = "hem_reachable"
+    HEM_CLEAR = "hem_clear"
+    PRINT_OUTSIDE_STRETCH_AREA = "print_outside_stretch_area"
+    SAFE_FABRIC_AREA = "safe_fabric_area"
+    SLEEVE_OR_SHOULDER_VISIBLE = "sleeve_or_shoulder_visible"
+    FACE_GAZE_ADJUSTABLE = "face_gaze_adjustable"
+    COLLAR_VISIBLE = "collar_visible"
+    OPENABLE_OUTER_LAYER = "openable_outer_layer"
+    INNER_LAYER_VISIBLE = "inner_layer_visible"
+    POCKET_VISIBLE = "pocket_visible"
+    CUFFS_AND_HANDS_VISIBLE = "cuffs_and_hands_visible"
+    CROSS_CUFF_REACHABLE = "cross_cuff_reachable"
+    LAYERED_GARMENT = "layered_garment"
+    LAYER_BOUNDARIES_CLEAR = "layer_boundaries_clear"
+    LONG_OR_LOOSE_HEM = "long_or_loose_hem"
+    BACK_REFERENCE = "back_reference"
+    OVER_SHOULDER_GAZE_SAFE = "over_shoulder_gaze_safe"
+    FACE_VISIBLE = "face_visible"
+    MIRROR_SELFIE = "mirror_selfie"
+    PHONE_HOLD_VISIBLE = "phone_hold_visible"
+    SEATED_POSE = "seated_pose"
+    SEAT_VISIBLE = "seat_visible"
+    LOWER_BODY_PATH_VISIBLE = "lower_body_path_visible"
+    STANDING_SPACE = "standing_space"
+    SUPPORT_SURFACE = "support_surface"
+    HANDHELD_UNWORN_PRODUCT = "handheld_unworn_product"
+    PACKAGING_OR_PRODUCT_SURFACE = "packaging_or_product_surface"
+    EXISTING_PROP = "existing_prop"
+    PROP_PICKUP_SAFE = "prop_pickup_safe"
+
+
+@dataclass(frozen=True)
+class ActionContext:
+    """Tri-state capability context.
+
+    Capabilities absent from both sets are unknown. Unknown is deliberately not
+    treated as true, so generated movement never assumes facts not established
+    by the supplied material.
+    """
+
+    confirmed: frozenset[ActionCapability] = frozenset()
+    denied: frozenset[ActionCapability] = frozenset()
+    evidence_sets: tuple[frozenset[ActionCapability], ...] = ()
+
+    def __post_init__(self) -> None:
+        overlap = self.confirmed & self.denied
+        if overlap:
+            names = ", ".join(sorted(capability.value for capability in overlap))
+            raise ValueError(f"action capabilities cannot be both confirmed and denied: {names}")
+
+    @classmethod
+    def from_values(
+        cls,
+        *,
+        confirmed: Iterable[ActionCapability | str] = (),
+        denied: Iterable[ActionCapability | str] = (),
+    ) -> ActionContext:
+        return cls(
+            confirmed=frozenset(ActionCapability(value) for value in confirmed),
+            denied=frozenset(ActionCapability(value) for value in denied),
+        )
+
+    def supports(self, capabilities: tuple[ActionCapability, ...]) -> bool:
+        required = frozenset(capabilities)
+        if not required:
+            return True
+        if self.evidence_sets:
+            return any(required <= evidence for evidence in self.evidence_sets)
+        return required <= self.confirmed
+
+
+@dataclass(frozen=True)
+class ActionEligibility:
+    allowed: bool
+    missing: tuple[ActionCapability, ...] = ()
+    denied: tuple[ActionCapability, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -16,12 +109,17 @@ class MotionAction:
     purpose: str
     compatible_templates: tuple[str, ...]
     requirements: tuple[str, ...] = ()
+    required_capabilities: tuple[ActionCapability, ...] = ()
     avoid: tuple[str, ...] = ()
     risk_level: ActionRiskLevel = "low"
 
     def to_public_dict(self) -> dict[str, object]:
         value = asdict(self)
         value["compatibleTemplates"] = value.pop("compatible_templates")
+        value["requiredCapabilities"] = [
+            capability.value for capability in self.required_capabilities
+        ]
+        value.pop("required_capabilities")
         value["riskLevel"] = value.pop("risk_level")
         return value
 
@@ -44,6 +142,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用一次短位移改变构图，不持续逼近镜头。",
         ("ootd_walk", "mood_model"),
         requirements=("画面前方留有一步安全空间",),
+        required_capabilities=(ActionCapability.FORWARD_STEP_SPACE,),
         avoid=("连续走近镜头", "跨出画面"),
     ),
     "controlled_walk": MotionAction(
@@ -54,6 +153,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示服装在自然步态中的垂坠与整体轮廓。",
         ("ootd_walk", "mood_model"),
         requirements=("画面具有两到三步纵深",),
+        required_capabilities=(ActionCapability.WALK_DEPTH,),
         avoid=("奔跑", "突然冲近镜头", "边走边快速转身"),
         risk_level="conditional",
     ),
@@ -65,6 +165,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "通过横向构图变化展示宽松版型与环境关系。",
         ("mood_model", "ootd_walk"),
         requirements=("侧方留有一步空间",),
+        required_capabilities=(ActionCapability.LATERAL_STEP_SPACE,),
         avoid=("横穿画面", "交叉步过快"),
         risk_level="conditional",
     ),
@@ -76,6 +177,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "为开放空间视频提供明确的进入动作与商品建立镜头。",
         ("ootd_walk", "mood_model"),
         requirements=("输入分镜支持开放空间或边缘入画",),
+        required_capabilities=(ActionCapability.OPEN_ENTRY_SPACE,),
         avoid=("从画外高速冲入", "入画后继续无目的走动"),
         risk_level="conditional",
     ),
@@ -87,6 +189,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "增强氛围感，同时保留商品确认时刻。",
         ("mood_model",),
         requirements=("画面有横向移动空间",),
+        required_capabilities=(ActionCapability.HORIZONTAL_MOVEMENT_SPACE,),
         avoid=("完全走出画面", "长距离跟拍", "高速甩头"),
         risk_level="conditional",
     ),
@@ -116,6 +219,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用一次连贯的小范围位移同时改变人物位置和商品展示角度。",
         ("ootd_walk", "mood_model"),
         requirements=("斜前方留有一步空间", "输入构图允许主体位置发生小幅变化"),
+        required_capabilities=(
+            ActionCapability.DIAGONAL_STEP_SPACE,
+            ActionCapability.COMPOSITION_REPOSITIONING,
+        ),
         avoid=("交叉步", "连续转身", "迈步过程中冲近镜头"),
         risk_level="conditional",
     ),
@@ -127,6 +234,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "确保印花、Logo 或文字获得可读的展示时间。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("输入画面中印花区域清晰可见",),
+        required_capabilities=(ActionCapability.FRONT_PRINT_VISIBLE,),
         avoid=("重新绘制图案", "用景深或特效遮挡文字"),
     ),
     "chest_print_pause": MotionAction(
@@ -137,6 +245,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "优先保护胸前文字与主题图形的可读性。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("胸前图案或文字在输入中可辨认",),
+        required_capabilities=(ActionCapability.FRONT_PRINT_VISIBLE,),
         avoid=("手臂交叉遮挡文字", "过度拉近导致局部重绘"),
     ),
     "print_indicate_release": MotionAction(
@@ -147,6 +256,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用一次明确手势引导视线到商品主题。",
         ("garment_detail", "ootd_walk"),
         requirements=("输入中已有可用手位", "指向路径不会跨过脸部"),
+        required_capabilities=(ActionCapability.FREE_HAND, ActionCapability.SAFE_HAND_PATH),
         avoid=("持续触摸印花", "手掌覆盖文字", "凭空新增手势"),
         risk_level="conditional",
     ),
@@ -158,6 +268,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "补充真实穿着细节，并展示衣摆位置。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("输入中已有接近衣摆的自然手位",),
+        required_capabilities=(ActionCapability.FREE_HAND, ActionCapability.HEM_REACHABLE),
         avoid=("反复摸衣服", "遮挡主要印花", "大幅拉扯下摆"),
         risk_level="conditional",
     ),
@@ -169,6 +280,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示宽松版型与衣身宽度。",
         ("garment_detail", "ootd_walk"),
         requirements=("衣摆区域无遮挡", "主要印花不跨越拉伸区域"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.HEM_CLEAR,
+            ActionCapability.PRINT_OUTSIDE_STRETCH_AREA,
+        ),
         avoid=("用力拉伸", "长时间扯住衣摆", "拉扯印花"),
         risk_level="conditional",
     ),
@@ -180,6 +296,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用低幅度动作表达面料厚薄与柔软度。",
         ("garment_detail",),
         requirements=("存在无文字、无 Logo 的安全面料区域",),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.SAFE_FABRIC_AREA,
+        ),
         avoid=("揉搓面料", "拉伸网眼或印花", "大面积抓握"),
         risk_level="conditional",
     ),
@@ -191,6 +311,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "突出袖口、肩线、滚边或针织结构。",
         ("garment_detail", "ootd_walk"),
         requirements=("袖口或肩线在输入中清晰可见",),
+        required_capabilities=(ActionCapability.SLEEVE_OR_SHOULDER_VISIBLE,),
         avoid=("手臂举过头顶", "快速挥手", "遮挡胸前图案"),
     ),
     "graphic_glance_return": MotionAction(
@@ -201,6 +322,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "不用手部接触即可把观众注意力引导到胸前商品信息。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("胸前图案或文字在输入中清晰可见", "人物面部与颈部允许小幅视线变化"),
+        required_capabilities=(
+            ActionCapability.FRONT_PRINT_VISIBLE,
+            ActionCapability.FACE_GAZE_ADJUSTABLE,
+        ),
         avoid=("大幅低头遮挡图案", "快速甩头", "改变面部身份"),
         risk_level="conditional",
     ),
@@ -212,6 +337,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "突出领型、包边或领口做工，同时保留胸前商品信息。",
         ("garment_detail", "ootd_walk"),
         requirements=("领口在输入中清晰可见", "输入已有接近领口的自然手位"),
+        required_capabilities=(
+            ActionCapability.COLLAR_VISIBLE,
+            ActionCapability.FREE_HAND,
+            ActionCapability.SAFE_HAND_PATH,
+        ),
         avoid=("拉扯领口", "手掌遮挡胸前图案", "触碰颈部或面部"),
         risk_level="conditional",
     ),
@@ -223,6 +353,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示外套、衬衫或开衫的衣襟结构与已有内搭。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("输入明确存在可展开的外层服装", "内搭在输入中已经可见"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.OPENABLE_OUTER_LAYER,
+            ActionCapability.INNER_LAYER_VISIBLE,
+        ),
         avoid=("凭空新增内搭", "把闭合服装改造成开衫", "双手大幅拉开衣服"),
         risk_level="conditional",
     ),
@@ -234,6 +369,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示口袋位置、服装松量与自然穿着状态。",
         ("ootd_walk", "mood_model"),
         requirements=("输入中口袋位置明确可见", "手部到口袋的路径无遮挡"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.POCKET_VISIBLE,
+            ActionCapability.SAFE_HAND_PATH,
+        ),
         avoid=("凭空生成口袋", "双手同时插袋", "手部穿过衣物"),
         risk_level="conditional",
     ),
@@ -245,6 +385,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示袖口、滚边、罗纹或衬衫袖的结构细节。",
         ("garment_detail", "ootd_walk"),
         requirements=("双手和袖口在输入中清晰可见", "手部能够自然到达另一侧袖口"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.CUFFS_AND_HANDS_VISIBLE,
+            ActionCapability.CROSS_CUFF_REACHABLE,
+        ),
         avoid=("反复卷袖", "手指穿过袖口", "双臂交叉遮挡胸前图案"),
         risk_level="conditional",
     ),
@@ -256,6 +401,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "在不更换服装的前提下展示外层与内搭的搭配关系。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("输入明确包含外层与内搭", "内外层边界和颜色关系清晰"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.LAYERED_GARMENT,
+            ActionCapability.LAYER_BOUNDARIES_CLEAR,
+        ),
         avoid=("新增或替换内搭", "改变纽扣或拉链状态", "外层长时间遮挡主要商品"),
         risk_level="conditional",
     ),
@@ -267,6 +417,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示长下摆的垂坠、层次与自然物理反馈。",
         ("ootd_walk", "garment_detail", "mood_model"),
         requirements=("输入服装具有可见的长下摆或宽松垂坠结构",),
+        required_capabilities=(ActionCapability.LONG_OR_LOOSE_HEM,),
         avoid=("用手甩动衣服", "快速旋转", "让印花或文字持续变形"),
         risk_level="conditional",
     ),
@@ -278,6 +429,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "展示输入中已经存在的背面结构与图案。",
         ("ootd_walk", "garment_detail"),
         requirements=("输入包含可靠的背面分镜",),
+        required_capabilities=(ActionCapability.BACK_REFERENCE,),
         avoid=("无背面参考时凭空生成", "手臂遮挡背部印花", "连续旋转"),
         risk_level="conditional",
     ),
@@ -289,6 +441,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "在人镜交流中继续保持背部商品信息完整。",
         ("ootd_walk", "mood_model"),
         requirements=("输入包含可靠背面分镜", "头肩关系允许自然回望"),
+        required_capabilities=(
+            ActionCapability.BACK_REFERENCE,
+            ActionCapability.OVER_SHOULDER_GAZE_SAFE,
+        ),
         avoid=("头部过度扭转", "肩部抬起遮挡图案"),
         risk_level="conditional",
     ),
@@ -309,6 +465,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "营造亲和、可信的面对镜头交流感。",
         ("ootd_walk", "mood_model"),
         requirements=("输入人物面部清晰且表情允许微调",),
+        required_capabilities=(
+            ActionCapability.FACE_VISIBLE,
+            ActionCapability.FACE_GAZE_ADJUSTABLE,
+        ),
         avoid=("夸张大笑", "牙齿或口型重绘", "长时间冻结微笑"),
         risk_level="conditional",
     ),
@@ -356,6 +516,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "适配镜面自拍场景，避免手机在动作中消失或换手。",
         ("ootd_walk", "mood_model"),
         requirements=("输入分镜明确为镜面自拍", "手机和持机手清晰可见"),
+        required_capabilities=(
+            ActionCapability.MIRROR_SELFIE,
+            ActionCapability.PHONE_HOLD_VISIBLE,
+        ),
         avoid=("手机换手或消失", "切换为第三人称跟拍", "双手同时离开手机"),
         risk_level="conditional",
     ),
@@ -367,6 +531,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "在坐姿分镜中增加自然变化，并展示上身版型与环境关系。",
         ("garment_detail", "mood_model"),
         requirements=("输入明确包含稳定坐姿与已有座位", "座位边界和腿部位置清晰"),
+        required_capabilities=(
+            ActionCapability.SEATED_POSE,
+            ActionCapability.SEAT_VISIBLE,
+            ActionCapability.LOWER_BODY_PATH_VISIBLE,
+        ),
         avoid=("改变座椅结构", "大幅交叉双腿", "身体离开座位"),
         risk_level="conditional",
     ),
@@ -378,6 +547,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "利用输入中已有环境制造姿态变化与更强的场景关系。",
         ("ootd_walk", "mood_model"),
         requirements=("输入中存在位置明确、可安全依靠的支撑面",),
+        required_capabilities=(ActionCapability.SUPPORT_SURFACE,),
         avoid=("凭空新增支撑物", "身体穿过环境", "大幅后仰"),
         risk_level="conditional",
     ),
@@ -389,6 +559,12 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用一次明确状态变化丰富开场或结尾，同时展示服装从坐姿到站姿的版型。",
         ("ootd_walk", "mood_model"),
         requirements=("输入明确包含坐姿、完整座位和足够起身空间", "下肢或起身路径可判断"),
+        required_capabilities=(
+            ActionCapability.SEATED_POSE,
+            ActionCapability.SEAT_VISIBLE,
+            ActionCapability.STANDING_SPACE,
+            ActionCapability.LOWER_BODY_PATH_VISIBLE,
+        ),
         avoid=("座位突然消失", "起身后快速离开画面", "手脚与座位交叠"),
         risk_level="conditional",
     ),
@@ -400,6 +576,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "清楚区分手持商品与穿着状态，完成开箱正面展示。",
         ("garment_detail",),
         requirements=("输入分镜明确包含包装或手持未穿着商品",),
+        required_capabilities=(
+            ActionCapability.HANDHELD_UNWORN_PRODUCT,
+            ActionCapability.PACKAGING_OR_PRODUCT_SURFACE,
+        ),
         avoid=("把手持商品变成已穿着状态", "新增包装或桌面", "遮挡正面印花"),
         risk_level="conditional",
     ),
@@ -411,6 +591,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "为开箱场景补充真实检查动作与局部展示。",
         ("garment_detail",),
         requirements=("输入分镜明确包含手持未穿着商品",),
+        required_capabilities=(ActionCapability.HANDHELD_UNWORN_PRODUCT,),
         avoid=("穿着状态与手持状态混淆", "大幅抖动商品", "凭空新增标签"),
         risk_level="conditional",
     ),
@@ -422,6 +603,11 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用输入中真实存在的书、杯子、包装或小件商品增加生活化场景互动。",
         ("garment_detail", "mood_model"),
         requirements=("输入中物件、手部和放置位置均清晰可见", "物件适合单手安全拿取"),
+        required_capabilities=(
+            ActionCapability.EXISTING_PROP,
+            ActionCapability.FREE_HAND,
+            ActionCapability.PROP_PICKUP_SAFE,
+        ),
         avoid=("凭空新增或替换道具", "将物件递出画面", "物件遮挡主要服装图案"),
         risk_level="conditional",
     ),
@@ -432,17 +618,53 @@ def list_motion_actions() -> tuple[MotionAction, ...]:
     return tuple(ACTION_LIBRARY.values())
 
 
-def compatible_action_ids(template_id: str, action_ids: tuple[str, ...]) -> tuple[str, ...]:
+def evaluate_action(
+    action: MotionAction,
+    context: ActionContext | None = None,
+) -> ActionEligibility:
+    """Return deterministic eligibility without guessing unknown material facts."""
+
+    action_context = context or ActionContext()
+    denied = tuple(
+        capability
+        for capability in action.required_capabilities
+        if capability in action_context.denied
+    )
+    supported = action_context.supports(action.required_capabilities)
+    missing = (
+        ()
+        if denied or supported
+        else tuple(
+            capability
+            for capability in action.required_capabilities
+            if capability not in action_context.denied
+        )
+    )
+    return ActionEligibility(allowed=not denied and not missing, missing=missing, denied=denied)
+
+
+def compatible_action_ids(
+    template_id: str,
+    action_ids: tuple[str, ...],
+    *,
+    context: ActionContext | None = None,
+) -> tuple[str, ...]:
     return tuple(
         action_id
         for action_id in action_ids
         if action_id in ACTION_LIBRARY
         and template_id in ACTION_LIBRARY[action_id].compatible_templates
+        and evaluate_action(ACTION_LIBRARY[action_id], context).allowed
     )
 
 
-def render_action_ids(template_id: str, action_ids: tuple[str, ...]) -> str:
-    compatible = compatible_action_ids(template_id, action_ids)
+def render_action_ids(
+    template_id: str,
+    action_ids: tuple[str, ...],
+    *,
+    context: ActionContext | None = None,
+) -> str:
+    compatible = compatible_action_ids(template_id, action_ids, context=context)
     if not compatible:
         return "不额外添加站点专属动作，保持模板动作骨架"
     return "；".join(ACTION_LIBRARY[action_id].instruction for action_id in compatible)

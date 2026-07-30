@@ -1,0 +1,217 @@
+{
+  "schemaVersion": "0.2.0",
+  "batchId": "2026-07-30-002",
+  "retrievedAt": "2026-07-30T18:20:00+08:00",
+  "collectionPolicy": {
+    "primaryMarket": "US",
+    "recentContentPreferred": true,
+    "storeOriginalMedia": false,
+    "storeDerivedObservationsOnly": true,
+    "styleRule": "Cycling, fitness and plus-size are use-case or audience labels, not complete aesthetics. Tokyo is a cultural/theme label and must be resolved to the actual garment design.",
+    "initialGarmentScope": [
+      "tshirt",
+      "jersey",
+      "tank_top",
+      "shirt",
+      "hoodie_sweatshirt",
+      "jacket",
+      "dress",
+      "sports_bottom"
+    ],
+    "excludedInThisBatch": [
+      "accessories_only",
+      "equipment_only",
+      "dangerous_training",
+      "body_transformation_comparison",
+      "product_only_flatlay",
+      "unverified_video_action"
+    ]
+  },
+  "sites": [
+    {
+      "siteId": "orionride",
+      "label": "骑行",
+      "website": "https://www.orionride.com/",
+      "theme": [
+        "cycling",
+        "gravel",
+        "mtb_downhill",
+        "outdoor_exploration"
+      ],
+      "aesthetics": [
+        "performance",
+        "retro_cycling_art",
+        "colorful_graphic",
+        "outdoor_lifestyle"
+      ],
+      "garmentAllowlist": [
+        "gravel_shirt",
+        "cycling_jersey",
+        "downhill_jersey",
+        "mesh_jersey",
+        "technical_tee",
+        "base_layer",
+        "cycling_vest",
+        "cycling_shorts",
+        "bib_shorts",
+        "cycling_pants",
+        "lifestyle_tshirt",
+        "hoodie",
+        "camp_collar_shirt"
+      ],
+      "officialSocials": {
+        "instagram": "https://www.instagram.com/orionrideofficial/",
+        "youtube": "https://www.youtube.com/@orionrideofficial",
+        "facebook": "https://www.facebook.com/profile.php?id=61568056692823"
+      },
+      "pinterestQuery": "gravel cycling jersey outfit product pose",
+      "catalogEvidence": "verified_official_site"
+    },
+    {
+      "siteId": "ironpandafit",
+      "label": "健身",
+      "website": "https://www.ironpandafit.com/",
+      "theme": [
+        "strength_training",
+        "gym_culture",
+        "workout_lifestyle"
+      ],
+      "aesthetics": [
+        "bold_graphic",
+        "humorous",
+        "washed_retro",
+        "high_contrast",
+        "athletic_streetwear"
+      ],
+      "garmentAllowlist": [
+        "washed_tshirt",
+        "two_sided_tshirt",
+        "backprint_tshirt",
+        "pump_cover",
+        "quick_dry_tshirt",
+        "long_sleeve_tshirt",
+        "mesh_jersey",
+        "tank_top",
+        "cutoff_tank",
+        "stringer",
+        "crop_top",
+        "sports_bra",
+        "hoodie",
+        "sweatshirt",
+        "workout_shorts",
+        "leggings",
+        "training_pants",
+        "sports_set"
+      ],
+      "officialSocials": {
+        "instagram": "https://www.instagram.com/ironpanda_fitness/",
+        "tiktok": "https://www.tiktok.com/@official_ironpanda",
+        "youtube": "https://www.youtube.com/channel/UCZz9gUB4QTZ3zPpqbzDxPlQ",
+        "pinterest": "https://www.pinterest.com/ironpanda_official/",
+        "facebook": "https://www.facebook.com/ironpandaofficial/",
+        "x": "https://x.com/IronPanda_fit"
+      },
+      "pinterestQuery": "gym graphic tee pump cover outfit pose",
+      "catalogEvidence": "verified_official_site"
+    },
+    {
+      "siteId": "tokyotiger",
+      "label": "东京",
+      "website": "https://www.tokyo-tiger.com/",
+      "theme": [
+        "japanese_culture",
+        "japanese_city",
+        "food",
+        "animals",
+        "humor",
+        "sports",
+        "travel"
+      ],
+      "aesthetics": [
+        "daily_casual",
+        "washed_retro",
+        "playful_graphic",
+        "woodblock_inspired",
+        "summer_shirt",
+        "sport_jersey"
+      ],
+      "garmentAllowlist": [
+        "classic_tshirt",
+        "washed_tshirt",
+        "backprint_tshirt",
+        "crop_tshirt",
+        "raglan_tshirt",
+        "long_sleeve_tshirt",
+        "mesh_jersey",
+        "tank_top",
+        "aloha_shirt",
+        "button_up_shirt",
+        "hoodie",
+        "sweatshirt",
+        "varsity_jacket",
+        "kimono_cardigan",
+        "dress"
+      ],
+      "officialSocials": {
+        "instagram_primary": "https://www.instagram.com/tokyotigerfashion/",
+        "instagram_embedded": "https://www.instagram.com/tokyotiger.official/",
+        "facebook": "https://www.facebook.com/profile.php?id=61558155516803"
+      },
+      "pinterestQuery": "Japanese graphic tee mesh jersey outfit pose",
+      "catalogEvidence": "verified_official_site"
+    },
+    {
+      "siteId": "boldoversize",
+      "label": "大码",
+      "website": "https://www.boldoversize.com/",
+      "theme": [
+        "plus_size",
+        "body_neutral_fit",
+        "humor",
+        "animals",
+        "tarot",
+        "outdoor",
+        "mom_life",
+        "feminist",
+        "holiday"
+      ],
+      "aesthetics": [
+        "daily_casual",
+        "americana_retro",
+        "washed",
+        "playful_graphic",
+        "sport_jersey"
+      ],
+      "garmentAllowlist": [
+        "casual_tshirt",
+        "washed_tshirt",
+        "long_sleeve_tshirt",
+        "raglan_tshirt",
+        "vneck_tshirt",
+        "ringer_tshirt",
+        "all_over_print_tshirt",
+        "mesh_jersey",
+        "tank_top",
+        "tank_dress",
+        "maxi_dress",
+        "midi_dress",
+        "maxi_skirt",
+        "sweater",
+        "cardigan",
+        "sweatshirt",
+        "hoodie",
+        "baseball_jacket",
+        "leggings",
+        "shorts",
+        "swimsuit"
+      ],
+      "officialSocials": {
+        "instagram": "https://www.instagram.com/boldoversize_shop/",
+        "youtube": "https://www.youtube.com/@boldoversize/shorts",
+        "facebook": "https://www.facebook.com/people/Bold-Oversize-Shop/100094301322756/"
+      },
+      "pinterestQuery": "plus size graphic tee body neutral outfit pose",
+      "catalogEvidence": "verified_official_site"
+    }
+  ]
+}

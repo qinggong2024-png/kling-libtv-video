@@ -1,0 +1,353 @@
+{
+  "schemaVersion": "0.2.0",
+  "batchId": "2026-07-30-002",
+  "reviewedAt": "2026-07-30T18:20:00+08:00",
+  "reviewPolicy": {
+    "storeOriginalMedia": false,
+    "allowedIncludeStatus": [
+      "include",
+      "exclude"
+    ],
+    "candidatePromotionRule": "A candidate must recur in at least three independent visually reviewed sources and pass one generation replay before promotion to draft.",
+    "observationRule": "Titles, captions, thumbnails, search snippets and OCR are metadata only; action facts require direct visual review.",
+    "segmentRule": "Include applies only to the described reusable segments. Equipment, props, unsafe training, occluded segments and unreviewed tails remain excluded.",
+    "conditionalActionRule": "Actions involving a bicycle or gym equipment must declare required props and environment and cannot enter the no-prop default library."
+  },
+  "observations": [
+    {
+      "observationId": "obs-orionride-001",
+      "siteId": "orionride",
+      "sourceUrl": "https://www.youtube.com/watch?v=zXGAYGnBx-4",
+      "sourceType": "youtube_official",
+      "duration": 38.56,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Product-only view with no visible wearer.",
+      "actionPath": [
+        "Around 00:08, hands open and indicate a hidden zip pocket in extreme close-up.",
+        "Around 00:16.8, a yellow shirt is shown hanging or laid out in a medium-close product view."
+      ],
+      "exitState": "Product-only folding or hanging presentation.",
+      "productGoal": "Demonstrate pocket and packability features.",
+      "camera": [
+        "extreme_close_up",
+        "medium_close_product"
+      ],
+      "rhythm": "standard_to_fast_feature_cuts",
+      "risks": [
+        "no_human_wearer",
+        "hands_only",
+        "product_operation_not_body_motion"
+      ],
+      "candidateActionIds": [],
+      "shotPrimitiveIds": [
+        "pocket_open_point",
+        "fabric_fold_show"
+      ],
+      "notes": "Shot reference only. Do not enter either operation into the human motion library."
+    },
+    {
+      "observationId": "obs-orionride-002",
+      "siteId": "orionride",
+      "sourceUrl": "https://www.youtube.com/watch?v=86T2G08m-lc",
+      "sourceType": "youtube_official",
+      "duration": 20.04,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Material feature montage.",
+      "actionPath": [
+        "Around 00:13.35, two hands pull blue fabric laterally in an extreme close-up."
+      ],
+      "exitState": "Returns to feature-led product montage.",
+      "productGoal": "Demonstrate stretch performance.",
+      "camera": [
+        "extreme_close_up"
+      ],
+      "rhythm": "standard_to_fast_feature_cut",
+      "risks": [
+        "hands_only",
+        "fabric_deformation",
+        "print_distortion",
+        "material_test_not_body_motion"
+      ],
+      "candidateActionIds": [],
+      "shotPrimitiveIds": [
+        "two_hand_fabric_stretch"
+      ],
+      "notes": "Keep only as a material-test shot primitive. Never apply it to a worn graphic area."
+    },
+    {
+      "observationId": "obs-orionride-003",
+      "siteId": "orionride",
+      "sourceUrl": "https://www.youtube.com/watch?v=tvAwCYDumyA",
+      "sourceType": "youtube_official",
+      "duration": 36.78,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Cyclist rides in a gravel-road environment with bicycle and riding gear.",
+      "actionPath": [
+        "Around 00:13.05, the rider travels away from the camera in a stable rear long shot.",
+        "Around 00:35.48, the rider approaches the camera in a very low-angle near-foreground shot."
+      ],
+      "exitState": "Dynamic cycling approach with wheel perspective dominating the frame.",
+      "productGoal": "Show riding context, dynamic fit and outdoor use.",
+      "camera": [
+        "rear_long_shot",
+        "very_low_angle_front_approach"
+      ],
+      "rhythm": "standard_to_fast_outdoor_montage",
+      "requiredProps": [
+        "bicycle"
+      ],
+      "requiredEnvironment": [
+        "gravel_road",
+        "outdoor"
+      ],
+      "risks": [
+        "bicycle_geometry_error",
+        "hand_foot_contact_error",
+        "garment_too_small_in_frame",
+        "helmet_and_gear_dependency"
+      ],
+      "candidateActionIds": [
+        "gravel_ride_away_rear",
+        "ride_toward_low_angle"
+      ],
+      "notes": "Conditional cycling-scene candidates only; neither belongs in the no-prop default library."
+    },
+    {
+      "observationId": "obs-orionride-004",
+      "siteId": "orionride",
+      "sourceUrl": "https://www.youtube.com/watch?v=4c74x_gWsvc",
+      "sourceType": "youtube_official",
+      "duration": 64.68,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Cyclist and bicycle established in an outdoor gravel setting.",
+      "actionPath": [
+        "Around 00:02.74, a three-quarter side ride-by is framed in a long or medium-long shot.",
+        "Around 00:20.28, the wearer pauses near the bicycle in a rear medium-close view, making the back graphic readable.",
+        "Around 00:42.33, the wearer pushes or guides the bicycle uphill in a side long shot."
+      ],
+      "exitState": "Slow exploratory movement through rocky outdoor terrain.",
+      "productGoal": "Combine riding context with a readable rear garment view.",
+      "camera": [
+        "three_quarter_side_long",
+        "rear_medium_close",
+        "side_long"
+      ],
+      "rhythm": "mixed_standard_ride_and_slow_walk",
+      "requiredProps": [
+        "bicycle"
+      ],
+      "requiredEnvironment": [
+        "gravel_or_rocky_outdoor"
+      ],
+      "risks": [
+        "bicycle_occlusion",
+        "handlebar_hand_dependency",
+        "hem_occlusion",
+        "terrain_safety"
+      ],
+      "candidateActionIds": [
+        "back_facing_product_pause",
+        "side_ride_by",
+        "bike_side_back_reveal",
+        "push_bike_uphill"
+      ],
+      "notes": "Only back_facing_product_pause is reusable without a bicycle. The other segments remain conditional cycling actions."
+    },
+    {
+      "observationId": "obs-ironpandafit-001",
+      "siteId": "ironpandafit",
+      "sourceUrl": "https://www.youtube.com/watch?v=hKbeWCmbkhU",
+      "sourceType": "youtube_official",
+      "duration": 17.281,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Front chest-to-waist view of a wearer in a gym setting.",
+      "actionPath": [
+        "From 00:00 to about 00:02.5, both hands rise near the neckline or shoulders to settle the top.",
+        "Around 00:06.9, a low-angle training movement raises both arms and stretches the garment.",
+        "Around 00:10.4, the wearer holds a low, front-facing full-body training stance.",
+        "Around 00:13.8, the edit cuts to a chest-print close-up."
+      ],
+      "exitState": "Graphic close-up after short training cuts.",
+      "productGoal": "Pair gym context with a front graphic check.",
+      "camera": [
+        "front_chest_waist",
+        "low_angle_medium_close",
+        "front_full_body",
+        "chest_close_up"
+      ],
+      "rhythm": "standard_to_fast_2_to_4_second_blocks",
+      "risks": [
+        "training_band_dependency",
+        "print_occlusion",
+        "fabric_stretch",
+        "training_motion_not_default"
+      ],
+      "candidateActionIds": [
+        "bilateral_neckline_settle"
+      ],
+      "notes": "Only the neckline-settle segment is retained as a conditional candidate. The training segments and red band are excluded."
+    },
+    {
+      "observationId": "obs-ironpandafit-002",
+      "siteId": "ironpandafit",
+      "sourceUrl": "https://www.youtube.com/watch?v=3AU8wAUuE9A",
+      "sourceType": "youtube_official",
+      "duration": 15.801,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Fast gym montage with boxing gloves and strength-training equipment.",
+      "actionPath": [
+        "Around 00:01.6, a woman wearing boxing gloves holds a front power stance.",
+        "Around 00:05 to 00:07, a man pauses at the top of a barbell deadlift.",
+        "Around 00:11.6, the edit cuts to a face close-up with weak garment information.",
+        "Around 00:14.6, an exhausted bent-over close-up ends the sequence."
+      ],
+      "exitState": "Exhaustion or recovery reaction.",
+      "productGoal": "Build intense strength-training atmosphere.",
+      "camera": [
+        "front_medium",
+        "front_medium_full",
+        "face_close_up"
+      ],
+      "rhythm": "fast_1_to_3_second_hard_cuts",
+      "risks": [
+        "boxing_gloves",
+        "barbell_dependency",
+        "exhaustion",
+        "garment_unreadable",
+        "unsafe_training_inference"
+      ],
+      "candidateActionIds": [],
+      "notes": "Training and reaction footage only; do not promote the poses into the default garment library."
+    },
+    {
+      "observationId": "obs-ironpandafit-003",
+      "siteId": "ironpandafit",
+      "sourceUrl": "https://www.youtube.com/watch?v=LfuPXgmEAfk",
+      "sourceType": "youtube_official",
+      "duration": 35.841,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Gym-equipment montage with bent-over and occluded garment states.",
+      "actionPath": [
+        "From 00:00 to about 00:08, equipment and arm positions fold or cover the front garment.",
+        "Around 00:14 to 00:18, the wearer enters or settles into a front medium-full view with arms relaxed and the sleeveless print unobstructed.",
+        "Around 00:22 to 00:24, equipment operation covers the abdomen.",
+        "After about 00:30, face or shirtless recovery footage reduces apparel value."
+      ],
+      "exitState": "Recovery-led close-up outside the garment-action scope.",
+      "productGoal": "Establish authentic gym use while inserting one clear front graphic confirmation.",
+      "camera": [
+        "gym_medium",
+        "front_medium_full",
+        "face_close_up"
+      ],
+      "rhythm": "standard_to_fast_montage",
+      "risks": [
+        "equipment_occlusion",
+        "shirtless_segment",
+        "face_only_segment",
+        "training_dependency"
+      ],
+      "candidateActionIds": [
+        "controlled_front_approach_to_settle"
+      ],
+      "notes": "Only the 00:14-00:18 approach-to-settle segment enters the candidate pool."
+    },
+    {
+      "observationId": "obs-tokyotiger-001",
+      "siteId": "tokyotiger",
+      "sourceUrl": "https://www.instagram.com/reel/DbGQYShlEle/",
+      "sourceType": "instagram_reel_official_embedded",
+      "duration": 13.47,
+      "reviewStatus": "visual_reviewed_partial_0_to_1_9_seconds",
+      "includeStatus": "exclude",
+      "entryState": "Several colorful art-print mesh jerseys are arranged on a sofa.",
+      "actionPath": [
+        "From 00:00 to about 00:01.9, only product arrangement is visible and no wearer appears.",
+        "Later playback could not be completed in this review."
+      ],
+      "exitState": "Unknown because the remaining timeline was not visually verified.",
+      "productGoal": "Present an artwork jersey collection.",
+      "camera": [
+        "product_arrangement_medium"
+      ],
+      "rhythm": "unverified_after_1_9_seconds",
+      "risks": [
+        "no_human_in_reviewed_segment",
+        "incomplete_playback",
+        "unverified_tail"
+      ],
+      "candidateActionIds": [],
+      "notes": "Exclude pending a complete direct visual review. Caption and duration metadata cannot supply action facts."
+    },
+    {
+      "observationId": "obs-boldoversize-001",
+      "siteId": "boldoversize",
+      "sourceUrl": "https://www.youtube.com/shorts/3gQRntK_0hc",
+      "sourceType": "youtube_short_official",
+      "duration": 13.06,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Fixed vertical mirror shot showing the wearer's full body.",
+      "actionPath": [
+        "The wearer adjusts an earring or hair near the mirror.",
+        "Around 00:05.3, the wearer settles into a front full-body stance while holding a shoulder strap.",
+        "Around 00:10 to 00:11, the wearer walks naturally out toward frame left."
+      ],
+      "exitState": "Natural one-direction walk out of frame.",
+      "productGoal": "Show complete outfit and relaxed real-world wear.",
+      "camera": [
+        "fixed_vertical_mirror_full_body"
+      ],
+      "rhythm": "standard_to_slow_3_to_5_second_blocks",
+      "risks": [
+        "accessory_adjustment",
+        "shoulder_strap_occlusion",
+        "mirror_dependency"
+      ],
+      "candidateActionIds": [
+        "front_neutral_hold",
+        "controlled_walk_exit"
+      ],
+      "notes": "Include only the front hold and walk-out. Exclude hair, earring and strap actions."
+    },
+    {
+      "observationId": "obs-boldoversize-002",
+      "siteId": "boldoversize",
+      "sourceUrl": "https://www.youtube.com/shorts/lhdqaRR0Q-k",
+      "sourceType": "youtube_short_official",
+      "duration": 15.04,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "include",
+      "entryState": "Fixed vertical front full-body view with arms relaxed and feet lightly staggered.",
+      "actionPath": [
+        "Around 00:00.3, the wearer holds a relaxed staggered stance.",
+        "Around 00:06, the wearer makes a small weight shift and light in-place step.",
+        "Around 00:09.8, the wearer moves one small step forward and settles into a slight three-quarter angle."
+      ],
+      "exitState": "Stable slight three-quarter product view.",
+      "productGoal": "Show graphic readability, garment length and natural fit without body-shaping tricks.",
+      "camera": [
+        "fixed_vertical_front_full_body",
+        "fixed_vertical_three_quarter_full"
+      ],
+      "rhythm": "standard_to_slow_continuous",
+      "risks": [
+        "promotional_text_occludes_hem",
+        "graphic_arrow_occludes_lower_body"
+      ],
+      "candidateActionIds": [
+        "relaxed_staggered_weight_shift",
+        "small_step_front_hold",
+        "three_quarter_turn"
+      ],
+      "notes": "Strong body-neutral fit sample. Do not copy the promotional text or arrow overlays."
+    }
+  ]
+}

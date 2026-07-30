@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from libtv_agent.templates.motion_actions import (
+    ACTION_LIBRARY,
+    ActionCapability,
+    ActionContext,
+    evaluate_action,
+)
 from libtv_agent.templates.video_templates import (
     ActionIntensity,
     CameraTempo,
@@ -22,6 +28,8 @@ class MaterialDescriptor:
     sha256: str
     width: int | None = None
     height: int | None = None
+    confirmed_action_capabilities: frozenset[ActionCapability] = frozenset()
+    denied_action_capabilities: frozenset[ActionCapability] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -38,6 +46,34 @@ class MaterialValidationResult:
     errors: tuple[ValidationIssue, ...]
     warnings: tuple[ValidationIssue, ...]
     vision_check_required: bool = False
+    action_context: ActionContext = ActionContext()
+
+
+def action_context_from_materials(materials: list[MaterialDescriptor]) -> ActionContext:
+    """Aggregate explicitly observed storyboard facts.
+
+    A positive observation in any supplied storyboard wins over a negative
+    observation in another storyboard, because the action can be assigned to
+    the supporting shot. Unknown facts remain absent and are never inferred
+    from filename, dimensions, ordering, or other metadata.
+    """
+
+    evidence_sets = tuple(
+        material.confirmed_action_capabilities for material in materials
+    )
+    confirmed = frozenset(capability for evidence in evidence_sets for capability in evidence)
+    denied = (
+        frozenset.intersection(
+            *(material.denied_action_capabilities for material in materials)
+        )
+        if materials
+        else frozenset()
+    ) - confirmed
+    return ActionContext(
+        confirmed=confirmed,
+        denied=denied,
+        evidence_sets=evidence_sets,
+    )
 
 
 def validate_materials(
@@ -48,11 +84,14 @@ def validate_materials(
     action_intensity: ActionIntensity,
     camera_tempo: CameraTempo,
     cut_mode: CutMode,
+    requested_action_ids: tuple[str, ...] = (),
     max_file_bytes: int = 20 * 1024 * 1024,
 ) -> MaterialValidationResult:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
     count = len(materials)
+    action_context = action_context_from_materials(materials)
+    vision_check_required = False
 
     if not 1 <= count <= 7:
         errors.append(
@@ -119,6 +158,23 @@ def validate_materials(
 
     seen_hashes: dict[str, str] = {}
     for material in materials:
+        overlapping_capabilities = (
+            material.confirmed_action_capabilities & material.denied_action_capabilities
+        )
+        if overlapping_capabilities:
+            errors.append(
+                ValidationIssue(
+                    "ACTION_CAPABILITY_CONFLICT",
+                    (
+                        "action capabilities cannot be both confirmed and denied: "
+                        + ", ".join(
+                            sorted(capability.value for capability in overlapping_capabilities)
+                        )
+                    ),
+                    material_id=material.id,
+                    field="storyboards",
+                )
+            )
         if material.size_bytes <= 0:
             errors.append(
                 ValidationIssue(
@@ -194,9 +250,46 @@ def validate_materials(
                 )
             )
 
+    for action_id in requested_action_ids:
+        action = ACTION_LIBRARY.get(action_id)
+        if action is None:
+            warnings.append(
+                ValidationIssue(
+                    "ACTION_UNKNOWN",
+                    f"unknown motion action: {action_id}",
+                    field="actions",
+                )
+            )
+            continue
+        eligibility = evaluate_action(action, action_context)
+        if eligibility.denied:
+            warnings.append(
+                ValidationIssue(
+                    "ACTION_REQUIREMENTS_DENIED",
+                    (
+                        f"action {action_id} is excluded because capabilities are denied: "
+                        + ", ".join(capability.value for capability in eligibility.denied)
+                    ),
+                    field="actions",
+                )
+            )
+        if eligibility.missing:
+            vision_check_required = True
+            warnings.append(
+                ValidationIssue(
+                    "ACTION_REQUIREMENTS_UNKNOWN",
+                    (
+                        f"action {action_id} is excluded until capabilities are confirmed: "
+                        + ", ".join(capability.value for capability in eligibility.missing)
+                    ),
+                    field="actions",
+                )
+            )
+
     return MaterialValidationResult(
         valid=not errors,
         errors=tuple(errors),
         warnings=tuple(warnings),
-        vision_check_required=False,
+        vision_check_required=vision_check_required,
+        action_context=action_context,
     )

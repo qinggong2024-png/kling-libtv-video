@@ -10,7 +10,7 @@
 
 本批次已完成站点目录核对和公开来源发现：官网公开社媒入口 21 个、Instagram Reel 15 条、TikTok 可索引线索 7 条、官方 YouTube 代表视频 17 条、Pinterest 定向 Pin 41 条。
 
-当前只把“能确认来源和元数据”的内容记为样本线索。TikTok 普通搜索在当前地区要求登录，部分 TikTok 直链返回无法观看；Instagram Reel 可以播放，但尚未完成逐秒动作标注。因此本批次不把标题、缩略图或搜索结果推断成已验证动作，也不把任何新动作提升为 `active`。
+TikTok 普通搜索在当前地区要求登录，部分 TikTok 直链返回无法观看。Instagram 与 YouTube 的代表视频已经完成首轮时间轴抽查：共形成 18 条结构化观察，5 条进入动作候选池，13 条明确排除。标题、缩略图、搜索结果和 OCR 仍只作为元数据，不单独证明动作；本批次也不把任何新动作提升为 `active` 或 `draft`。
 
 证据状态：
 
@@ -140,8 +140,28 @@ Pinterest 用于姿态、构图和品类匹配，不单独证明连续动作。�
 - [Retro Raglan Baby Tee](https://www.pinterest.com/pin/14566398794695347/)
 - [Varsity Pulse and Denim](https://www.pinterest.com/pin/758926974755197503/)
 
-## 下一轮动作标注
+## 首轮动作观察结果
 
-对每个站点先选 3 条视频，按 `0-3s / 3-7s / 7s+` 记录：进入姿态、动作路径、结束姿态、商品目的、镜头运动、位移、手部遮挡和文字可读性。只有至少 3 个独立来源重复出现、并通过一次真实生成回放的动作，才从 `candidate` 升为 `draft`。
+结构化观察见 [action_observations_batch_001.json](./action_observations_batch_001.json)。
 
-本批次没有新增 `active` 动作。
+- 已观察视频：18 条，覆盖 8 个站点。
+- `include`：5 条；只吸收明确描述的动作段，不复制复杂换装、道具或遮挡段。
+- `exclude`：13 条；主要原因是叙事、危险道具、配饰、无人挂拍/平铺、书本遮挡和缺少连续人体动作证据。
+- 新候选：4 个，均保持 `candidate`。
+- `print_frame_open_palms` 已在 ClassyOutlaw 与 TheRetroTee 两个独立来源中出现，仍需第 3 个来源和一次生成回放。
+- `held_garment_front_hold`、`back_print_hip_frame`、`single_arm_flex_print_hold` 各只有 1 个来源。
+
+## 风格与动作范围
+
+完整区分见 [style_motion_scope_matrix.v0.1.md](./style_motion_scope_matrix.v0.1.md)。
+
+本轮关键修正：
+
+- PageWings 的“文学”是受众主题，不等同于安静学院风；官方已看样片是高饱和、活泼、`standard_to_fast` 的图形 T 蒙太奇。
+- GuidingCross 的街头/健身子线可使用 `standard_to_fast`，但信仰文字必须保留无遮挡可读停留。
+- NerdyWave 与 ClassyOutlaw 都属于 dark/alt，但前者偏暗黑 fandom 与材质层次，后者偏怪诞、迷幻和强图形。
+- Teachersgram 已有合格课堂穿着样本；教师是受众主题，不等于幼儿化动作。
+- GoodNurseLife 当前没有合格真人穿着动作，不能从护士主题推导听诊器、制服或医疗剧情。
+- 站内差异主要放在动作权重、表情、构图、灯光和节奏，不复制八套同义动作。
+
+只有至少 3 个独立来源重复出现、并通过一次真实生成回放的动作，才从 `candidate` 升为 `draft`。本批次没有新增 `active` 或 `draft` 动作。
