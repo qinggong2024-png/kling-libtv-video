@@ -155,9 +155,7 @@ class RunnerSupervisor:
     ) -> int:
         processed = 0
         provider_names = (
-            ("libtv",)
-            if expected_provider == "libtv"
-            else self.settings.kling_provider_names
+            ("libtv",) if expected_provider == "libtv" else self.settings.kling_provider_names
         )
         while True:
             commands = list(
@@ -525,8 +523,7 @@ class RunnerSupervisor:
                     or self.settings.kling_api_resolution
                 ),
                 audio=str(
-                    variant.generation_config_json.get("audio")
-                    or self.settings.kling_api_audio
+                    variant.generation_config_json.get("audio") or self.settings.kling_api_audio
                 ),
                 multi_shot=bool(
                     variant.generation_config_json.get(
@@ -611,9 +608,7 @@ class RunnerSupervisor:
                     >= self.settings.kling_api_task_timeout_seconds
                 ):
                     command = await session.scalar(
-                        select(GenerationCommand).where(
-                            GenerationCommand.attempt_id == attempt.id
-                        )
+                        select(GenerationCommand).where(GenerationCommand.attempt_id == attempt.id)
                     )
                     attempt.status = AttemptStatus.UNKNOWN_AFTER_SUBMIT
                     attempt.provider_status = "unknown"
@@ -990,14 +985,11 @@ class RunnerSupervisor:
             "9:16": 9 / 16,
             "1:1": 1.0,
         }.get(str(variant.generation_config_json.get("aspectRatio") or "9:16"), 9 / 16)
-        allow_audio = (
-            str(
-                variant.generation_config_json.get("audio")
-                or variant.generation_config_json.get("sound")
-                or "off"
-            ).lower()
-            in {"native", "on", "true"}
-        )
+        allow_audio = str(
+            variant.generation_config_json.get("audio")
+            or variant.generation_config_json.get("sound")
+            or "off"
+        ).lower() in {"native", "on", "true"}
         try:
             await download_with_retries(
                 download_adapter or self.adapter,

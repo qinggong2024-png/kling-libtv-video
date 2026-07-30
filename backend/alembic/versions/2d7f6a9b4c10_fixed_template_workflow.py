@@ -35,12 +35,8 @@ def upgrade() -> None:
         ),
     )
     op.add_column("parent_task", sa.Column("template_id", sa.String(length=80), nullable=True))
-    op.add_column(
-        "parent_task", sa.Column("template_version", sa.String(length=40), nullable=True)
-    )
-    op.add_column(
-        "parent_task", sa.Column("site_profile_id", sa.String(length=80), nullable=True)
-    )
+    op.add_column("parent_task", sa.Column("template_version", sa.String(length=40), nullable=True))
+    op.add_column("parent_task", sa.Column("site_profile_id", sa.String(length=80), nullable=True))
     op.add_column(
         "parent_task", sa.Column("site_profile_version", sa.String(length=40), nullable=True)
     )
@@ -49,9 +45,7 @@ def upgrade() -> None:
         sa.Column("settings_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
     )
     op.add_column("parent_task", sa.Column("compiled_plan_json", sa.JSON(), nullable=True))
-    op.add_column(
-        "parent_task", sa.Column("material_validation_json", sa.JSON(), nullable=True)
-    )
+    op.add_column("parent_task", sa.Column("material_validation_json", sa.JSON(), nullable=True))
     op.add_column(
         "parent_task",
         sa.Column("paid_submission_consent_at", sa.DateTime(timezone=True), nullable=True),
@@ -75,9 +69,7 @@ def upgrade() -> None:
         unique=False,
     )
 
-    op.add_column(
-        "generation_variant", sa.Column("variant_index", sa.Integer(), nullable=True)
-    )
+    op.add_column("generation_variant", sa.Column("variant_index", sa.Integer(), nullable=True))
     op.add_column(
         "generation_variant", sa.Column("variant_key", sa.String(length=80), nullable=True)
     )

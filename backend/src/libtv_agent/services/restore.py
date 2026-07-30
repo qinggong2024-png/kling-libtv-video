@@ -78,8 +78,7 @@ async def restore_remote_output(
             raise KlingCliError("KLING_REMOTE_STATUS_UNKNOWN", "Kling remote task is unavailable")
         selected_kling_adapter = (
             kling_adapter
-            if kling_adapter is not None
-            and kling_adapter.get_provider_name() == attempt.provider
+            if kling_adapter is not None and kling_adapter.get_provider_name() == attempt.provider
             else create_kling_adapter_for_provider(settings, attempt.provider)
         )
         kling_result = await selected_kling_adapter.query(attempt.task_id)

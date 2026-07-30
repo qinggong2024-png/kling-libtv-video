@@ -115,9 +115,7 @@ def validate_materials(
             )
         )
     if cut_mode not in {"explicit_cuts", "continuous_when_possible"}:
-        errors.append(
-            ValidationIssue("CUT_MODE_INVALID", "cut mode is invalid", field="cutMode")
-        )
+        errors.append(ValidationIssue("CUT_MODE_INVALID", "cut mode is invalid", field="cutMode"))
 
     seen_hashes: dict[str, str] = {}
     for material in materials:
