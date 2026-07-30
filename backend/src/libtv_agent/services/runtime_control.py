@@ -49,9 +49,7 @@ def _provider_names(provider: str, settings: Settings) -> tuple[str, ...]:
     normalized = provider.strip().lower()
     if normalized == "libtv":
         return ("libtv",)
-    if normalized in {
-        name.strip().lower() for name in settings.kling_provider_names
-    }:
+    if normalized in {name.strip().lower() for name in settings.kling_provider_names}:
         return settings.kling_provider_names
     return (provider,)
 

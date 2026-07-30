@@ -245,9 +245,7 @@ class Settings(BaseSettings):
     @property
     def kling_provider_names(self) -> tuple[str, ...]:
         return tuple(
-            dict.fromkeys(
-                ("kling", self.kling_cli_provider_name, self.kling_api_provider_name)
-            )
+            dict.fromkeys(("kling", self.kling_cli_provider_name, self.kling_api_provider_name))
         )
 
     def kling_poll_interval(self, *, unknown: bool = False) -> float:
@@ -263,9 +261,7 @@ class Settings(BaseSettings):
             else self.kling_cli_poll_interval_seconds
         )
 
-    def kling_poll_interval_for_provider(
-        self, provider: str, *, unknown: bool = False
-    ) -> float:
+    def kling_poll_interval_for_provider(self, provider: str, *, unknown: bool = False) -> float:
         if provider.strip().lower() == self.kling_api_provider_name.strip().lower():
             return (
                 self.kling_api_max_poll_interval_seconds

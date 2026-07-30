@@ -497,9 +497,7 @@ class KlingOfficialApiAdapter:
         if bool(task_id) == bool(external_task_id):
             raise ValueError("exactly one Kling task identifier is required")
         query = urlencode(
-            {"task_ids": task_id}
-            if task_id
-            else {"external_task_ids": external_task_id or ""}
+            {"task_ids": task_id} if task_id else {"external_task_ids": external_task_id or ""}
         )
         response = await self._request_json("GET", f"{KLING_TASKS_PATH}?{query}", None)
         data = response.get("data")
@@ -708,8 +706,7 @@ class KlingOfficialApiAdapter:
                     raise OSError(f"unexpected HTTP status {status}")
                 content_type = str(response.headers.get("Content-Type") or "")
                 if content_type and not (
-                    content_type.startswith("video/")
-                    or content_type == "application/octet-stream"
+                    content_type.startswith("video/") or content_type == "application/octet-stream"
                 ):
                     raise OSError("downloaded Kling output is not a video")
                 with temporary.open("wb") as handle:

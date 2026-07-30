@@ -11,9 +11,7 @@ def provider_kind(provider: str, settings: Settings) -> ProviderKind | None:
     normalized = provider.strip().lower()
     if normalized == "libtv":
         return "libtv"
-    if normalized in {
-        name.strip().lower() for name in settings.kling_provider_names
-    }:
+    if normalized in {name.strip().lower() for name in settings.kling_provider_names}:
         return "kling"
     return None
 

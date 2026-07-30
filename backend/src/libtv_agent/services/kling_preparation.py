@@ -99,8 +99,7 @@ async def prepare_kling_task(
             or settings.active_kling_duration
         )
         aspect_ratio = str(
-            variant.generation_config_json.get("aspectRatio")
-            or settings.active_kling_aspect_ratio
+            variant.generation_config_json.get("aspectRatio") or settings.active_kling_aspect_ratio
         )
         request = VideoGenerationRequest(
             prompt=variant.prompt_text,
