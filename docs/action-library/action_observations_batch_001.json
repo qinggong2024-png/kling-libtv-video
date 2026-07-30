@@ -1,0 +1,534 @@
+{
+  "schemaVersion": "0.1.0",
+  "batchId": "2026-07-30-001",
+  "reviewedAt": "2026-07-30T16:20:00+08:00",
+  "reviewPolicy": {
+    "storeOriginalMedia": false,
+    "allowedIncludeStatus": [
+      "include",
+      "exclude"
+    ],
+    "candidatePromotionRule": "A candidate must recur in at least three independent sources and pass one generation replay before promotion to draft.",
+    "observationRule": "Titles, captions, thumbnails, search snippets and OCR are metadata only; action facts require direct visual review.",
+    "segmentRule": "An included video may contain excluded transitions or props. Only the explicitly described action segments enter the candidate pool."
+  },
+  "observations": [
+    {
+      "observationId": "obs-geeksoutfit-001",
+      "siteId": "geeksoutfit",
+      "sourceUrl": "https://www.instagram.com/alwayshadafaceforradio/reel/DbXB7D3T0p0/",
+      "sourceType": "instagram_reel_sponsored_collaboration",
+      "duration": 60.033,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Actor enters or speaks to camera while holding a mug and wearing a plain grey shirt.",
+      "actionPath": [
+        "Rapid character cuts between seated and standing talking-head positions.",
+        "Several graphic tees are worn while the actor explains their designs.",
+        "One seated segment points toward the chest print."
+      ],
+      "exitState": "Returns to a seated talking-head character after multiple narrative cuts.",
+      "productGoal": "Comedy-led sponsored explanation of several geek graphic tees.",
+      "risks": [
+        "narrative_performance",
+        "multi_character_editing",
+        "prop_dependency",
+        "chest_print_occlusion",
+        "rapid_outfit_cuts"
+      ],
+      "candidateActionIds": [],
+      "notes": "Useful as an ad-format reference, but not as a default garment-motion template. The chest-pointing gesture overlaps the print and remains narrative-dependent."
+    },
+    {
+      "observationId": "obs-guidingcross-001",
+      "siteId": "guidingcross",
+      "sourceUrl": "https://www.youtube.com/shorts/C8551q67UJI",
+      "sourceType": "youtube_short_official",
+      "duration": 12.481,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "include",
+      "entryState": "Front-facing full-body stance outdoors, arms relaxed, washed oversized tee visible; headphones and shoulder bag are present.",
+      "actionPath": [
+        "Front view holds briefly.",
+        "A hard cut changes to a three-quarter back angle.",
+        "A later hard cut changes to a full back-facing reveal.",
+        "A separate segment uses a controlled walking state.",
+        "Head and gaze angle down while the full back print remains readable."
+      ],
+      "exitState": "Stable full-back stance with the back print centered.",
+      "productGoal": "Reveal oversized silhouette and large faith-message back print.",
+      "risks": [
+        "accessory_occlusion",
+        "back_reference_required",
+        "headphones_and_bag_not_default"
+      ],
+      "candidateActionIds": [
+        "controlled_walk",
+        "over_shoulder_back",
+        "back_print_hip_frame"
+      ],
+      "notes": "The back-facing poses and walking state are reusable, but hard cuts do not prove a continuous turn path. Do not add the bag, headphones or necklace unless already present in the input."
+    },
+    {
+      "observationId": "obs-nerdywave-001",
+      "siteId": "nerdywave",
+      "sourceUrl": "https://www.instagram.com/nerdywave_apparel/reel/DbRz_75iIxL/",
+      "sourceType": "instagram_reel_official",
+      "duration": 17.41,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Liminal-space narrative setup.",
+      "actionPath": [
+        "Story and giveaway beats dominate.",
+        "No stable garment presentation action is completed."
+      ],
+      "exitState": "Narrative ending rather than a garment confirmation pose.",
+      "productGoal": "Atmosphere and giveaway narrative.",
+      "risks": [
+        "narrative",
+        "no_clear_product_action",
+        "liminal_visual_effects"
+      ],
+      "candidateActionIds": [],
+      "notes": "Retain only as a dark-atmosphere reference."
+    },
+    {
+      "observationId": "obs-nerdywave-002",
+      "siteId": "nerdywave",
+      "sourceUrl": "https://www.instagram.com/markoua_alvesp/reel/DbES0d5OvdT/",
+      "sourceType": "instagram_reel_creator",
+      "duration": 13.88,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Seated model in dark styling.",
+      "actionPath": [
+        "Model adjusts sunglasses with both hands.",
+        "Model settles into a crossed-arm pose."
+      ],
+      "exitState": "Seated crossed-arm hold.",
+      "productGoal": "Dark mood and character styling.",
+      "risks": [
+        "accessory_dependency",
+        "crossed_arm_product_occlusion",
+        "seated_pose_limits_silhouette"
+      ],
+      "candidateActionIds": [],
+      "notes": "Can inform mood direction, but the sunglasses and crossed arms make it unsuitable for the default product template."
+    },
+    {
+      "observationId": "obs-nerdywave-003",
+      "siteId": "nerdywave",
+      "sourceUrl": "https://www.instagram.com/fabsterun/reel/DbAVguMM08Y/",
+      "sourceType": "instagram_reel_creator",
+      "duration": 33.13,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Model wears a skull-print tee.",
+      "actionPath": [
+        "Presentation is built around holding and displaying a knife."
+      ],
+      "exitState": "Prop-led performance.",
+      "productGoal": "Edgy character presentation.",
+      "risks": [
+        "dangerous_prop",
+        "brand_safety",
+        "product_attention_displaced"
+      ],
+      "candidateActionIds": [],
+      "notes": "Dangerous-prop content is excluded from the action library."
+    },
+    {
+      "observationId": "obs-nerdywave-004",
+      "siteId": "nerdywave",
+      "sourceUrl": "https://www.instagram.com/nerdywave_apparel/reel/Day1yXrgf9S/",
+      "sourceType": "instagram_reel_official",
+      "duration": 105.46,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Long-form goth and dark-humor culture content.",
+      "actionPath": [
+        "Meme and narrative beats dominate.",
+        "No stable garment presentation path is completed."
+      ],
+      "exitState": "Narrative or meme ending rather than a product confirmation pose.",
+      "productGoal": "Culture and community content.",
+      "risks": [
+        "narrative_meme",
+        "long_form",
+        "no_clear_product_action"
+      ],
+      "candidateActionIds": [],
+      "notes": "Retain for cultural tone only; exclude from the default garment-action library."
+    },
+    {
+      "observationId": "obs-pagewings-001",
+      "siteId": "pagewings",
+      "sourceUrl": "https://www.instagram.com/pagewings_brand/reel/Da9L1-hjGng/",
+      "sourceType": "instagram_reel_official",
+      "duration": 135.47,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Creator holds a book while speaking to camera.",
+      "actionPath": [
+        "Book review and handling dominate.",
+        "The book repeatedly covers the chest garment area."
+      ],
+      "exitState": "Book-led UGC presentation.",
+      "productGoal": "Literary topic and book discussion.",
+      "risks": [
+        "book_occludes_chest_print",
+        "long_form_talking_head",
+        "prop_dependency"
+      ],
+      "candidateActionIds": [],
+      "notes": "May become a separate book-prop UGC preset, but is excluded from the default garment-action library."
+    },
+    {
+      "observationId": "obs-pagewings-002",
+      "siteId": "pagewings",
+      "sourceUrl": "https://www.youtube.com/watch?v=8t6Rbf0K4BU",
+      "sourceType": "youtube_video_official",
+      "duration": 21.941,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "include",
+      "entryState": "High-saturation graphic-tee montage with a clear front-print view.",
+      "actionPath": [
+        "Black tee print receives a close detail view.",
+        "Purple cat graphic receives a chest close-up while both hands indicate the print.",
+        "A pink tee appears in a side or back-oriented composition with a tote.",
+        "The final segment includes movement through a shopping environment."
+      ],
+      "exitState": "Moving full-look segment after several product-detail beats.",
+      "productGoal": "Present colorful literary graphics across several energetic looks.",
+      "risks": [
+        "rapid_outfit_cuts",
+        "brightness_flash_transition",
+        "tote_occlusion",
+        "accessory_dependent_glasses_adjustment"
+      ],
+      "candidateActionIds": [
+        "print_detail_pause",
+        "chest_print_pause",
+        "print_indicate_release",
+        "controlled_walk"
+      ],
+      "notes": "Corrects the earlier quiet-academia assumption: the directly reviewed official video is colorful, lively and standard-to-fast. Retain at least 1 to 1.5 seconds of print readability."
+    },
+    {
+      "observationId": "obs-teachersgram-001",
+      "siteId": "teachersgram",
+      "sourceUrl": "https://www.instagram.com/teach_taylorsversion/reel/DbUU32ks8TW/",
+      "sourceType": "instagram_reel_creator",
+      "duration": 55.27,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Teacher-themed tote bag unboxing.",
+      "actionPath": [
+        "Creator opens and presents the tote bag."
+      ],
+      "exitState": "Accessory presentation.",
+      "productGoal": "Teacher accessory unboxing.",
+      "risks": [
+        "accessory_only",
+        "not_in_garment_scope"
+      ],
+      "candidateActionIds": [],
+      "notes": "Excluded from the first garment batch."
+    },
+    {
+      "observationId": "obs-teachersgram-002",
+      "siteId": "teachersgram",
+      "sourceUrl": "https://www.instagram.com/kindness_coordinator/reel/DbYuWywpIjx/",
+      "sourceType": "instagram_reel_creator_brand_mention",
+      "duration": 16.74,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "include",
+      "entryState": "Creator begins with several garments in a classroom, then establishes a front-facing worn look with a friendly smile.",
+      "actionPath": [
+        "One segment holds an unworn tee by both shoulder points with the front facing the camera.",
+        "First tee: both hands hold the lower side hems while the knees and hips form a light asymmetric stance.",
+        "Second tee: both hands rest on the hips with one leg crossed slightly in front.",
+        "Third tee: model steps closer for a chest-print view.",
+        "Third tee: both hands briefly lift the shoulder and sleeve area, then return to a relaxed presentation stance."
+      ],
+      "exitState": "Front-facing smile with the graphic tee readable.",
+      "productGoal": "Compare several teacher tees while keeping the classroom context and print legibility.",
+      "risks": [
+        "multi_outfit_cuts",
+        "sustained_hem_pull_can_distort_print",
+        "hands_on_hips_can_narrow_silhouette",
+        "close_approach_can_crop_garment"
+      ],
+      "candidateActionIds": [
+        "hem_open_release",
+        "weight_shift_hold",
+        "eye_contact_soft_smile",
+        "sleeve_display",
+        "chest_print_pause",
+        "three_quarter_turn",
+        "one_step_settle",
+        "held_garment_front_hold"
+      ],
+      "notes": "Include only the per-look actions. Do not copy the outfit-change transitions. Convert the sustained hem hold into one short open-and-release motion. Keep the held and worn states in separate shots."
+    },
+    {
+      "observationId": "obs-goodnurselife-001",
+      "siteId": "goodnurselife",
+      "sourceUrl": "https://www.instagram.com/nursehutshop/reel/DbVtHA7iNOV/",
+      "sourceType": "instagram_reel_official",
+      "duration": 14.56,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Handheld nurse badge reel.",
+      "actionPath": [
+        "Badge reel is handled and shown."
+      ],
+      "exitState": "Accessory close-up.",
+      "productGoal": "Nurse badge accessory presentation.",
+      "risks": [
+        "accessory_only"
+      ],
+      "candidateActionIds": [],
+      "notes": "Outside the first-batch garment scope."
+    },
+    {
+      "observationId": "obs-goodnurselife-002",
+      "siteId": "goodnurselife",
+      "sourceUrl": "https://www.instagram.com/nursehutshop/reel/DbLZ_d_DW5x/",
+      "sourceType": "instagram_reel_official",
+      "duration": 10.22,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "T-shirt displayed on a hanger with no person.",
+      "actionPath": [
+        "Product-only hanging presentation."
+      ],
+      "exitState": "Hanging product view.",
+      "productGoal": "Show graphic tee design.",
+      "risks": [
+        "no_human_action"
+      ],
+      "candidateActionIds": [],
+      "notes": "Useful for product layout, not for a human action library."
+    },
+    {
+      "observationId": "obs-goodnurselife-003",
+      "siteId": "goodnurselife",
+      "sourceUrl": "https://www.instagram.com/nursehutshop/reel/DbGQa4ikcdZ/",
+      "sourceType": "instagram_reel_official",
+      "duration": 12.72,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Nurse badge reel product view.",
+      "actionPath": [
+        "Accessory is shown without a garment presentation action."
+      ],
+      "exitState": "Accessory close-up.",
+      "productGoal": "Nurse badge accessory presentation.",
+      "risks": [
+        "accessory_only"
+      ],
+      "candidateActionIds": [],
+      "notes": "Outside the first-batch garment scope."
+    },
+    {
+      "observationId": "obs-goodnurselife-004",
+      "siteId": "goodnurselife",
+      "sourceUrl": "https://www.instagram.com/nursehutshop/reel/DSm8oL0DGJS/",
+      "sourceType": "instagram_reel_official",
+      "duration": 12.736,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Product collection montage.",
+      "actionPath": [
+        "Multiple tees are presented on hangers or as product-only arrangements."
+      ],
+      "exitState": "Hanging graphic tee in a styled interior.",
+      "productGoal": "Show a nurse T-shirt collection.",
+      "risks": [
+        "no_human_action",
+        "product_montage"
+      ],
+      "candidateActionIds": [],
+      "notes": "No reusable human movement was confirmed in the reviewed frames."
+    },
+    {
+      "observationId": "obs-goodnurselife-005",
+      "siteId": "goodnurselife",
+      "sourceUrl": "https://www.instagram.com/nursehutshop/reel/DUiixEQD3ch/",
+      "sourceType": "instagram_reel_official",
+      "duration": 10.049,
+      "reviewStatus": "visual_reviewed_sampled_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Valentine collection montage.",
+      "actionPath": [
+        "Reviewed frame shows a navy graphic tee arranged flat with no person."
+      ],
+      "exitState": "Product-only arrangement in the sampled frame.",
+      "productGoal": "Show a themed nurse apparel collection.",
+      "risks": [
+        "insufficient_continuous_human_action_evidence",
+        "search_snippet_conflicts_with_reviewed_frame"
+      ],
+      "candidateActionIds": [],
+      "notes": "A search snippet suggested a worn back view, but the directly reviewed frame at approximately 6.3 seconds was product-only. Exclude until a complete human action is directly verified."
+    },
+    {
+      "observationId": "obs-classyoutlaw-001",
+      "siteId": "classyoutlaw",
+      "sourceUrl": "https://www.instagram.com/iameleni_/reel/DbLvn0nME_d/",
+      "sourceType": "instagram_reel_creator",
+      "duration": 10.87,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "include",
+      "entryState": "Front-facing natural stance in a graphic tee.",
+      "actionPath": [
+        "Both hands rise to waist level with open palms below the print, forming a visual frame.",
+        "Hands pause without touching the print.",
+        "Model turns to a three-quarter back angle.",
+        "Model completes an over-shoulder back look."
+      ],
+      "exitState": "Three-quarter back presentation with head turned toward the camera.",
+      "productGoal": "Emphasize front print first, then show back and silhouette.",
+      "risks": [
+        "hands_must_not_enter_print",
+        "second_outfit_uses_occluding_outerwear",
+        "back_reference_required"
+      ],
+      "candidateActionIds": [
+        "print_frame_open_palms",
+        "three_quarter_turn",
+        "over_shoulder_back"
+      ],
+      "notes": "The second look holds outerwear across the garment and is excluded. The first look provides the strongest new candidate in this batch."
+    },
+    {
+      "observationId": "obs-classyoutlaw-002",
+      "siteId": "classyoutlaw",
+      "sourceUrl": "https://www.instagram.com/classyoutlaw_official/reel/DbK1mVeibQX/",
+      "sourceType": "instagram_reel_official",
+      "duration": 11.517,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "exclude",
+      "entryState": "Close-up of the garment's all-over eye graphic.",
+      "actionPath": [
+        "Camera pushes and pans across the flat garment.",
+        "No human model appears."
+      ],
+      "exitState": "Product-only graphic close-up.",
+      "productGoal": "Show the all-over print.",
+      "risks": [
+        "no_human_action",
+        "continuous_close_up_without_full_body_confirmation"
+      ],
+      "candidateActionIds": [],
+      "notes": "Retain as a print-detail camera reference, not as a body-action sample."
+    },
+    {
+      "observationId": "obs-theretrotee-001",
+      "siteId": "theretrotee",
+      "sourceUrl": "https://www.instagram.com/misskmichael/reel/Da5ubLhuFgE/",
+      "sourceType": "instagram_reel_creator_brand_mention",
+      "duration": 20.27,
+      "reviewStatus": "visual_reviewed_timeline",
+      "includeStatus": "include",
+      "entryState": "Front-facing full-body pose in a retro raglan tee.",
+      "actionPath": [
+        "Full-body front hold establishes the first raglan look.",
+        "One hand briefly rests near the lower print area; this occluding gesture is not retained.",
+        "A second raglan look uses both hands near the shoulder and sleeve seams to show contrast sleeves.",
+        "A third look holds a friendly front stance.",
+        "The final black-and-white raglan uses a slight torso angle and closer upper-body view."
+      ],
+      "exitState": "Three-quarter upper-body hold showing raglan sleeve contrast.",
+      "productGoal": "Compare retro prints, raglan color blocking and sleeve shape across several looks.",
+      "risks": [
+        "complex_outfit_transitions",
+        "hand_over_print",
+        "close_crop_loses_full_silhouette"
+      ],
+      "candidateActionIds": [
+        "sleeve_display",
+        "torso_angle_hold",
+        "eye_contact_soft_smile",
+        "stance_shift",
+        "hem_adjust",
+        "chest_print_pause",
+        "print_frame_open_palms",
+        "single_arm_flex_print_hold"
+      ],
+      "notes": "Include only the per-look holds, print framing and sleeve display. Exclude outfit-change edits and any hand placement that covers the print."
+    }
+  ],
+  "candidateActions": [
+    {
+      "id": "print_frame_open_palms",
+      "status": "candidate",
+      "sourceObservationIds": [
+        "obs-classyoutlaw-001",
+        "obs-theretrotee-001"
+      ],
+      "entryState": "Front-facing natural stance with arms relaxed.",
+      "actionPath": "Raise both hands to waist level, keep palms open below the main print, hold briefly to form a visual frame, then lower naturally.",
+      "exitState": "Front-facing stable stance with arms relaxed.",
+      "productGoal": "Direct attention to a large chest print without touching it.",
+      "constraints": [
+        "Hands must remain below and outside the print area.",
+        "Do not touch, pull or stretch the garment.",
+        "Do not combine with props."
+      ],
+      "promotionState": "needs_one_more_independent_source_and_generation_replay"
+    },
+    {
+      "id": "held_garment_front_hold",
+      "status": "candidate",
+      "sourceObservationIds": [
+        "obs-teachersgram-002"
+      ],
+      "entryState": "An unworn garment is already present in the creator's hands or within reach.",
+      "actionPath": "Hold the garment at both shoulder points, turn its front squarely toward the camera, and pause without pretending it is being worn.",
+      "exitState": "Stable front-facing product hold.",
+      "productGoal": "Show the front print during a real unboxing or multi-item UGC segment.",
+      "constraints": [
+        "Do not morph the held garment into a worn garment within the same shot.",
+        "Keep hands at the shoulder points and outside the print.",
+        "Use only when an unworn garment is already present."
+      ],
+      "promotionState": "needs_two_more_independent_sources_and_generation_replay"
+    },
+    {
+      "id": "back_print_hip_frame",
+      "status": "candidate",
+      "sourceObservationIds": [
+        "obs-guidingcross-001"
+      ],
+      "entryState": "Stable back-facing stance with a verified back-print reference.",
+      "actionPath": "Place both hands near the hips or rear pocket line, below the back print, and hold for 1 to 1.5 seconds.",
+      "exitState": "Stable back-facing pose with the full print readable.",
+      "productGoal": "Frame a large back print without touching it.",
+      "constraints": [
+        "Hands must remain below the back print.",
+        "Do not infer pocket insertion or removal if that path is not shown.",
+        "Do not enable without a reliable back reference."
+      ],
+      "promotionState": "needs_two_more_independent_sources_and_generation_replay"
+    },
+    {
+      "id": "single_arm_flex_print_hold",
+      "status": "candidate",
+      "sourceObservationIds": [
+        "obs-theretrotee-001"
+      ],
+      "entryState": "Front-facing stance with the chest print readable.",
+      "actionPath": "Bend one arm slightly outside the torso while the other arm remains relaxed, then hold briefly.",
+      "exitState": "Front-facing pose with the print unobstructed.",
+      "productGoal": "Add a playful strength cue when it matches the garment copy.",
+      "constraints": [
+        "Use only when the product theme supports a strength or toughness cue.",
+        "Keep the bent arm outside the print area.",
+        "Do not use when sleeve graphics are the primary product feature."
+      ],
+      "promotionState": "needs_two_more_independent_sources_and_generation_replay"
+    }
+  ]
+}

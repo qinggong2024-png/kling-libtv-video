@@ -138,7 +138,9 @@
       "theme": ["era_nostalgia", "music", "arcade", "old_advertising"],
       "aesthetics": ["retro", "daily_casual", "playful"],
       "garmentAllowlist": ["raglan_tshirt", "ringer_tshirt", "cotton_tshirt", "retro_jersey", "vintage_dress", "sweatshirt"],
-      "officialSocials": {},
+      "officialSocials": {
+        "instagram": "https://www.instagram.com/theretrotee_official/"
+      },
       "pinterestQuery": "retro ringer raglan tee outfit model pose",
       "catalogEvidence": "verified_browser"
     }

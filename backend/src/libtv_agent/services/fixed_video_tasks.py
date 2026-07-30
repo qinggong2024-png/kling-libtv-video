@@ -145,6 +145,7 @@ async def create_fixed_video_task(
         action_intensity=payload.action_intensity,
         camera_tempo=payload.camera_tempo,
         cut_mode=payload.cut_mode,
+        requested_action_ids=site_profile.preferred_actions,
         max_file_bytes=settings.max_input_image_bytes,
     )
     validation_json = _validation_snapshot(validation)
@@ -165,6 +166,7 @@ async def create_fixed_video_task(
                 cut_mode=payload.cut_mode,
                 variant_index=index,
                 site_profile=site_profile,
+                action_context=validation.action_context,
             )
         )
         for index in range(1, payload.result_count + 1)

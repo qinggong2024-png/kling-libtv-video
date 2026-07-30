@@ -96,9 +96,10 @@ _COMMON_TEMPO_PRESETS: dict[CameraTempo, TempoPreset] = {
 }
 
 _COMMON_INVARIANTS = (
-    "保持人物身份一致",
+    "保持人物身份、面部特征和体型一致",
     "保持服装款式、颜色、面料、版型、印花、Logo和文字内容不变",
-    "保持输入分镜的先后顺序，不跳过或重排",
+    "保持输入图片中的场景、背景陈设和光线条件不变",
+    "保持输入分镜结构、镜头对应关系及素材先后顺序，不跳过、不替换、不重排",
     "不得换装、不得新增配饰、不得改变服装结构",
 )
 
@@ -112,7 +113,7 @@ _COMMON_NEGATIVES = (
 )
 
 
-def _draft_template(
+def _production_template(
     *,
     template_id: str,
     name: str,
@@ -125,8 +126,8 @@ def _draft_template(
 ) -> VideoTemplate:
     return VideoTemplate(
         id=template_id,
-        version="0.1.0-draft",
-        status="draft",
+        version="1.0.0",
+        status="active",
         name=name,
         description=description,
         min_images=1,
@@ -135,7 +136,7 @@ def _draft_template(
         ratio="9:16",
         sound=False,
         subtitles=False,
-        smart_storyboard=False,
+        smart_storyboard=True,
         continuity_strategy="explicit_cuts",
         action_presets=dict(_COMMON_ACTION_PRESETS),
         camera_presets=dict(_COMMON_CAMERA_PRESETS),
@@ -147,12 +148,12 @@ def _draft_template(
             invariants=(*_COMMON_INVARIANTS, *extra_invariants),
             negatives=(*_COMMON_NEGATIVES, *extra_negatives),
         ),
-        source_note="等待用户提供近期生产提示词后拆解、扩充并激活",
+        source_note="已依据用户确认的生产总结提示词拆解，并通过固定模板约束测试",
     )
 
 
 VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
-    "ootd_walk": _draft_template(
+    "ootd_walk": _production_template(
         template_id="ootd_walk",
         name="OOTD走动展示",
         description="以自然走动和有限转身展示服装整体版型。",
@@ -161,7 +162,7 @@ VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
         ending=("以自然定姿结束", "镜头稳定停留展示整体穿搭"),
         extra_negatives=("避免奔跑、跳跃、快速旋转和过大步幅",),
     ),
-    "garment_detail": _draft_template(
+    "garment_detail": _production_template(
         template_id="garment_detail",
         name="服装细节展示",
         description="从整体到局部展示面料、版型、印花或衣摆细节。",
@@ -171,7 +172,7 @@ VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
         extra_invariants=("局部细节必须来自输入图片，不得补画新的图案或文字",),
         extra_negatives=("避免过度拉近导致局部重绘", "避免手部遮挡主要印花和文字"),
     ),
-    "mood_model": _draft_template(
+    "mood_model": _production_template(
         template_id="mood_model",
         name="氛围感模特展示",
         description="以轻微身体动作和有限运镜共同表达氛围，服装仍是主要识别对象。",

@@ -10,7 +10,12 @@ from libtv_agent.domain.enums import AttemptStatus, ParentTaskPhase
 from libtv_agent.domain.models import Base, GenerationAttempt, GenerationCommand
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
-from libtv_agent.templates.motion_actions import compatible_action_ids, list_motion_actions
+from libtv_agent.templates.motion_actions import (
+    ActionCapability,
+    ActionContext,
+    compatible_action_ids,
+    list_motion_actions,
+)
 from libtv_agent.templates.site_style_profiles import (
     SITE_STYLE_PROFILES,
     get_site_style_profile,
@@ -87,7 +92,7 @@ def test_material_validator_rejects_invalid_inputs(
     assert code in {issue.code for issue in result.errors}
 
 
-def test_registered_templates_are_draft_until_production_prompts_are_supplied() -> None:
+def test_registered_templates_are_active_after_prompt_contract_verification() -> None:
     templates = list_video_templates()
 
     assert {template.id for template in templates} == {
@@ -95,7 +100,8 @@ def test_registered_templates_are_draft_until_production_prompts_are_supplied() 
         "garment_detail",
         "mood_model",
     }
-    assert {template.status for template in templates} == {"draft"}
+    assert {template.status for template in templates} == {"active"}
+    assert {template.version for template in templates} == {"1.0.0"}
 
 
 def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit() -> None:
@@ -110,15 +116,43 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "goodnurselife",
         "classyoutlaw",
         "theretrotee",
+        "orionride",
+        "ironpandafit",
+        "tokyotiger",
+        "boldoversize",
     }
-    assert {profile.status for profile in profiles} == {"draft"}
-    assert get_site_style_profile("nerdywave").evidence_level == "restricted_site"
+    assert {
+        profile.id for profile in profiles if profile.status == "active"
+    } == {
+        "geeksoutfit",
+        "guidingcross",
+        "teachersgram",
+        "classyoutlaw",
+        "theretrotee",
+        "orionride",
+        "ironpandafit",
+        "tokyotiger",
+        "boldoversize",
+    }
+    restricted = {profile.id for profile in profiles if profile.evidence_level == "restricted_site"}
+    assert restricted == {"nerdywave", "pagewings", "goodnurselife"}
+    assert all(
+        profile.status == "draft"
+        for profile in profiles
+        if profile.evidence_level == "restricted_site"
+    )
 
 
 def test_motion_actions_are_filtered_by_video_type() -> None:
     profile = get_site_style_profile("geeksoutfit")
 
-    detail_actions = compatible_action_ids("garment_detail", profile.preferred_actions)
+    detail_actions = compatible_action_ids(
+        "garment_detail",
+        profile.preferred_actions,
+        context=ActionContext(
+            confirmed=frozenset({ActionCapability.FRONT_PRINT_VISIBLE})
+        ),
+    )
 
     assert "controlled_walk" not in detail_actions
     assert "print_detail_pause" in detail_actions
@@ -154,10 +188,11 @@ def test_motion_action_library_has_structured_execution_and_risk_metadata() -> N
 
 
 def test_prompt_compiler_rejects_draft_template_for_production() -> None:
+    draft_template = replace(get_video_template("ootd_walk"), status="draft")
     with pytest.raises(ValueError, match="not active"):
         compile_video_plan(
             PromptCompileInput(
-                template=get_video_template("ootd_walk"),
+                template=draft_template,
                 storyboard_count=1,
                 action_intensity="standard",
                 camera_tempo="standard",
@@ -194,10 +229,22 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
 
     assert compiled == repeated
     assert len(compiled.shot_instructions) == 3
+    assert all(shot.instruction in compiled.master_prompt for shot in compiled.shot_instructions)
+    assert "时间轴：" in compiled.master_prompt
+    assert "0-3.33秒（输入图1）" in compiled.master_prompt
+    assert "3.33-6.67秒（输入图2）" in compiled.master_prompt
+    assert "6.67-10秒（输入图3）" in compiled.master_prompt
     assert "动作" in compiled.master_prompt
     assert "镜头" in compiled.master_prompt
     assert "切镜" in compiled.master_prompt
-    assert "保持人物身份一致" in compiled.master_prompt
+    assert "保持人物身份、面部特征和体型一致" in compiled.master_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
+    assert "场景、背景陈设和光线条件不变" in compiled.master_prompt
+    assert "分镜结构、镜头对应关系及素材先后顺序" in compiled.master_prompt
+    assert "皮肤保留真实纹理和自然细节" in compiled.master_prompt
+    assert "避免过度磨皮、塑料感和蜡感" in compiled.master_prompt
+    assert "真实日常UGC记录感" in compiled.master_prompt
+    assert "不呈现精修商业广告感" in compiled.master_prompt
     assert "发型" not in compiled.master_prompt
     assert "五官" not in compiled.master_prompt
     assert "背景里" not in compiled.master_prompt
@@ -246,10 +293,62 @@ def test_variants_have_limited_differences_without_changing_invariants() -> None
     assert len({item.master_prompt for item in variants}) == 4
     assert len({item.invariants for item in variants}) == 1
     assert len({item.negative_prompt for item in variants}) == 1
+    assert len({item.shot_instructions for item in variants}) == 1
+    normalized_prompts = {
+        item.master_prompt.replace(str(item.variant_seed["modifier"]), "<variant>")
+        for item in variants
+    }
+    assert len(normalized_prompts) == 1
+    for item in variants:
+        modifier = str(item.variant_seed["modifier"])
+        assert all(
+            label in modifier
+            for label in ("动作变化：", "神态变化：", "视频风格变化：", "节奏变化：")
+        )
+        assert "自行调整" not in modifier
+        assert "轻微动作组合" not in modifier
+        assert "有限运镜方式" not in modifier
+
+
+def test_all_production_prompt_combinations_fit_kling_limit() -> None:
+    active_profiles = [
+        profile for profile in list_site_style_profiles() if profile.status == "active"
+    ]
+
+    for template in list_video_templates():
+        for profile in active_profiles:
+            for variant_index in range(1, 5):
+                compiled = compile_video_plan(
+                    PromptCompileInput(
+                        template=template,
+                        storyboard_count=template.max_images,
+                        action_intensity="standard",
+                        camera_tempo="standard",
+                        cut_mode="explicit_cuts",
+                        variant_index=variant_index,
+                        site_profile=profile,
+                    )
+                )
+                assert len(compiled.master_prompt) <= 3072
+
+
+def test_restricted_site_profile_cannot_enter_production() -> None:
+    with pytest.raises(ValueError, match="not active"):
+        compile_video_plan(
+            PromptCompileInput(
+                template=get_video_template("ootd_walk"),
+                storyboard_count=1,
+                action_intensity="standard",
+                camera_tempo="standard",
+                cut_mode="explicit_cuts",
+                variant_index=1,
+                site_profile=get_site_style_profile("nerdywave"),
+            )
+        )
 
 
 @pytest.mark.asyncio
-async def test_video_template_api_lists_drafts_without_exposing_a_paid_path() -> None:
+async def test_video_template_api_lists_verified_active_templates() -> None:
     settings = Settings(
         app_env="test",
         database_url="sqlite+aiosqlite:///:memory:",
@@ -275,12 +374,12 @@ async def test_video_template_api_lists_drafts_without_exposing_a_paid_path() ->
         "garment_detail",
         "mood_model",
     ]
-    assert {item["status"] for item in templates} == {"draft"}
-    assert all(item["defaultSettings"]["smartStoryboard"] is False for item in templates)
+    assert {item["status"] for item in templates} == {"active"}
+    assert all(item["defaultSettings"]["smartStoryboard"] is True for item in templates)
 
 
 @pytest.mark.asyncio
-async def test_site_style_profile_api_exposes_evidence_and_draft_status() -> None:
+async def test_site_style_profile_api_exposes_evidence_gated_status() -> None:
     settings = Settings(
         app_env="test",
         database_url="sqlite+aiosqlite:///:memory:",
@@ -301,8 +400,20 @@ async def test_site_style_profile_api_exposes_evidence_and_draft_status() -> Non
 
     assert response.status_code == 200
     profiles = response.json()
-    assert len(profiles) == 8
-    assert {item["status"] for item in profiles} == {"draft"}
+    assert len(profiles) == 12
+    assert {
+        item["id"] for item in profiles if item["status"] == "active"
+    } == {
+        "geeksoutfit",
+        "guidingcross",
+        "teachersgram",
+        "classyoutlaw",
+        "theretrotee",
+        "orionride",
+        "ironpandafit",
+        "tokyotiger",
+        "boldoversize",
+    }
     assert profiles[0]["retrievedAt"] == "2026-07-30"
     assert profiles[0]["cameraLanguage"]
     assert profiles[0]["openingRule"]
@@ -458,6 +569,7 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             assert {variant["kind"] for variant in task["variants"]} == {"STABLE"}
             assert len(task["compiledPlan"]["variants"]) == result_count
             assert task["materialValidation"]["valid"] is True
+            assert task["settings"]["smartStoryboard"] is True
             assert task["paidSubmissionConsentAt"] is not None
         async with app.state.database.session_factory() as session:
             command_count = await session.scalar(
