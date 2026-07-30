@@ -22,8 +22,8 @@ def test_contract_defaults() -> None:
     assert settings.download_concurrency == 4
     assert settings.technical_validation_concurrency == 2
     assert settings.output_retention_days == 7
-    assert settings.kling_provider_backend == "cli"
-    assert settings.kling_api_base_url == "https://api-singapore.klingai.com"
+    assert settings.kling_provider_backend == "api"
+    assert settings.kling_api_base_url == "https://api-beijing.klingai.com"
     assert settings.kling_api_model == "kling-3.0-omni"
     assert settings.kling_api_duration == 10
     assert settings.kling_api_aspect_ratio == "9:16"

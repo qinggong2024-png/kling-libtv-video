@@ -189,7 +189,7 @@ async def test_single_unknown_does_not_pause_other_tasks_or_mutate_global_config
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
-        kling_cli_enabled=True,
+        kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
         _env_file=None,
@@ -201,14 +201,14 @@ async def test_single_unknown_does_not_pause_other_tasks_or_mutate_global_config
                 _risk_attempt(
                     100,
                     user_id=USER_ID,
-                    provider=settings.kling_cli_provider_name,
+                    provider=settings.kling_api_provider_name,
                     status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
                     event_at=now - timedelta(minutes=5),
                 ),
                 _risk_attempt(
                     99,
                     user_id=USER_ID,
-                    provider=settings.kling_cli_provider_name,
+                    provider=settings.kling_api_provider_name,
                     status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
                     event_at=now - timedelta(hours=2),
                 ),
@@ -231,7 +231,7 @@ async def test_single_unknown_does_not_pause_other_tasks_or_mutate_global_config
         assert await provider_claims_allowed(
             session,
             settings,
-            settings.kling_cli_provider_name,
+            settings.kling_api_provider_name,
             user_id=OTHER_USER_ID,
         )
         current = await get_runtime_config(session, settings)
@@ -249,7 +249,7 @@ async def test_two_unknown_variants_of_one_parent_count_as_one_task(tmp_path: Pa
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
-        kling_cli_enabled=True,
+        kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
         _env_file=None,
@@ -272,7 +272,7 @@ async def test_two_unknown_variants_of_one_parent_count_as_one_task(tmp_path: Pa
             variant=variant,
             intent_hash=f"{300 + index:064d}",
             status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
-            provider=settings.kling_cli_provider_name,
+            provider=settings.kling_api_provider_name,
             launch_started_at=now - timedelta(minutes=index),
             updated_at=now - timedelta(minutes=index),
         )
@@ -302,7 +302,7 @@ async def test_user_unknown_circuit_isolated_by_provider_and_user(tmp_path: Path
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
-        kling_cli_enabled=True,
+        kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
         _env_file=None,
@@ -314,7 +314,7 @@ async def test_user_unknown_circuit_isolated_by_provider_and_user(tmp_path: Path
                 _risk_attempt(
                     index,
                     user_id=USER_ID,
-                    provider=settings.kling_cli_provider_name,
+                    provider=settings.kling_api_provider_name,
                     status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
                     event_at=now - timedelta(minutes=offset),
                 )
@@ -334,13 +334,13 @@ async def test_user_unknown_circuit_isolated_by_provider_and_user(tmp_path: Path
         assert not await provider_claims_allowed(
             session,
             settings,
-            settings.kling_cli_provider_name,
+            settings.kling_api_provider_name,
             user_id=USER_ID,
         )
         assert await provider_claims_allowed(
             session,
             settings,
-            settings.kling_cli_provider_name,
+            settings.kling_api_provider_name,
             user_id=OTHER_USER_ID,
         )
         await ensure_provider_submission_allowed(
@@ -373,7 +373,7 @@ async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sa
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
-        kling_cli_enabled=True,
+        kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
         _env_file=None,
@@ -386,7 +386,7 @@ async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sa
                 _risk_attempt(
                     200 + index,
                     user_id=user_id,
-                    provider=settings.kling_cli_provider_name,
+                    provider=settings.kling_api_provider_name,
                     status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
                     event_at=now - timedelta(seconds=index),
                 )
@@ -396,7 +396,7 @@ async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sa
                 _risk_attempt(
                     299,
                     user_id=THIRD_USER_ID,
-                    provider=settings.kling_cli_provider_name,
+                    provider=settings.kling_api_provider_name,
                     status=AttemptStatus.SUCCEEDED,
                     event_at=now,
                 )
@@ -418,7 +418,7 @@ async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sa
         assert not await provider_claims_allowed(
             session,
             settings,
-            settings.kling_cli_provider_name,
+            settings.kling_api_provider_name,
             user_id=uuid.uuid4(),
         )
 
@@ -434,7 +434,7 @@ async def test_manual_paid_pause_blocks_confirmation_but_not_already_queued_clai
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(
-        kling_cli_enabled=True,
+        kling_api_enabled=True,
         paid_submissions_paused=True,
         object_store_mode="local",
         _env_file=None,
@@ -451,7 +451,7 @@ async def test_manual_paid_pause_blocks_confirmation_but_not_already_queued_clai
         assert await provider_claims_allowed(
             session,
             settings,
-            settings.kling_cli_provider_name,
+            settings.kling_api_provider_name,
             user_id=USER_ID,
         )
 

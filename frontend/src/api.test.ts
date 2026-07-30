@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, changePassword, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getKlingConfig, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig } from './api'
+import { ApiError, cancelTask, changePassword, confirmTask, createAdminUser, createKlingElement, createTask, createVideoTask, deactivateAdminUser, deleteKlingElement, getAdminUsers, getKlingConfig, getKlingElements, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveArtifact, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -144,6 +144,29 @@ describe('API request identity and CSRF contracts', () => {
 
     const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
     expect(body.variants).toEqual(['DYNAMIC'])
+  })
+
+  it('binds selected Kling elements when creating a fixed video task', async () => {
+    const task = { id: 'task-fixed' } as Task
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(task, 201))
+
+    await createVideoTask(
+      '固定模板视频',
+      [{ id: 'upload-1' } as UploadResult],
+      {
+        templateId: 'template-1',
+        siteProfileId: 'site-1',
+        elementIds: ['element-1'],
+        resultCount: 1,
+        actionIntensity: 'standard',
+        cameraTempo: 'standard',
+        cutMode: 'explicit_cuts',
+      },
+    )
+
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toMatchObject({
+      elementIds: ['element-1'],
+    })
   })
 
   it('accepts quality-review risk as part of confirming the fixed dual-result generation flow', async () => {
@@ -305,6 +328,42 @@ describe('API request identity and CSRF contracts', () => {
     })
   })
 
+  it('creates, lists, and deletes Kling elements without logging reference payloads', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ id: 'element-1', status: 'submitted' }, 201))
+      .mockResolvedValueOnce(jsonResponse({
+        items: [{ id: 'element-1', status: 'active' }],
+        pageNum: 2,
+        pageSize: 25,
+        total: 1,
+        official: false,
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await createKlingElement(ADMIN_ID, {
+      name: '春季女装模特',
+      description: '正面与侧面参考',
+      imageReferences: ['base64-front', 'base64-side'],
+      voiceId: 'voice-1',
+    })
+    const page = await getKlingElements(ADMIN_ID, 2, 25, false)
+    await deleteKlingElement(ADMIN_ID, 'element-1')
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(String(calls[0][0])).toBe('/api/v1/admin/kling/elements')
+    expect(calls[0][1]?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      name: '春季女装模特',
+      description: '正面与侧面参考',
+      imageReferences: ['base64-front', 'base64-side'],
+      voiceId: 'voice-1',
+    })
+    expect(String(calls[1][0])).toBe('/api/v1/admin/kling/elements?pageNum=2&pageSize=25&official=false')
+    expect(page.total).toBe(1)
+    expect(String(calls[2][0])).toBe('/api/v1/admin/kling/elements/element-1')
+    expect(calls[2][1]?.method).toBe('DELETE')
+  })
+
   it('supports administrator account creation, password reset, and deactivation', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse([]))
@@ -335,5 +394,59 @@ describe('API request identity and CSRF contracts', () => {
     })
     expect(String(calls[3][0])).toBe('/api/v1/admin/users/user-1')
     expect(calls[3][1]?.method).toBe('DELETE')
+  })
+
+  it('preserves a FastAPI string detail message', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ detail: 'administrator role is required' }, 403))
+
+    await expect(getOperations(ADMIN_ID)).rejects.toMatchObject({
+      status: 403,
+      code: 'REQUEST_FAILED',
+      message: 'administrator role is required',
+    })
+  })
+
+  it('formats FastAPI validation detail arrays', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      detail: [{ loc: ['body', 'duration'], msg: 'Input should be less than or equal to 15' }],
+    }, 422))
+
+    await expect(updateKlingConfig(ADMIN_ID, { duration: 16 })).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_FAILED',
+      message: 'duration: Input should be less than or equal to 15',
+    })
+  })
+
+  it('preserves structured error details and retryability', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      detail: {
+        code: 'KLING_API_RATE_LIMITED',
+        message: 'Too many requests',
+        details: { retryAfterSeconds: 30 },
+        retryable: true,
+      },
+    }, 429))
+
+    const error = await getTasks().catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({
+      status: 429,
+      code: 'KLING_API_RATE_LIMITED',
+      message: 'Too many requests',
+      details: { retryAfterSeconds: 30 },
+      retryable: true,
+    })
+  })
+
+  it('uses the shared error parser for artifact downloads', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      detail: 'server copy has expired; use remote restore',
+    }, 410))
+
+    await expect(saveArtifact('artifact-1', 'video.mp4')).rejects.toMatchObject({
+      status: 410,
+      message: 'server copy has expired; use remote restore',
+    })
   })
 })

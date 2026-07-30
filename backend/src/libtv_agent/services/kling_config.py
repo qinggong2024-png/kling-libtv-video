@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from libtv_agent.config import Settings
 from libtv_agent.services.credentials import (
@@ -13,6 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _FORMAT = "libtv-kling-config-v1"
 _DESCRIPTION = "LibTV Kling provider configuration"
+_BASE_URLS = {
+    "https://api-beijing.klingai.com",
+    "https://api-singapore.klingai.com",
+}
 
 
 class _StoredKlingConfig(BaseModel):
@@ -21,11 +26,13 @@ class _StoredKlingConfig(BaseModel):
     format: str = _FORMAT
     backend: str = Field(pattern="^(cli|api)$")
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
+    baseUrl: str = "https://api-beijing.klingai.com"
+    callbackUrl: str | None = Field(default=None, max_length=2048)
     model: str = Field(default="kling-3.0-omni", pattern="^kling-3\\.0-omni$")
     duration: int = Field(default=10, ge=3, le=15)
     aspectRatio: str = Field(default="9:16", pattern="^(16:9|9:16|1:1)$")
     resolution: str = Field(default="1080p", pattern="^(720p|1080p|4k)$")
-    audio: str = Field(default="off", pattern="^(native|off)$")
+    audio: str = Field(default="off", pattern="^(native|original|off)$")
     multiShot: bool = True
     maxSubmitConcurrency: int = Field(default=1, ge=1, le=20)
     maxPollConcurrency: int = Field(default=4, ge=1, le=50)
@@ -36,6 +43,33 @@ class _StoredKlingConfig(BaseModel):
     @classmethod
     def normalize_api_key(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+    @field_validator("baseUrl")
+    @classmethod
+    def validate_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        if normalized not in _BASE_URLS:
+            raise ValueError("baseUrl must be the Beijing or Singapore Kling API endpoint")
+        return normalized
+
+    @field_validator("callbackUrl")
+    @classmethod
+    def validate_callback_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "callbackUrl must be an absolute HTTPS URL without credentials or fragment"
+            )
+        return normalized
 
 
 def kling_admin_config_signature(settings: Settings) -> tuple[int, int] | None:
@@ -48,8 +82,10 @@ def kling_admin_config_signature(settings: Settings) -> tuple[int, int] | None:
 
 def _snapshot(settings: Settings) -> _StoredKlingConfig:
     return _StoredKlingConfig(
-        backend=settings.kling_provider_backend,
+        backend="api",
         apiKey=settings.kling_api_key,
+        baseUrl=settings.kling_api_base_url,
+        callbackUrl=settings.kling_api_callback_url,
         model=settings.kling_api_model,
         duration=settings.kling_api_duration,
         aspectRatio=settings.kling_api_aspect_ratio,
@@ -73,8 +109,13 @@ def _read(path: Path) -> _StoredKlingConfig | None:
 
 
 def _apply(settings: Settings, config: _StoredKlingConfig) -> None:
-    settings.kling_provider_backend = config.backend  # type: ignore[assignment]
+    # `backend=cli` can exist in an older encrypted snapshot. Loading it must
+    # not restore CLI as the default provider; its enable bit is retained only
+    # so already-submitted CLI attempts can still be queried and downloaded.
+    settings.kling_provider_backend = "api"
     settings.kling_api_key = config.apiKey
+    settings.kling_api_base_url = config.baseUrl  # type: ignore[assignment]
+    settings.kling_api_callback_url = config.callbackUrl
     settings.kling_api_model = config.model  # type: ignore[assignment]
     settings.kling_api_duration = config.duration
     settings.kling_api_aspect_ratio = config.aspectRatio  # type: ignore[assignment]
@@ -101,8 +142,10 @@ def kling_admin_config_status(settings: Settings) -> dict[str, object]:
         datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat() if path.is_file() else None
     )
     return {
-        "backend": settings.kling_provider_backend,
+        "backend": "api",
         "apiKeyConfigured": bool(settings.kling_api_key),
+        "baseUrl": settings.kling_api_base_url,
+        "callbackUrl": settings.kling_api_callback_url,
         "model": settings.kling_api_model,
         "duration": settings.kling_api_duration,
         "aspectRatio": settings.kling_api_aspect_ratio,
@@ -125,6 +168,8 @@ def update_kling_admin_config(
     allowed = {
         "backend",
         "apiKey",
+        "baseUrl",
+        "callbackUrl",
         "model",
         "duration",
         "aspectRatio",
@@ -138,6 +183,11 @@ def update_kling_admin_config(
     unknown = set(updates) - allowed
     if unknown:
         raise ValueError("unsupported Kling administrator configuration")
+    if "backend" in updates and updates["backend"] != "api":
+        raise ValueError(
+            "new production work is fixed to the Kling official API; "
+            "CLI is available only for historical attempt recovery"
+        )
     api_key = updates.get("apiKey")
     if isinstance(api_key, str):
         api_key = api_key.strip()
@@ -147,13 +197,15 @@ def update_kling_admin_config(
 
     current = _read(settings.kling_admin_config_file) or _snapshot(settings)
     values = current.model_dump()
+    values["backend"] = "api"
     enabled = updates.pop("enabled", None)
     values.update(updates)
-    selected_backend = str(values["backend"])
     if enabled is not None:
-        values["apiEnabled" if selected_backend == "api" else "cliEnabled"] = enabled
+        values["apiEnabled"] = enabled
+    if updates.get("apiKey", object()) is None:
+        values["apiEnabled"] = False
     updated = _StoredKlingConfig.model_validate(values)
-    if updated.backend == "api" and updated.apiEnabled and not updated.apiKey:
+    if updated.apiEnabled and not updated.apiKey:
         raise ValueError("an API key is required before enabling the Kling API Provider")
     write_secure_payload_atomic(
         settings.kling_admin_config_file,

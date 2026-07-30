@@ -177,10 +177,7 @@ def compile_video_plan(
     profile_negatives = value.site_profile.forbidden_mismatches if value.site_profile else ()
     negative_prompt = "；".join((*template.prompt_rules.negatives, *profile_negatives))
     timeline = "；".join(
-        (
-            f"{shot.start_seconds:g}-{shot.end_seconds:g}秒"
-            f"（输入图{shot.order}）：{shot.instruction}"
-        )
+        (f"{shot.start_seconds:g}-{shot.end_seconds:g}秒（输入图{shot.order}）：{shot.instruction}")
         for shot in shots
     )
     master_prompt = "。".join(
@@ -196,10 +193,7 @@ def compile_video_plan(
             tempo.instruction,
             style_instruction,
             variant_modifier,
-            (
-                "所有未明确允许变化的输入事实永久不变；四个版本只允许改变动作、神态、"
-                "视频风格和节奏"
-            ),
+            ("所有未明确允许变化的输入事实永久不变；四个版本只允许改变动作、神态、视频风格和节奏"),
             "皮肤保留真实纹理和自然细节，避免过度磨皮、塑料感和蜡感",
             "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
             "；".join(invariants),
@@ -209,8 +203,7 @@ def compile_video_plan(
     )
     if len(master_prompt) > _MAX_KLING_PROMPT_CHARS:
         raise ValueError(
-            f"compiled prompt exceeds Kling limit: {len(master_prompt)} > "
-            f"{_MAX_KLING_PROMPT_CHARS}"
+            f"compiled prompt exceeds Kling limit: {len(master_prompt)} > {_MAX_KLING_PROMPT_CHARS}"
         )
     return CompiledVideoPlan(
         template_id=template.id,

@@ -168,14 +168,15 @@ def test_material_validation_marks_unknown_action_facts_for_visual_check() -> No
 
     assert result.valid
     assert result.vision_check_required
-    assert {warning.code for warning in result.warnings} == {
-        "ACTION_REQUIREMENTS_UNKNOWN"
-    }
-    assert compatible_action_ids(
-        "ootd_walk",
-        ("back_reveal",),
-        context=result.action_context,
-    ) == ()
+    assert {warning.code for warning in result.warnings} == {"ACTION_REQUIREMENTS_UNKNOWN"}
+    assert (
+        compatible_action_ids(
+            "ootd_walk",
+            ("back_reveal",),
+            context=result.action_context,
+        )
+        == ()
+    )
 
 
 def test_material_validation_exposes_confirmed_context_for_filtering() -> None:

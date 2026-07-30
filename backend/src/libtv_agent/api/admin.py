@@ -87,15 +87,77 @@ class KlingConfigUpdateRequest(BaseModel):
     backend: str | None = Field(default=None, pattern="^(cli|api)$")
     apiKey: str | None = None
     clearApiKey: bool = False
+    baseUrl: str | None = Field(default=None, max_length=2048)
+    callbackUrl: str | None = Field(default=None, max_length=2048)
+    clearCallbackUrl: bool = False
     model: str | None = Field(default=None, pattern="^kling-3\\.0-omni$")
     duration: int | None = Field(default=None, ge=3, le=15)
     aspectRatio: str | None = Field(default=None, pattern="^(16:9|9:16|1:1)$")
     resolution: str | None = Field(default=None, pattern="^(720p|1080p|4k)$")
-    audio: str | None = Field(default=None, pattern="^(native|off)$")
+    audio: str | None = Field(default=None, pattern="^(native|original|off)$")
     multiShot: bool | None = None
     maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=20)
     maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
     enabled: bool | None = None
+
+
+class KlingErrorDetail(BaseModel):
+    code: str
+    message: str
+    retryable: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class KlingErrorResponse(BaseModel):
+    detail: str | KlingErrorDetail
+
+
+class KlingConfigResponse(BaseModel):
+    backend: str
+    apiKeyConfigured: bool
+    baseUrl: str
+    callbackUrl: str | None
+    model: str
+    duration: int
+    aspectRatio: str
+    resolution: str
+    audio: str
+    multiShot: bool
+    maxSubmitConcurrency: int
+    maxPollConcurrency: int
+    enabled: bool
+    provider: str
+    updatedAt: str | None
+
+
+class KlingStatusResponse(BaseModel):
+    enabled: bool
+    backend: str
+    provider: str
+    status: str
+    available: bool
+    authenticated: bool
+    reason: str | None
+    cliVersion: str | None
+    checkedAt: str | None
+    supportedModels: list[str]
+    supportedTools: list[str]
+    videoDurations: list[str]
+    aspectRatios: list[str]
+    imageInputLimit: int
+    supportsTailImage: bool
+    supportsMultipleImages: bool
+    supportsWatermarkFreeOutput: bool
+    verificationMode: str
+    verificationMayGenerateOrCharge: bool
+
+
+KLING_ADMIN_ERROR_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"model": KlingErrorResponse},
+    status.HTTP_403_FORBIDDEN: {"model": KlingErrorResponse},
+    status.HTTP_409_CONFLICT: {"model": KlingErrorResponse},
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": KlingErrorResponse},
+}
 
 
 def _refresh_kling_config_from_disk(request: Request) -> None:
@@ -109,20 +171,28 @@ def _refresh_kling_config_from_disk(request: Request) -> None:
     )
 
 
-@router.get("/kling/config")
-async def read_kling_config(actor: Actor, request: Request) -> dict[str, object]:
+@router.get(
+    "/kling/config",
+    response_model=KlingConfigResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
+async def read_kling_config(actor: Actor, request: Request) -> KlingConfigResponse:
     require_admin(actor.role)
     _refresh_kling_config_from_disk(request)
-    return kling_admin_config_status(request.app.state.settings)
+    return KlingConfigResponse.model_validate(kling_admin_config_status(request.app.state.settings))
 
 
-@router.patch("/kling/config")
+@router.patch(
+    "/kling/config",
+    response_model=KlingConfigResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
 async def patch_kling_config(
     payload: KlingConfigUpdateRequest,
     actor: Actor,
     session: Session,
     request: Request,
-) -> dict[str, object]:
+) -> KlingConfigResponse:
     require_credential_admin(actor.role)
     _refresh_kling_config_from_disk(request)
     if payload.apiKey is not None and payload.clearApiKey:
@@ -133,16 +203,26 @@ async def patch_kling_config(
                 "message": "apiKey and clearApiKey cannot be used together",
             },
         )
+    if payload.callbackUrl is not None and payload.clearCallbackUrl:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "callbackUrl and clearCallbackUrl cannot be used together",
+            },
+        )
     updates = {
         name: value
         for name, value in payload.model_dump(
-            exclude={"clearApiKey"},
+            exclude={"clearApiKey", "clearCallbackUrl"},
             exclude_unset=True,
         ).items()
         if value is not None
     }
     if payload.clearApiKey:
         updates["apiKey"] = None
+    if payload.clearCallbackUrl:
+        updates["callbackUrl"] = None
     if not updates:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -174,7 +254,7 @@ async def patch_kling_config(
         )
     )
     await session.commit()
-    return result
+    return KlingConfigResponse.model_validate(result)
 
 
 def _kling_status_payload(request: Request) -> dict[str, object]:
@@ -183,7 +263,7 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
     settings = request.app.state.settings
     return {
         "enabled": settings.kling_enabled,
-        "backend": settings.kling_provider_backend,
+        "backend": "api",
         "provider": request.app.state.kling_adapter.get_provider_name(),
         "status": availability.status,
         "available": availability.available,
@@ -203,11 +283,17 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
         "supportsWatermarkFreeOutput": (
             capabilities.supports_watermark_free_output if capabilities else False
         ),
+        "verificationMode": "official_read_only_task_query",
+        "verificationMayGenerateOrCharge": False,
     }
 
 
-@router.get("/kling/status")
-async def read_kling_status(actor: Actor, request: Request) -> dict[str, object]:
+@router.get(
+    "/kling/status",
+    response_model=KlingStatusResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
+async def read_kling_status(actor: Actor, request: Request) -> KlingStatusResponse:
     require_admin(actor.role)
     _refresh_kling_config_from_disk(request)
     availability = await request.app.state.kling_adapter.check_availability()
@@ -216,13 +302,17 @@ async def read_kling_status(actor: Actor, request: Request) -> dict[str, object]
             await request.app.state.kling_adapter.refresh_capabilities()
         except KlingCliError:
             pass
-    return _kling_status_payload(request)
+    return KlingStatusResponse.model_validate(_kling_status_payload(request))
 
 
-@router.post("/kling/capabilities/refresh")
+@router.post(
+    "/kling/capabilities/refresh",
+    response_model=KlingStatusResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
 async def refresh_kling_capabilities(
     actor: Actor, session: Session, request: Request
-) -> dict[str, object]:
+) -> KlingStatusResponse:
     require_admin(actor.role)
     try:
         await request.app.state.kling_adapter.refresh_capabilities(force=True)
@@ -243,7 +333,7 @@ async def refresh_kling_capabilities(
         )
     )
     await session.commit()
-    return _kling_status_payload(request)
+    return KlingStatusResponse.model_validate(_kling_status_payload(request))
 
 
 async def _record_kling_auth_event(
@@ -268,10 +358,14 @@ async def _record_kling_auth_event(
     await session.commit()
 
 
-@router.post("/kling/login")
+@router.post(
+    "/kling/login",
+    response_model=KlingStatusResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
 async def login_kling_account(
     actor: Actor, session: Session, request: Request
-) -> dict[str, object]:
+) -> KlingStatusResponse:
     require_admin(actor.role)
     try:
         await request.app.state.kling_adapter.login()
@@ -287,13 +381,17 @@ async def login_kling_account(
         action="KLING_ACCOUNT_LOGGED_IN",
         reason="administrator completed Kling Provider authentication",
     )
-    return _kling_status_payload(request)
+    return KlingStatusResponse.model_validate(_kling_status_payload(request))
 
 
-@router.post("/kling/logout")
+@router.post(
+    "/kling/logout",
+    response_model=KlingStatusResponse,
+    responses=KLING_ADMIN_ERROR_RESPONSES,
+)
 async def logout_kling_account(
     actor: Actor, session: Session, request: Request
-) -> dict[str, object]:
+) -> KlingStatusResponse:
     require_admin(actor.role)
     try:
         await request.app.state.kling_adapter.logout()
@@ -309,7 +407,7 @@ async def logout_kling_account(
         action="KLING_ACCOUNT_LOGGED_OUT",
         reason="administrator logged out the Kling Provider account",
     )
-    return _kling_status_payload(request)
+    return KlingStatusResponse.model_validate(_kling_status_payload(request))
 
 
 @router.get("/credentials")

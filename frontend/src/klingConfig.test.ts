@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
+  KLING_AUDIO_OPTIONS,
   validateKlingConfig,
 } from './klingConfig'
 import type { KlingConfig } from './types'
@@ -9,6 +10,8 @@ import type { KlingConfig } from './types'
 const config: KlingConfig = {
   backend: 'api',
   apiKeyConfigured: false,
+  baseUrl: 'https://api-beijing.klingai.com',
+  callbackUrl: null,
   model: 'kling-3.0-omni',
   duration: 10,
   aspectRatio: '9:16',
@@ -22,11 +25,28 @@ const config: KlingConfig = {
 }
 
 describe('Kling provider configuration', () => {
+  it('offers every official Omni audio mode', () => {
+    expect(KLING_AUDIO_OPTIONS.map((option) => option.value)).toEqual([
+      'off',
+      'native',
+      'original',
+    ])
+  })
+
   it('never places the saved API key in the editable draft', () => {
     const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
 
     expect(draft.apiKey).toBe('')
     expect(draft.clearApiKey).toBe(false)
+  })
+
+  it('migrates a legacy CLI snapshot to the production API channel', () => {
+    const draft = createKlingConfigDraft({ ...config, backend: 'cli' })
+
+    expect(draft.backend).toBe('api')
+    expect(buildKlingConfigPatch({ ...draft, backend: 'cli' })).toMatchObject({
+      backend: 'api',
+    })
   })
 
   it('blocks an enabled API provider until a key is available', () => {
@@ -58,5 +78,31 @@ describe('Kling provider configuration', () => {
     expect(validateKlingConfig({ ...draft, duration: 16 }, true)).toContain('3–15')
     expect(validateKlingConfig({ ...draft, maxSubmitConcurrency: 0 }, true)).toContain('1–20')
     expect(validateKlingConfig({ ...draft, maxPollConcurrency: 51 }, true)).toContain('1–50')
+  })
+
+  it('validates API and optional callback URLs', () => {
+    const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
+
+    expect(validateKlingConfig({ ...draft, baseUrl: '' }, true)).toContain('Base URL')
+    expect(validateKlingConfig({ ...draft, baseUrl: 'http://api.example.com' }, true)).toContain('Base URL')
+    expect(validateKlingConfig({ ...draft, callbackUrl: 'https://example.com/kling/callback' }, true)).toBe('')
+    expect(validateKlingConfig({ ...draft, callbackUrl: 'not-a-url' }, true)).toContain('回调 URL')
+  })
+
+  it('normalizes API and callback URLs in the patch', () => {
+    const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
+
+    expect(buildKlingConfigPatch({
+      ...draft,
+      baseUrl: ' https://api-singapore.klingai.com/ ',
+      callbackUrl: ' https://example.com/kling/callback ',
+    })).toMatchObject({
+      baseUrl: 'https://api-singapore.klingai.com',
+      callbackUrl: 'https://example.com/kling/callback',
+    })
+    expect(buildKlingConfigPatch({ ...draft, callbackUrl: ' ' })).toMatchObject({
+      clearCallbackUrl: true,
+    })
+    expect(buildKlingConfigPatch({ ...draft, callbackUrl: ' ' })).not.toHaveProperty('callbackUrl')
   })
 })

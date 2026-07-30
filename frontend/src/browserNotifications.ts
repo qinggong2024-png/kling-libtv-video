@@ -39,6 +39,20 @@ export function taskNotificationForTransition(previousPhase: string | undefined,
       tag: `task:${task.id}:partially-completed`,
     }
   }
+  if (task.phase === 'ACTION_REQUIRED') {
+    return {
+      title: '视频任务需要处理',
+      body: `“${task.title}”生成时遇到问题，请返回查看原因。`,
+      tag: `task:${task.id}:action-required`,
+    }
+  }
+  if (task.phase === 'CANCELLED') {
+    return {
+      title: '视频任务已取消',
+      body: `“${task.title}”已停止执行。`,
+      tag: `task:${task.id}:cancelled`,
+    }
+  }
   return null
 }
 
@@ -47,4 +61,6 @@ export function shouldCloseTaskNotification(phase: string | undefined, taskIsOpe
   return phase !== 'AWAITING_CONFIRMATION'
     && phase !== 'DELIVERABLE'
     && phase !== 'PARTIALLY_DELIVERABLE'
+    && phase !== 'ACTION_REQUIRED'
+    && phase !== 'CANCELLED'
 }

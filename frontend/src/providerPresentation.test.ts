@@ -38,4 +38,16 @@ describe('provider presentation', () => {
     )
     expect(variantExecutionMessage({ ...base, provider: 'libtv' })).toContain('--run')
   })
+
+  it('shows actionable provider failure details', () => {
+    expect(variantExecutionMessage({
+      generationStatus: 'FAILED',
+      downloadStatus: 'FAILED',
+      downloadArtifactId: null,
+      errorCode: 'KLING_API_RATE_LIMITED',
+      providerErrorMessage: 'Too many requests',
+      providerErrorRetryable: true,
+      provider: 'kling_official_api',
+    })).toBe('Kling API：KLING_API_RATE_LIMITED · Too many requests · 可以重试')
+  })
 })

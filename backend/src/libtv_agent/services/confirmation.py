@@ -44,6 +44,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 
+def _kling_paid_boundary(provider: str, settings: Settings) -> str:
+    if provider == settings.kling_api_provider_name:
+        return "Kling official API omni video generation"
+    if provider == settings.kling_cli_provider_name:
+        return "Kling official CLI historical recovery"
+    return f"{provider} video generation"
+
+
 async def confirm_task(
     session: AsyncSession,
     adapter: LibTVAdapter,
@@ -184,6 +192,7 @@ async def confirm_task(
         if variant is None:
             raise RuntimeControlBlockedError("VARIANT_MISSING", "prepared variant is unavailable")
         if is_kling:
+            paid_boundary = _kling_paid_boundary(attempt.provider, settings)
             parameter_summary = {
                 "provider": attempt.provider,
                 "model": attempt.provider_model,
@@ -199,18 +208,14 @@ async def confirm_task(
                 "multiShot": settings.kling_api_multi_shot,
             }
             preview: dict[str, object] = {
-                "paidBoundary": (
-                    "POST /omni-video/kling-3.0-omni"
-                    if settings.kling_provider_backend == "api"
-                    else "kling image_to_video"
-                ),
+                "paidBoundary": paid_boundary,
                 "parameterSummary": parameter_summary,
                 "promptHash": variant.prompt_hash,
                 "estimatedGenerationCount": 1,
-                "authorized": settings.kling_enabled,
+                "authorized": settings.kling_provider_submission_enabled(attempt.provider),
                 "costRisk": "Submitting this request consumes Kling credits.",
             }
-            if settings.kling_provider_backend == "api":
+            if attempt.provider == settings.kling_api_provider_name:
                 preview["httpContract"] = {
                     "method": "POST",
                     "baseUrl": settings.kling_api_base_url,
@@ -218,15 +223,7 @@ async def confirm_task(
                     "authentication": "Bearer <redacted>",
                 }
             else:
-                preview["argvContract"] = [
-                    settings.kling_cli_executable,
-                    "image_to_video",
-                    "--model",
-                    attempt.provider_model or "<runtime-model>",
-                    "--image",
-                    "<local-storyboard>",
-                    "<prompt>",
-                ]
+                preview["recoveryOnly"] = True
             previews.append(preview)
         else:
             previews.append(
@@ -246,7 +243,7 @@ async def confirm_task(
         {
             "taskId": str(task.id),
             "paidGenerationBoundary": (
-                "kling image_to_video"
+                str(previews[0]["paidBoundary"])
                 if is_kling
                 else "libtv node <nodeKey> --project <projectUuid> --run"
             ),

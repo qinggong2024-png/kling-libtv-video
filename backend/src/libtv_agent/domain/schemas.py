@@ -95,6 +95,7 @@ class VideoTaskCreate(ApiModel):
     client_task_id: str = Field(min_length=1, max_length=160)
     title: str = Field(min_length=1, max_length=160)
     storyboards: list[StoryboardInput] = Field(min_length=1, max_length=7)
+    element_ids: list[str] = Field(default_factory=list, max_length=7)
     template_id: str = Field(min_length=1, max_length=80)
     site_profile_id: str = Field(min_length=1, max_length=80)
     result_count: int = Field(default=1, ge=1, le=4)
@@ -112,6 +113,17 @@ class VideoTaskCreate(ApiModel):
         upload_ids = [item.upload_id for item in self.storyboards]
         if len(set(upload_ids)) != len(upload_ids):
             raise ValueError("storyboard uploads must be unique")
+        normalized_element_ids = [element_id.strip() for element_id in self.element_ids]
+        if any(not element_id or len(element_id) > 160 for element_id in normalized_element_ids):
+            raise ValueError("element IDs must be non-empty and at most 160 characters")
+        if len(set(normalized_element_ids)) != len(normalized_element_ids):
+            raise ValueError("element IDs must be unique")
+        if len(self.storyboards) + len(normalized_element_ids) > 7:
+            raise ValueError(
+                "storyboards and element IDs together cannot exceed the Kling Omni "
+                "7-reference limit"
+            )
+        self.element_ids = normalized_element_ids
         return self
 
 
@@ -161,6 +173,9 @@ class VariantRead(ApiModel):
     validation_status: ValidationStatus
     download_artifact_id: uuid.UUID | None = None
     error_code: str | None = None
+    provider_error_message: str | None = None
+    provider_error_details: dict[str, Any] | None = None
+    provider_error_retryable: bool | None = None
     provider: str
     provider_task_id: str | None = None
     provider_status: str | None = None

@@ -49,6 +49,7 @@ import { createPortal } from 'react-dom'
 import {
   ApiError,
   analyzeTask,
+  cancelTask,
   changePassword,
   confirmTask,
   createAdminUser,
@@ -74,11 +75,10 @@ import {
   getAdminUsers,
   getLibTVAccountStatus,
   getKlingConfig,
+  getKlingElements,
   getKlingStatus,
   getOperations,
   getPersonalPromptAutoConfirmation,
-  loginKling,
-  logoutKling,
   startLibTVLogin,
   updateAdminCredentials,
   updateKlingConfig,
@@ -94,8 +94,9 @@ import {
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingStatus, LibTVAccountStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, LibTVAccountStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
+import { KlingElementsPanel } from './KlingElementsPanel'
 import { OperationsPanel } from './OperationsPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
 import { formatRiskFlags } from './riskLabels'
@@ -116,6 +117,7 @@ import {
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
+  KLING_BASE_URL_OPTIONS,
   KLING_ASPECT_RATIO_OPTIONS,
   KLING_AUDIO_OPTIONS,
   KLING_MODEL_OPTIONS,
@@ -127,7 +129,6 @@ import type { KlingConfigDraft } from './klingConfig'
 type View = 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type GenerationProvider = 'libtv' | 'kling'
-type OutputVariantSelection = 'stable' | 'dynamic' | 'both'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
 type RemixSeed = { id: string; storyboards: File[]; products: File[]; requirement?: string }
@@ -142,17 +143,11 @@ type InPageTaskToast = {
 }
 
 const UPLOAD_CONCURRENCY = 4
-const OUTPUT_VARIANT_STORAGE_KEY = 'default-output-variants'
 const DISMISSED_ATTENTION_STORAGE_KEY = 'dismissed-home-attention'
 const DISMISSED_ATTENTION_ITEMS_STORAGE_KEY = 'dismissed-home-attention-items'
 
 function browserNotificationPermission(): NotificationPermission | 'unsupported' {
   return 'Notification' in window ? Notification.permission : 'unsupported'
-}
-
-function readOutputVariantSelection(): OutputVariantSelection {
-  const stored = localStorage.getItem(OUTPUT_VARIANT_STORAGE_KEY)
-  return stored === 'stable' || stored === 'dynamic' || stored === 'both' ? stored : 'both'
 }
 
 function taskPrompt(task: Task, kind: VariantKind): string {
@@ -209,7 +204,7 @@ const analysisStageLabels: Record<string, string> = {
   QUEUED: '等待后台分析',
   PREPARING_IMAGES: '正在准备图片',
   PROVIDER_RUNNING: '大模型正在分析素材',
-  VALIDATING: '正在校验 A/B 方案',
+  VALIDATING: '正在校验视频方案',
 }
 
 const statusMeta: Record<string, { label: string; tone: StatusTone }> = {
@@ -217,8 +212,11 @@ const statusMeta: Record<string, { label: string; tone: StatusTone }> = {
   ANALYZING: { label: '正在分析图片', tone: 'active' },
   AWAITING_CONFIRMATION: { label: '等待确认方案', tone: 'warning' },
   PREPARING: { label: '正在准备生成', tone: 'active' },
+  WAITING_FOR_SEAL: { label: '正在锁定生成任务', tone: 'active' },
   QUEUED: { label: '等待生成', tone: 'active' },
   GENERATING: { label: '正在生成视频', tone: 'active' },
+  DOWNLOADING: { label: '正在下载成品', tone: 'active' },
+  VALIDATING: { label: '正在校验成品', tone: 'active' },
   PARTIALLY_DELIVERABLE: { label: '部分完成', tone: 'warning' },
   DELIVERABLE: { label: '已完成', tone: 'success' },
   ACTION_REQUIRED: { label: '任务需要处理', tone: 'danger' },
@@ -232,12 +230,20 @@ const statusMeta: Record<string, { label: string; tone: StatusTone }> = {
   READY: { label: '可下载', tone: 'success' },
 }
 
+function variantKindShortLabel(kind: VariantKind) {
+  return kind === 'STABLE' ? '稳' : '动'
+}
+
+function variantKindDisplayName(kind: VariantKind) {
+  return kind === 'STABLE' ? '稳定展示' : '动态广告'
+}
+
 function variantShortLabel(variant: Variant) {
-  return variant.variantIndex ? String(variant.variantIndex) : variant.kind === 'STABLE' ? 'A' : 'B'
+  return variant.variantIndex ? String(variant.variantIndex) : variantKindShortLabel(variant.kind)
 }
 
 function variantDisplayName(variant: Variant) {
-  return variant.variantIndex ? `结果 ${variant.variantIndex}` : variant.kind === 'STABLE' ? '稳定展示' : '动态广告'
+  return variant.variantIndex ? `结果 ${variant.variantIndex}` : variantKindDisplayName(variant.kind)
 }
 
 function variantLabelClass(variant: Variant) {
@@ -246,6 +252,18 @@ function variantLabelClass(variant: Variant) {
 
 function variantFileToken(variant: Variant) {
   return variant.variantKey ?? variant.kind.toLowerCase()
+}
+
+function variantErrorMessage(variant: Variant) {
+  return variant.errorMessage ?? variant.providerErrorMessage ?? null
+}
+
+function variantErrorRetryable(variant: Variant) {
+  return variant.retryable ?? variant.providerErrorRetryable ?? null
+}
+
+function variantErrorDetails(variant: Variant) {
+  return variant.errorDetails ?? variant.providerErrorDetails ?? null
 }
 
 function formatTime(value: string) {
@@ -444,7 +462,7 @@ function taskFailureMessage(task: Task): string {
     ANALYSIS_CANCELLED: '上一次后台分析意外中断，素材仍然保留。',
     ANALYSIS_PROVIDER_FAILED: '分析服务暂时没有返回有效结果，素材仍然保留。',
     ANALYSIS_STALE_RECOVERED: '系统检测到后台分析长时间没有更新，已停止等待旧任务。',
-    ANALYSIS_SCHEMA_INVALID: '分析结果不完整，无法生成可确认的 A/B 方案。',
+    ANALYSIS_SCHEMA_INVALID: '分析结果不完整，无法生成可确认的视频方案。',
   }
   return messages[task.phaseReasonCode ?? ''] ?? '任务遇到问题，需要查看技术信息后处理。'
 }
@@ -696,14 +714,18 @@ function ProductionComposer({ seed, onCreated, system }: {
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: createUuid(), file })) ?? [])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
   const [profiles, setProfiles] = useState<SiteStyleProfileSummary[]>([])
+  const [elements, setElements] = useState<KlingElement[]>([])
   const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
   const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
+  const [elementId, setElementId] = useState('')
   const [resultCount, setResultCount] = useState(1)
   const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
   const [cameraTempo, setCameraTempo] = useState<'slow' | 'standard' | 'fast'>('standard')
   const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
+  const [elementCatalogError, setElementCatalogError] = useState('')
+  const [elementsLoading, setElementsLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('正在上传素材')
   const [progress, setProgress] = useState(0)
@@ -714,9 +736,10 @@ function ProductionComposer({ seed, onCreated, system }: {
   const [preview, setPreview] = useState<{ file: File; label: string } | null>(null)
   const storyboardInputRef = useRef<HTMLInputElement>(null)
   const resetTimerRef = useRef<number | null>(null)
+  const uploadAbortRef = useRef<AbortController | null>(null)
   const providerAvailable = Boolean(system?.kling.available && system.kling.authenticated)
-  const klingInputsSupported = storyboards.length <= (system?.kling.imageInputLimit ?? 0)
-    || system?.kling.fallbackMode === 'first_last_frame'
+  const klingInputsSupported = storyboards.length + (elementId ? 1 : 0)
+    <= (system?.kling.imageInputLimit ?? 0)
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
   const selectedProfile = profiles.find((item) => item.id === siteProfileId) ?? null
   const productionReady = selectedTemplate?.status === 'active' && selectedProfile?.status === 'active'
@@ -739,8 +762,29 @@ function ProductionComposer({ seed, onCreated, system }: {
       .finally(() => { if (active) setCatalogLoading(false) })
     return () => { active = false }
   }, [])
+  useEffect(() => {
+    const actorId = system?.sharedAuthentication ? null : system?.phaseOneAdminId ?? null
+    if (!system || (!system.sharedAuthentication && !actorId)) {
+      return
+    }
+    const controller = new AbortController()
+    void getKlingElements(actorId, 1, 100, false, controller.signal)
+      .then((page) => {
+        if (controller.signal.aborted) return
+        setElements(page.items.filter((element) => ['active', 'succeeded'].includes(element.status.toLowerCase())))
+        setElementCatalogError('')
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setElementCatalogError(cause instanceof ApiError ? cause.message : '主体列表加载失败')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setElementsLoading(false)
+      })
+    return () => controller.abort()
+  }, [system])
   useEffect(() => () => {
     if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current)
+    uploadAbortRef.current?.abort()
   }, [])
   const addFiles = (files: File[]) => {
     setSubmittedNotice('')
@@ -785,6 +829,10 @@ function ProductionComposer({ seed, onCreated, system }: {
     setError('')
     setNotice('')
     setSubmittedNotice('')
+    const uploadController = new AbortController()
+    uploadAbortRef.current?.abort()
+    uploadAbortRef.current = uploadController
+    let uploadFailure: unknown
     try {
       const uploadStartedAt = performance.now()
       let completedUploads = 0
@@ -792,11 +840,19 @@ function ProductionComposer({ seed, onCreated, system }: {
         storyboards,
         UPLOAD_CONCURRENCY,
         async (material) => {
-          const uploaded = await uploadStoryboard(material.file)
-          completedUploads += 1
-          setStage(`正在上传分镜 ${completedUploads}/${storyboards.length}`)
-          setProgress(Math.round((completedUploads / storyboards.length) * 52))
-          return uploaded
+          try {
+            const uploaded = await uploadStoryboard(material.file, uploadController.signal)
+            completedUploads += 1
+            setStage(`正在上传分镜 ${completedUploads}/${storyboards.length}`)
+            setProgress(Math.round((completedUploads / storyboards.length) * 52))
+            return uploaded
+          } catch (cause) {
+            if (uploadFailure === undefined) {
+              uploadFailure = cause
+              uploadController.abort(cause)
+            }
+            throw cause
+          }
         },
       )
       setStage('正在编译模板并执行可灵预检')
@@ -806,7 +862,7 @@ function ProductionComposer({ seed, onCreated, system }: {
       const task = await createVideoTask(
         `${baseName} · ${formatTime(new Date().toISOString())}`,
         uploads,
-        { templateId, siteProfileId, resultCount, actionIntensity, cameraTempo, cutMode },
+        { templateId, siteProfileId, elementIds: elementId ? [elementId] : [], resultCount, actionIntensity, cameraTempo, cutMode },
         sourceUploadDurationSeconds,
       )
       setProgress(100)
@@ -828,8 +884,10 @@ function ProductionComposer({ seed, onCreated, system }: {
       localStorage.setItem('fixed-video-template', templateId)
       localStorage.setItem('fixed-site-profile', siteProfileId)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '素材提交失败，请检查图片后重试')
+      const failure = uploadFailure ?? cause
+      setError(failure instanceof Error ? failure.message : '素材提交失败，请检查图片后重试')
     } finally {
+      if (uploadAbortRef.current === uploadController) uploadAbortRef.current = null
       setBusy(false)
       setProgress(0)
     }
@@ -856,6 +914,7 @@ function ProductionComposer({ seed, onCreated, system }: {
       <div className="fixed-workflow-options">
         <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
         <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
+        <label className="catalog-field"><span>可灵主体</span><select value={elementId} disabled={formLocked || elementsLoading} onChange={(event) => setElementId(event.target.value)}><option value="">不绑定主体</option>{elements.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</select><small>{elementCatalogError || (elementsLoading ? '正在加载主体' : elementId ? '生成时绑定此主体' : '可选；在管理中心创建')}</small></label>
         <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
       </div>
       <details className="advanced-settings">
@@ -910,7 +969,7 @@ function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen: () => 
   const unknown = Boolean(unknownVariant)
   const isWaiting = task.phase === 'AWAITING_CONFIRMATION'
   const reason = task.phase === 'AWAITING_CONFIRMATION'
-    ? '等待确认 A/B 动作方案'
+    ? '等待确认视频动作方案'
     : unknown
       ? variantExecutionMessage(unknownVariant!, task.generationProvider)
       : isAnalysisFailure(task)
@@ -951,6 +1010,8 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
   const [feedbackMessage, setFeedbackMessage] = useState('')
   const [animatedFeedback, setAnimatedFeedback] = useState<FeedbackValue | null>(null)
   const [feedbackPanel, setFeedbackPanel] = useState<FeedbackValue | null>(null)
+  const [downloadBusy, setDownloadBusy] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
   const feedbackAnchorRef = useRef<HTMLDivElement>(null)
   const submitFeedback = async (value: FeedbackValue) => {
     const nextValue = variant.feedback === value ? null : value
@@ -985,6 +1046,18 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       setFeedbackBusy(null)
     }
   }
+  const download = async () => {
+    if (!variant.downloadArtifactId) return
+    setDownloadBusy(true)
+    setDownloadError('')
+    try {
+      await saveArtifact(variant.downloadArtifactId, `${task.title}-${variantFileToken(variant)}.mp4`)
+    } catch (cause) {
+      setDownloadError(cause instanceof Error ? cause.message : '视频下载失败，请稍后重试')
+    } finally {
+      setDownloadBusy(false)
+    }
+  }
   return <article className={`result-card${feedbackPanel ? ' has-feedback-panel' : ''}`}>
     <button className="result-cover" onClick={ready ? onPlay : onOpen} aria-label={ready ? `播放 ${task.title}` : `查看 ${task.title}`}>
       {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
@@ -1010,9 +1083,9 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       /> : null}
     </div> : null}
     <div className="result-actions">
-      {ready ? <><button className="icon-button" onClick={onPlay} aria-label="播放视频" title="播放"><Play size={17} /></button><button className="icon-button" onClick={() => void saveArtifact(variant.downloadArtifactId!, `${task.title}-${variantFileToken(variant)}.mp4`)} aria-label="下载视频" title="下载"><Download size={17} /></button><button className="icon-button" onClick={onOpen} aria-label="查看任务详情" title="查看任务详情"><Eye size={17} /></button></> : <button className="compact-button" onClick={onOpen}>查看状态</button>}
+      {ready ? <><button className="icon-button" onClick={onPlay} aria-label="播放视频" title="播放"><Play size={17} /></button><button className="icon-button" disabled={downloadBusy} onClick={() => void download()} aria-label="下载视频" title="下载">{downloadBusy ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}</button><button className="icon-button" onClick={onOpen} aria-label="查看任务详情" title="查看任务详情"><Eye size={17} /></button></> : <button className="compact-button" onClick={onOpen}>查看状态</button>}
       <button className="remix-button" onClick={onRemix}><RotateCcw size={15} />同素材再制作</button>
-    </div></div>
+    </div>{downloadError ? <small className="result-action-error" role="alert">{downloadError}</small> : null}</div>
   </article>
 }
 
@@ -1115,7 +1188,7 @@ function PlanPanel({
   const shots = plan?.shots ?? []
   const first = shots[0]
   return <section className={`plan-panel ${stable ? 'plan-panel--stable' : 'plan-panel--dynamic'}`}>
-    <header><span className={`variant-label ${stable ? 'variant-label--a' : 'variant-label--b'}`}>{stable ? 'A' : 'B'}</span><div><h3>{stable ? '稳定展示' : '动态广告'}</h3><p>{stable ? '保持人物稳定与服装结构准确，清晰展示印花和版型' : '强化广告开场、动作变化和节奏，同时保持服装准确'}</p></div></header>
+    <header><span className={`variant-label ${stable ? 'variant-label--a' : 'variant-label--b'}`}>{variantKindShortLabel(kind)}</span><div><h3>{variantKindDisplayName(kind)}</h3><p>{stable ? '保持人物稳定与服装结构准确，清晰展示印花和版型' : '强化广告开场、动作变化和节奏，同时保持服装准确'}</p></div></header>
     <div className="plan-facts"><div><span>{stable ? '视频开场' : '开场钩子'}</span><strong>{first?.shotFunction ?? (stable ? '清晰产品开场' : '强动态广告开场')}</strong></div><div><span>人物动作</span><strong>{first?.action ?? '自然动作'}</strong></div><div><span>镜头运动</span><strong>{first?.camera ?? '稳定运镜'}</strong></div><div><span>展示重点</span><strong>{first?.productDisplay ?? '服装轮廓与细节'}</strong></div></div>
     {shots.length > 1 ? <div className="shot-strip">{shots.map((shot, index) => <span key={`${shot.shotFunction}-${index}`}><strong>动作段 {index + 1}</strong><small>{[shot.entryState, shot.action, shot.exitState].filter(Boolean).join(' → ')}</small></span>)}</div> : null}
     <div className={`risk-line ${risks.length ? 'risk-line--warning' : ''}`}>{risks.length ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}<span>{risks.length ? `风险提示：${formatRiskFlags(risks)}` : '未发现明显的产品准确性风险'}</span></div>
@@ -1125,17 +1198,38 @@ function PlanPanel({
 
 function VariantStatus({ task, variant, onChanged, onPlay }: { task: Task; variant: Variant; onChanged: () => Promise<void>; onPlay: () => void }) {
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   const ready = Boolean(variant.downloadArtifactId)
   const unknown = variant.generationStatus === 'UNKNOWN'
   const downloading = variant.downloadStatus === 'DOWNLOADING'
   const restore = async () => {
     setBusy(true)
-    try { await restoreOutput(task.id, variant.kind); await onChanged() } finally { setBusy(false) }
+    setError('')
+    try {
+      await restoreOutput(task.id, variant.kind)
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '远端成品恢复失败，请稍后重试')
+    } finally { setBusy(false) }
   }
-  return <div className="variant-status"><span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span><div><strong>{variantDisplayName(variant)}</strong><ProviderBadge provider={variant.provider || task.generationProvider} /><StatusBadge value={variant.generationStatus} /><small>{variantExecutionMessage(variant, task.generationProvider)}</small></div><div className="variant-status-actions">
-    {ready ? <><button className="compact-button" onClick={onPlay}><Play size={15} />播放</button><button className="compact-button" onClick={() => void saveArtifact(variant.downloadArtifactId!, `${task.title}-${variantFileToken(variant)}.mp4`)}><Download size={15} />下载</button></> : null}
+  const download = async () => {
+    if (!variant.downloadArtifactId) return
+    setBusy(true)
+    setError('')
+    try {
+      await saveArtifact(variant.downloadArtifactId, `${task.title}-${variantFileToken(variant)}.mp4`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '视频下载失败，请稍后重试')
+    } finally { setBusy(false) }
+  }
+  const canRestore = !ready
+    && !downloading
+    && ['SUCCEEDED', 'PARTIAL'].includes(variant.generationStatus)
+    && (variant.downloadStatus === 'FAILED' || task.phase === 'ACTION_REQUIRED')
+  return <div className="variant-status"><span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span><div><strong>{variantDisplayName(variant)}</strong><ProviderBadge provider={variant.provider || task.generationProvider} /><StatusBadge value={variant.generationStatus} /><small>{variantExecutionMessage(variant, task.generationProvider)}</small>{error ? <small className="variant-action-error" role="alert">{error}</small> : null}</div><div className="variant-status-actions">
+    {ready ? <><button className="compact-button" onClick={onPlay}><Play size={15} />播放</button><button className="compact-button" disabled={busy} onClick={() => void download()}>{busy ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}下载</button></> : null}
     {downloading ? <button className="compact-button" disabled><LoaderCircle className="spin" size={15} />下载中</button> : null}
-    {task.workflowKind !== 'FIXED_TEMPLATE' && variant.generationStatus === 'SUCCEEDED' && !ready && !downloading ? <button className="compact-button" disabled={busy} onClick={() => void restore()}>{busy ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}下载结果</button> : null}
+    {canRestore ? <button className="compact-button" disabled={busy} onClick={() => void restore()}>{busy ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}恢复远端成品</button> : null}
     {unknown ? <button className="compact-button" onClick={() => void onChanged()}><RefreshCw size={15} />重新查询状态</button> : null}
   </div></div>
 }
@@ -1214,7 +1308,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
   const stable = task.variants.find((variant) => variant.kind === 'STABLE')
   const dynamic = task.variants.find((variant) => variant.kind === 'DYNAMIC')
   const savePrompts = async (sourceTask = task) => {
-    if (!promptDrafts.stable.trim() || !promptDrafts.dynamic.trim()) throw new Error('A/B 提示词不能为空')
+    if (!promptDrafts.stable.trim() || !promptDrafts.dynamic.trim()) throw new Error('稳定展示和动态广告的提示词不能为空')
     const changed = await saveTaskPrompts(sourceTask, promptDrafts.stable, promptDrafts.dynamic)
     setPromptDrafts({
       stable: taskPrompt(changed, 'STABLE'),
@@ -1271,6 +1365,17 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
       setError(cause instanceof Error ? cause.message : '重新分析启动失败，请稍后重试')
     } finally { setBusy(false) }
   }
+  const cancel = async () => {
+    if (!window.confirm('确定取消此任务吗？已提交到可灵的远端任务可能无法撤回。')) return
+    setBusy(true)
+    setError('')
+    try {
+      await cancelTask(task.id)
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '任务取消失败，请稍后重试')
+    } finally { setBusy(false) }
+  }
   const isConfirmation = task.phase === 'AWAITING_CONFIRMATION'
   const isGenerating = ACTIVE_PHASES.has(task.phase) && task.phase !== 'DRAFT' && task.phase !== 'ANALYZING'
   const isCompleted = RESULT_PHASES.has(task.phase)
@@ -1284,8 +1389,8 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
     ? 'BOTH'
     : confirmationKinds[0] ?? task.variants[0]?.kind
   const confirmationLabel = confirmationKinds.length === 2
-    ? '2 版'
-    : confirmationKinds[0] === 'STABLE' ? 'A 版' : 'B 版'
+    ? '全部方案'
+    : variantKindDisplayName(confirmationKinds[0] ?? task.variants[0]?.kind ?? 'STABLE')
   return <div className="workspace-view">
     <section className="production-workspace" aria-labelledby="detail-title">
       <header className="drawer-header">
@@ -1321,15 +1426,16 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         </> : null}
         {task.phase === 'ANALYZING' ? <AnalysisProgress task={task} /> : null}
         {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} />{error}</div> : null}
-        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成 Provider</dt><dd>{provider.cliLabel}</dd>{provider.kind === 'libtv' ? <><dt>LibTV 画布 UUID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>Kling 调用方式</dt><dd>官方 Provider / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).cliLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入 Provider 执行'}</small></span>)}</div></div></details>
+        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成 Provider</dt><dd>{provider.cliLabel}</dd>{provider.kind === 'libtv' ? <><dt>LibTV 画布 UUID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>Kling 调用方式</dt><dd>官方 Provider / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).cliLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入 Provider 执行'}</small>{variant.errorCode ? <small>错误：{variant.errorCode}{variantErrorMessage(variant) ? ` · ${variantErrorMessage(variant)}` : ''}{variantErrorRetryable(variant) === true ? ' · 可以重试' : variantErrorRetryable(variant) === false ? ' · 需要人工处理' : ''}</small> : null}{variantErrorDetails(variant) ? <code>{JSON.stringify(variantErrorDetails(variant))}</code> : null}</span>)}</div></div></details>
       </div>
-      {task.actionCapabilities.canRegenerate || isConfirmation ? <footer className={`drawer-footer${canReuse ? ' drawer-footer--reuse' : ''}${isConfirmation ? ' drawer-footer--confirmation' : ''}`}>
+      {task.actionCapabilities.canRegenerate || task.actionCapabilities.canCancel || isConfirmation ? <footer className={`drawer-footer${canReuse ? ' drawer-footer--reuse' : ''}${isConfirmation ? ' drawer-footer--confirmation' : ''}`}>
         <div className="drawer-footer-actions">
+          {task.actionCapabilities.canCancel ? <button className="secondary-button secondary-button--danger" disabled={busy} onClick={() => void cancel()}><X size={16} />取消任务</button> : null}
           {task.actionCapabilities.canRegenerate && !canReuse ? <button className="secondary-button" onClick={onRemix}><RotateCcw size={16} />使用相同素材再制作</button> : null}
         </div>
         {canReuse ? <div className="reuse-controls">
           <fieldset>
-            <legend>选择复用版本</legend>
+            <legend>选择复用方案</legend>
             {(['STABLE', 'DYNAMIC'] as VariantKind[]).map((kind) => {
               const available = reusableVariants.some((variant) => variant.kind === kind)
               const checked = reuseKinds.includes(kind)
@@ -1340,14 +1446,14 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
                   disabled={!available}
                   onChange={() => setReuseKinds((current) => checked ? current.filter((item) => item !== kind) : [...current, kind].sort((a) => a === 'STABLE' ? -1 : 1))}
                 />
-                <span className={`variant-label ${kind === 'STABLE' ? 'variant-label--a' : 'variant-label--b'}`}>{kind === 'STABLE' ? 'A' : 'B'}</span>
-                <span><strong>{kind === 'STABLE' ? '稳定展示' : '动态广告'}</strong>{!available ? <small>无历史提示词</small> : null}</span>
+                <span className={`variant-label ${kind === 'STABLE' ? 'variant-label--a' : 'variant-label--b'}`}>{variantKindShortLabel(kind)}</span>
+                <span><strong>{variantKindDisplayName(kind)}</strong>{!available ? <small>无历史提示词</small> : null}</span>
               </label>
             })}
           </fieldset>
           <div>
-            {!reuseKinds.length ? <small role="alert">请至少勾选一个版本</small> : <small>将复用全部素材及所选提示词，并跳过图片分析</small>}
-            <button className="primary-button primary-button--large" disabled={!reuseKinds.length} onClick={() => onReuse(reuseKinds)}><RotateCcw size={17} />一键复用并生成 {reuseKinds.length || ''} 版</button>
+            {!reuseKinds.length ? <small role="alert">请至少勾选一个方案</small> : <small>将复用全部素材及所选提示词，并跳过图片分析</small>}
+            <button className="primary-button primary-button--large" disabled={!reuseKinds.length} onClick={() => onReuse(reuseKinds)}><RotateCcw size={17} />一键复用并生成 {reuseKinds.length || ''} 个结果</button>
           </div>
         </div> : null}
         {isConfirmation ? <div className="confirmation-submit">
@@ -1356,15 +1462,15 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
             <div>
               <label className={confirmationChoice === 'STABLE' ? 'is-selected' : ''}>
                 <input type="radio" name={`confirmation-variant-${task.id}`} checked={confirmationChoice === 'STABLE'} disabled={busy} onChange={() => setConfirmationKinds(['STABLE'])} />
-                <span>仅 A</span>
+                <span>稳定展示</span>
               </label>
               <label className={confirmationChoice === 'BOTH' ? 'is-selected' : ''}>
                 <input type="radio" name={`confirmation-variant-${task.id}`} checked={confirmationChoice === 'BOTH'} disabled={busy} onChange={() => setConfirmationKinds(['STABLE', 'DYNAMIC'])} />
-                <span>A+B</span>
+                <span>全部方案</span>
               </label>
               <label className={confirmationChoice === 'DYNAMIC' ? 'is-selected' : ''}>
                 <input type="radio" name={`confirmation-variant-${task.id}`} checked={confirmationChoice === 'DYNAMIC'} disabled={busy} onChange={() => setConfirmationKinds(['DYNAMIC'])} />
-                <span>仅 B</span>
+                <span>动态广告</span>
               </label>
             </div>
           </fieldset> : null}
@@ -1457,7 +1563,7 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
       <div><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></div>
     </section>
     <div className="filter-tabs">{groups.map((item) => { const count = tasks.filter(item.test).length; return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => setFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
-    {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>版本进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
+    {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>结果进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''} aria-label={variantDisplayName(variant)} title={variantDisplayName(variant)}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
     {completedResults.length ? <section className="records-completed"><SectionHeading title={filter === 'all' ? '已完成' : '视频结果'} count={completedResults.length} /><div className="results-grid results-grid--library">{completedResults.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} />)}</div></section> : null}
     {hasMore ? <div className="records-load-more"><button className="secondary-button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? <LoaderCircle className="spin" size={16} /> : null}{loadingMore ? '正在加载' : '加载更早记录'}</button></div> : null}
     {!visible.length ? <EmptyState icon={<ListVideo size={24} />} title={`没有${group.label === '全部' ? '' : group.label}记录`} description="任务状态变化后会自动归入对应分类。" /> : null}
@@ -1866,7 +1972,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
   const [config, setConfig] = useState<KlingConfig | null>(null)
   const [draft, setDraft] = useState<KlingConfigDraft | null>(null)
   const [status, setStatus] = useState<KlingStatus | null>(null)
-  const [busy, setBusy] = useState<'load' | 'save' | 'refresh' | 'login' | 'logout' | null>(null)
+  const [busy, setBusy] = useState<'load' | 'save' | 'refresh' | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -1933,47 +2039,23 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
     } finally { setBusy(null) }
   }
 
-  const authenticate = async () => {
-    setBusy('login')
-    setError('')
-    setNotice('')
-    try {
-      setStatus(await loginKling(adminId))
-      setNotice('可灵账号已登录，能力信息已更新。')
-      await onChanged()
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '可灵账号登录失败')
-    } finally { setBusy(null) }
-  }
-  const signOut = async () => {
-    if (!window.confirm('退出可灵账号后，生成任务将无法使用可灵，确定继续吗？')) return
-    setBusy('logout')
-    setError('')
-    setNotice('')
-    try {
-      setStatus(await logoutKling(adminId))
-      setNotice('已退出可灵账号。')
-      await onChanged()
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '退出可灵账号失败')
-    } finally { setBusy(null) }
-  }
-
-  const isApi = draft?.backend === 'api'
   const isReady = Boolean(status?.available && status.authenticated)
   const stateLabel = isReady
     ? '已就绪'
-    : status?.status === 'KLING_CLI_NOT_INSTALLED'
-      ? '未安装'
-      : status?.status === 'KLING_CLI_NOT_AUTHENTICATED'
-        ? '未登录'
+    : status?.status === 'KLING_API_CONFIGURED_UNVERIFIED'
+      ? '待验证'
+      : status?.status === 'KLING_API_AUTHENTICATION_FAILED'
+        ? '鉴权失败'
+        : status?.status === 'KLING_API_VERIFICATION_FAILED'
+          ? '验证失败'
         : status?.enabled
           ? '能力不可用'
           : '未启用'
 
   const apiKeyWillExist = Boolean(draft?.apiKey.trim()) || Boolean(config?.apiKeyConfigured && !draft?.clearApiKey)
   const hasChanges = Boolean(config && draft && (
-    draft.backend !== config.backend
+    draft.baseUrl.trim() !== (config.baseUrl ?? '')
+    || draft.callbackUrl.trim() !== (config.callbackUrl ?? '')
     || draft.model !== config.model
     || draft.duration !== config.duration
     || draft.aspectRatio !== config.aspectRatio
@@ -1989,7 +2071,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
   return <form className="settings-section kling-provider-section" onSubmit={(event) => void save(event)}>
     <div className="settings-section-heading">
-      <div><span>可灵官方 Provider</span><h2>调用方式与生成配置</h2><p>可在官方 CLI 与 API 之间切换并管理当前通道。新配置用于后续提交；已经提交的任务仍按其持久化 Provider 继续执行。</p></div>
+      <div><span>可灵官方 API</span><h2>生产生成配置</h2><p>所有新任务固定通过官方 API 提交；历史 CLI 任务仅按其已持久化 Provider 继续查询和下载，不能接收新任务。</p></div>
       <div className="libtv-account-actions">
         <button className="secondary-button" type="button" disabled={busy !== null || !status?.enabled} onClick={() => void refreshCapabilities()}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />刷新能力</button>
         <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 Provider'}</button>
@@ -1998,19 +2080,10 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
     {busy === 'load' && !draft ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取可灵配置…</div> : null}
     {draft ? <>
-      <fieldset className="kling-backend-fieldset" disabled={busy !== null}>
-        <legend>调用方式</legend>
-        <div className="kling-backend-options">
-          <label className={draft.backend === 'cli' ? 'is-selected' : ''}>
-            <input type="radio" name="kling-backend" value="cli" checked={draft.backend === 'cli'} onChange={() => updateDraft('backend', 'cli')} />
-            <span><strong>官方 CLI</strong><small>本机 OAuth 登录，适合现有 CLI 工作流</small></span>
-          </label>
-          <label className={draft.backend === 'api' ? 'is-selected' : ''}>
-            <input type="radio" name="kling-backend" value="api" checked={draft.backend === 'api'} onChange={() => updateDraft('backend', 'api')} />
-            <span><strong>官方 API</strong><small>服务端密钥调用，适合持续运行与并发任务</small></span>
-          </label>
-        </div>
-      </fieldset>
+      <div className="inline-alert">
+        <CheckCircle2 size={16} />
+        <span>生产通道已固定为 Kling 官方 API。保存 Key 后会先执行只读任务查询验证；验证不会创建视频或消耗生成额度。</span>
+      </div>
 
       <div className="kling-provider-toolbar">
         <div className="libtv-account-card">
@@ -2019,7 +2092,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
           <span className={`libtv-account-state ${isReady ? 'is-connected' : ''}`}>{busy === 'refresh' ? <LoaderCircle className="spin" size={13} /> : isReady ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{stateLabel}</span>
         </div>
         <div className="kling-enabled-control">
-          <span><strong>启用当前 Provider</strong><small>{draft.enabled ? '新任务可以使用所选可灵通道' : '新任务不会提交到可灵'}</small></span>
+          <span><strong>启用官方 API</strong><small>{draft.enabled ? '验证通过后新任务可以提交到官方 API' : '新任务不会提交到可灵'}</small></span>
           <label className="settings-switch">
             <input type="checkbox" checked={draft.enabled} disabled={busy !== null} aria-label="启用当前可灵 Provider" onChange={(event) => updateDraft('enabled', event.target.checked)} />
             <span aria-hidden="true" />
@@ -2027,7 +2100,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
         </div>
       </div>
 
-      {isApi ? <div className="kling-config-block">
+      <div className="kling-config-block">
         <div className="kling-config-heading"><div><strong>API 凭据</strong><small>密钥仅发送到服务端保存，页面不会读取或回显原值。</small></div><span className={apiKeyWillExist ? 'is-configured' : 'is-missing'}>{apiKeyWillExist ? '已配置' : '未配置'}</span></div>
         <div className="kling-api-key-row">
           <div className="credential-field">
@@ -2038,15 +2111,11 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
           <button className="danger-button" type="button" disabled={busy !== null || (!config?.apiKeyConfigured && !draft.apiKey)} onClick={() => setDraft((current) => current ? { ...current, apiKey: '', clearApiKey: !current.clearApiKey } : current)}>{draft.clearApiKey ? <RotateCcw size={15} /> : <X size={15} />}{draft.clearApiKey ? '取消清除' : '清除 API Key'}</button>
         </div>
         {draft.clearApiKey ? <div className="inline-alert inline-alert--warning"><AlertTriangle size={16} />保存后将清除现有 API Key。若仍要启用 API，请先输入新 Key。</div> : null}
-      </div> : <div className="kling-config-block">
-        <div className="kling-config-heading"><div><strong>CLI 账号</strong><small>账号授权由本机官方 <code>kling</code> CLI 保存。</small></div><span className={status?.authenticated ? 'is-configured' : 'is-missing'}>{status?.authenticated ? '已登录' : '未登录'}</span></div>
-        <div className="kling-cli-actions">
-          <button className="secondary-button" type="button" disabled={busy !== null || !status?.authenticated} onClick={() => void signOut()}>{busy === 'logout' ? <LoaderCircle className="spin" size={16} /> : <LogOut size={16} />}退出账号</button>
-          <button className="primary-button" type="button" disabled={busy !== null || !draft.enabled || status?.status === 'KLING_CLI_NOT_INSTALLED'} onClick={() => void authenticate()}>{busy === 'login' ? <LoaderCircle className="spin" size={16} /> : <LogIn size={16} />}{busy === 'login' ? '等待浏览器授权' : status?.authenticated ? '重新登录' : '登录可灵'}</button>
-        </div>
-      </div>}
+      </div>
 
-      {isApi ? <div className="kling-settings-grid">
+      <div className="kling-settings-grid">
+        <label htmlFor="kling-base-url"><strong>API 区域</strong><select id="kling-base-url" value={draft.baseUrl} disabled={busy !== null} onChange={(event) => updateDraft('baseUrl', event.target.value)}>{KLING_BASE_URL_OPTIONS.map((value) => <option key={value} value={value}>{value.includes('beijing') ? '中国站 · 北京' : '海外站 · 新加坡'}</option>)}</select><small>{draft.baseUrl}</small></label>
+        <label htmlFor="kling-callback-url"><strong>回调 URL</strong><input id="kling-callback-url" type="url" value={draft.callbackUrl} disabled={busy !== null} onChange={(event) => updateDraft('callbackUrl', event.target.value)} placeholder="https://example.com/api/kling/callback" autoComplete="url" spellCheck={false} maxLength={2048} /><small>可选；留空时由服务端轮询任务状态</small></label>
         <label htmlFor="kling-model"><strong>模型</strong><select id="kling-model" value={draft.model} disabled={busy !== null} onChange={(event) => updateDraft('model', event.target.value)}>{Array.from(new Set([...KLING_MODEL_OPTIONS, draft.model])).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <label htmlFor="kling-duration"><strong>时长</strong><input id="kling-duration" type="number" min={3} max={15} step={1} value={draft.duration} disabled={busy !== null} onChange={(event) => updateDraft('duration', Number(event.target.value))} /><small>允许范围 3–15 秒</small></label>
         <label htmlFor="kling-aspect-ratio"><strong>画面比例</strong><select id="kling-aspect-ratio" value={draft.aspectRatio} disabled={busy !== null} onChange={(event) => updateDraft('aspectRatio', event.target.value)}>{Array.from(new Set([...KLING_ASPECT_RATIO_OPTIONS, draft.aspectRatio])).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
@@ -2055,7 +2124,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
         <label htmlFor="kling-submit-concurrency"><strong>提交并发</strong><input id="kling-submit-concurrency" type="number" min={1} max={20} step={1} value={draft.maxSubmitConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxSubmitConcurrency', Number(event.target.value))} /><small>允许范围 1–20</small></label>
         <label htmlFor="kling-poll-concurrency"><strong>查询并发</strong><input id="kling-poll-concurrency" type="number" min={1} max={50} step={1} value={draft.maxPollConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxPollConcurrency', Number(event.target.value))} /><small>允许范围 1–50</small></label>
         <label className="kling-inline-switch"><span><strong>多镜头</strong><small>允许模型在一次生成中规划多个镜头</small></span><span className="settings-switch"><input type="checkbox" checked={draft.multiShot} disabled={busy !== null} aria-label="启用可灵多镜头" onChange={(event) => updateDraft('multiShot', event.target.checked)} /><span aria-hidden="true" /></span></label>
-      </div> : null}
+      </div>
     </> : null}
 
     <div className="kling-provider-feedback" aria-live="polite" aria-atomic="true">
@@ -2184,13 +2253,11 @@ function SettingsView({
   const [settings, setSettings] = useState(() => ({
     model: readDefaultAnalysisModel(system?.openaiModel),
     provider: (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv',
-    outputVariants: readOutputVariantSelection(),
   }))
   const save = () => {
     localStorage.setItem('default-model', settings.model.trim())
     localStorage.setItem('generation-provider', settings.provider)
-    localStorage.setItem(OUTPUT_VARIANT_STORAGE_KEY, settings.outputVariants)
-    ;['video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'].forEach((key) => localStorage.removeItem(key))
+    ;['default-output-variants', 'video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'].forEach((key) => localStorage.removeItem(key))
     setSaved(true)
     window.setTimeout(() => setSaved(false), 1800)
   }
@@ -2212,15 +2279,6 @@ function SettingsView({
       <div className="generation-contract" aria-label="默认生成参数">
         <span><strong>9:16</strong><small>固定比例</small></span>
         <span><strong>10 秒</strong><small>固定时长</small></span>
-        <label htmlFor="output-variants">
-          <span>输出版本</span>
-          <select id="output-variants" value={settings.outputVariants} onChange={(event) => setSettings({ ...settings, outputVariants: event.target.value as OutputVariantSelection })}>
-            <option value="stable">一版 · A 稳定版</option>
-            <option value="dynamic">一版 · B 动态版</option>
-            <option value="both">两版 · A + B</option>
-          </select>
-          <small>直接影响生成次数与积分消耗</small>
-        </label>
       </div>
     </section>
     <PersonalPromptConfirmationSetting />
@@ -2436,6 +2494,7 @@ function AdminCenterView({
       {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
         <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
+        <KlingElementsPanel adminId={actor!.userId} />
         <LibTVAccountSettings adminId={actor!.userId} />
       </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="Provider 登录和账号空间仅允许管理员修改。" /> : null}
       {section === 'security' ? <>
