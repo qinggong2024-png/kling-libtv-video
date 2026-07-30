@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -369,6 +369,17 @@ export function getLibTVAccountStatus(adminId: string): Promise<LibTVAccountStat
 
 export function getKlingStatus(adminId: string): Promise<KlingStatus> {
   return request('/api/v1/admin/kling/status', {}, { actorId: adminId })
+}
+
+export function getKlingConfig(adminId: string): Promise<KlingConfig> {
+  return request('/api/v1/admin/kling/config', {}, { actorId: adminId })
+}
+
+export function updateKlingConfig(adminId: string, values: KlingConfigPatch): Promise<KlingConfig> {
+  return request('/api/v1/admin/kling/config', {
+    method: 'PATCH',
+    body: JSON.stringify(values),
+  }, { actorId: adminId })
 }
 
 export function refreshKlingCapabilities(adminId: string): Promise<KlingStatus> {

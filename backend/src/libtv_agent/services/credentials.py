@@ -38,7 +38,7 @@ def _normalize_value(key: str, value: str) -> str:
     return normalized.rstrip("/")
 
 
-def _read(path: Path) -> dict[str, str]:
+def read_secure_payload(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {}
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -59,6 +59,11 @@ def _read(path: Path) -> dict[str, str]:
             raise ValueError("administrator credentials could not be decrypted") from exc
         if not isinstance(payload, dict):
             raise ValueError("decrypted administrator credentials are invalid")
+    return payload
+
+
+def _read(path: Path) -> dict[str, str]:
+    payload = read_secure_payload(path)
     return {
         key: value
         for key, value in payload.items()
@@ -66,7 +71,7 @@ def _read(path: Path) -> dict[str, str]:
     }
 
 
-def _serialize(values: dict[str, str]) -> str:
+def _serialize(values: dict[str, object], *, description: str) -> str:
     plaintext = json.dumps(values, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     if os.name != "nt":
         return plaintext.decode("utf-8")
@@ -75,7 +80,7 @@ def _serialize(values: dict[str, str]) -> str:
 
         encrypted = win32crypt.CryptProtectData(
             plaintext,
-            "LibTV administrator credentials",
+            description,
             None,
             None,
             None,
@@ -127,6 +132,21 @@ def _secure_file(path: Path, settings: Settings) -> None:
             raise RuntimeError("administrator credential ACL hardening failed") from exc
 
 
+def write_secure_payload_atomic(
+    path: Path,
+    settings: Settings,
+    values: dict[str, object],
+    *,
+    description: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
+    temporary.write_text(_serialize(values, description=description), encoding="utf-8")
+    _secure_file(temporary, settings)
+    temporary.replace(path)
+    _secure_file(path, settings)
+
+
 def _apply(settings: Settings, values: dict[str, str]) -> None:
     for external_name, setting_name in _FIELDS.items():
         value = values.get(external_name)
@@ -171,12 +191,11 @@ def update_admin_credentials(
         stored[key] = normalized
         setattr(settings, _FIELDS[key], normalized)
 
-    path = settings.admin_credentials_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
-    temporary.write_text(_serialize(stored), encoding="utf-8")
-    _secure_file(temporary, settings)
-    temporary.replace(path)
-    _secure_file(path, settings)
+    write_secure_payload_atomic(
+        settings.admin_credentials_file,
+        settings,
+        stored,
+        description="LibTV administrator credentials",
+    )
     _apply(settings, stored)
     return credential_status(settings)

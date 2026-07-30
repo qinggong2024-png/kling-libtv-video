@@ -101,13 +101,20 @@ API 默认是 `http://127.0.0.1:8000`，前端默认是 `http://127.0.0.1:5173`�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-local-services.ps1 -RequireFrontend
 ```
 
-## 可灵官方 CLI 接入
+## 可灵官方 Provider 接入
 
 程序现在同时支持 `LibTV` 和 `Kling` 两个视频生成 provider。已有 LibTV 任务和命令路径保持
 不变；provider 会写入每个任务和生成尝试，不会在任务执行期间自动切换。
 
 Kling 可在官方 API 2.0 与现有官方 CLI 间切换。新 API 使用单个服务端 API Key，不使用旧版
 Access Key / Secret Key JWT：
+
+管理员可在“管理中心 → Provider 与账号”中切换 API/CLI、启停当前通道、替换或清除 API Key，
+并调整 API 模型、时长、画幅、分辨率、音频、多镜头及提交/查询并发。Windows 下密钥使用
+DPAPI 与受限 ACL 保存，页面和状态接口只返回“是否已配置”，不会回显密钥。API 进程立即应用
+新配置，独立 Runner 在下一调度周期检测并加载；已提交任务继续使用其持久化 Provider。
+
+以下环境变量仍可作为首次启动的默认配置；管理后台首次保存后，以共享安全配置为准：
 
 ```dotenv
 KLING_PROVIDER_BACKEND=api
@@ -156,9 +163,9 @@ kling who_am_i --quiet --skill-name kling-cli --skill-version 0.1.3
 kling tool_list --quiet --skill-name kling-cli --skill-version 0.1.3
 ```
 
-模型、时长、画幅、图片数量和参数名全部以 `who_am_i` / `tool_list` 的实时返回为准，程序不写死
-模型名。管理后台可查看 CLI、登录和能力状态，可通过浏览器 OAuth 登录、重新登录、退出账号，
-并手动刷新能力缓存。启用前至少设置：
+CLI 的模型、时长、画幅、图片数量和参数名全部以 `who_am_i` / `tool_list` 的实时返回为准。
+管理后台可查看 CLI 登录和能力状态，可通过浏览器 OAuth 登录、重新登录、退出账号，并手动刷新
+能力缓存。首次启动也可以通过环境变量启用：
 
 ```dotenv
 KLING_CLI_ENABLED=true

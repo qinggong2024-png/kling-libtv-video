@@ -119,6 +119,10 @@ class RunnerSupervisor:
             libtv_config_dir=settings.libtv_config_dir,
         )
 
+    def replace_kling_adapter(self, adapter: VideoProviderAdapter) -> None:
+        self.kling_adapter = adapter
+        self._kling_adapters[adapter.get_provider_name().strip().lower()] = adapter
+
     def _kling_adapter_for(self, provider: str) -> VideoProviderAdapter:
         normalized = provider.strip().lower()
         adapter = self._kling_adapters.get(normalized)

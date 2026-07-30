@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     max_input_image_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     artifact_root: Path = Path("var/artifacts")
     admin_credentials_file: Path = Path("var/runtime/admin-credentials.json")
+    kling_admin_config_file: Path = Path("var/runtime/kling-config.json")
     runner_root: Path = Path("var/runner")
     daily_user_points_limit: int = Field(default=5000, ge=1)
     generation_estimated_points: int = Field(default=120, ge=1)

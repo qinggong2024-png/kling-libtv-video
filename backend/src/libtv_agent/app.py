@@ -22,6 +22,10 @@ from libtv_agent.db import Database
 from libtv_agent.logging_config import configure_logging
 from libtv_agent.services.analysis_lifecycle import recover_stale_analyses
 from libtv_agent.services.credentials import load_admin_credentials
+from libtv_agent.services.kling_config import (
+    kling_admin_config_signature,
+    load_kling_admin_config,
+)
 from libtv_agent.services.libtv_login import LibTVLoginManager
 from libtv_agent.services.materialization_lifecycle import recover_stale_materializations
 
@@ -114,6 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.validate_shared_environment()
     load_admin_credentials(app_settings)
+    load_kling_admin_config(app_settings)
     configure_logging()
 
     @asynccontextmanager
@@ -155,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.libtv_login_manager = LibTVLoginManager()
     app.state.object_store = create_object_store(app_settings)
     app.state.settings = app_settings
+    app.state.kling_config_signature = kling_admin_config_signature(app_settings)
     app.state.analysis_jobs = set()
     app.state.confirmation_jobs = set()
     app.add_middleware(
@@ -214,6 +220,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def security_contract(request: Request, call_next):
+        kling_config_signature = kling_admin_config_signature(app_settings)
+        if kling_config_signature != app.state.kling_config_signature:
+            load_kling_admin_config(app_settings)
+            app.state.kling_adapter = create_kling_adapter(app_settings)
+            app.state.kling_config_signature = kling_admin_config_signature(app_settings)
         shared = app_settings.shared_authentication
         unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
         login_path = request.url.path == "/api/v1/auth/login"

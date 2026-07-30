@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from libtv_agent.adapters.kling_official_cli import KlingCliError
+from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import LibTVError, create_libtv_adapter
 from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.enums import AttemptStatus, UserRole
@@ -23,6 +24,12 @@ from libtv_agent.services.idempotency import (
     load_idempotent_response,
     release_idempotency_claim,
     store_idempotent_response,
+)
+from libtv_agent.services.kling_config import (
+    kling_admin_config_signature,
+    kling_admin_config_status,
+    load_kling_admin_config,
+    update_kling_admin_config,
 )
 from libtv_agent.services.libtv_login import LibTVLoginStartError
 from libtv_agent.services.model_registry import ModelRegistryError, refresh_model_registry
@@ -76,6 +83,100 @@ class LibTVAccountUseRequest(BaseModel):
     account: str = Field(min_length=1, max_length=255)
 
 
+class KlingConfigUpdateRequest(BaseModel):
+    backend: str | None = Field(default=None, pattern="^(cli|api)$")
+    apiKey: str | None = None
+    clearApiKey: bool = False
+    model: str | None = Field(default=None, pattern="^kling-3\\.0-omni$")
+    duration: int | None = Field(default=None, ge=3, le=15)
+    aspectRatio: str | None = Field(default=None, pattern="^(16:9|9:16|1:1)$")
+    resolution: str | None = Field(default=None, pattern="^(720p|1080p|4k)$")
+    audio: str | None = Field(default=None, pattern="^(native|off)$")
+    multiShot: bool | None = None
+    maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=20)
+    maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
+    enabled: bool | None = None
+
+
+def _refresh_kling_config_from_disk(request: Request) -> None:
+    signature = kling_admin_config_signature(request.app.state.settings)
+    if signature == request.app.state.kling_config_signature:
+        return
+    load_kling_admin_config(request.app.state.settings)
+    request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+    request.app.state.kling_config_signature = kling_admin_config_signature(
+        request.app.state.settings
+    )
+
+
+@router.get("/kling/config")
+async def read_kling_config(actor: Actor, request: Request) -> dict[str, object]:
+    require_admin(actor.role)
+    _refresh_kling_config_from_disk(request)
+    return kling_admin_config_status(request.app.state.settings)
+
+
+@router.patch("/kling/config")
+async def patch_kling_config(
+    payload: KlingConfigUpdateRequest,
+    actor: Actor,
+    session: Session,
+    request: Request,
+) -> dict[str, object]:
+    require_credential_admin(actor.role)
+    _refresh_kling_config_from_disk(request)
+    if payload.apiKey is not None and payload.clearApiKey:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "apiKey and clearApiKey cannot be used together",
+            },
+        )
+    updates = {
+        name: value
+        for name, value in payload.model_dump(
+            exclude={"clearApiKey"},
+            exclude_unset=True,
+        ).items()
+        if value is not None
+    }
+    if payload.clearApiKey:
+        updates["apiKey"] = None
+    if not updates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "at least one Kling configuration change is required",
+            },
+        )
+    try:
+        result = update_kling_admin_config(request.app.state.settings, updates)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "INPUT_INVALID", "message": str(exc)},
+        ) from exc
+    request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+    request.app.state.kling_config_signature = kling_admin_config_signature(
+        request.app.state.settings
+    )
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="KLING_CONFIG_UPDATED",
+            entity_type="provider_configuration",
+            entity_id=str(result["provider"]),
+            reason="administrator updated Kling provider configuration",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return result
+
+
 def _kling_status_payload(request: Request) -> dict[str, object]:
     availability = request.app.state.kling_adapter.availability_snapshot()
     capabilities = request.app.state.kling_adapter.capabilities_snapshot()
@@ -108,6 +209,7 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
 @router.get("/kling/status")
 async def read_kling_status(actor: Actor, request: Request) -> dict[str, object]:
     require_admin(actor.role)
+    _refresh_kling_config_from_disk(request)
     availability = await request.app.state.kling_adapter.check_availability()
     if availability.available:
         try:
