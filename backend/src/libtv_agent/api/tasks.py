@@ -316,9 +316,9 @@ async def _cached(
     return TaskRead.model_validate(cached[1]) if cached else None
 
 
-def _encode_task_cursor(created_at: datetime, task_id: uuid.UUID) -> str:
+def _encode_task_cursor(updated_at: datetime, task_id: uuid.UUID) -> str:
     payload = json.dumps(
-        [created_at.isoformat(), str(task_id)],
+        [updated_at.isoformat(), str(task_id)],
         separators=(",", ":"),
     ).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
@@ -329,10 +329,10 @@ def _decode_task_cursor(cursor: str | None) -> tuple[datetime | None, uuid.UUID 
         return None, None
     try:
         padding = "=" * (-len(cursor) % 4)
-        created_at_raw, task_id_raw = json.loads(
+        updated_at_raw, task_id_raw = json.loads(
             base64.urlsafe_b64decode(cursor + padding).decode("utf-8")
         )
-        return datetime.fromisoformat(created_at_raw), uuid.UUID(task_id_raw)
+        return datetime.fromisoformat(updated_at_raw), uuid.UUID(task_id_raw)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -350,18 +350,18 @@ async def get_tasks(
     cursor: str | None = Query(default=None, max_length=300),
 ) -> list[TaskRead]:
     settings = _settings(request)
-    cursor_created_at, cursor_id = _decode_task_cursor(cursor)
+    cursor_updated_at, cursor_id = _decode_task_cursor(cursor)
     tasks = await list_tasks(
         session,
         actor.id,
         limit=limit + 1,
-        cursor_created_at=cursor_created_at,
+        cursor_updated_at=cursor_updated_at,
         cursor_id=cursor_id,
     )
     if len(tasks) > limit:
         tasks = tasks[:limit]
         last = tasks[-1]
-        response.headers["X-Next-Cursor"] = _encode_task_cursor(last.created_at, last.id)
+        response.headers["X-Next-Cursor"] = _encode_task_cursor(last.updated_at, last.id)
     return await tasks_to_read(session, tasks, settings.daily_user_points_limit)
 
 

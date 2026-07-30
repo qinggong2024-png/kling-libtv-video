@@ -825,8 +825,11 @@ main { min-height: 100dvh; }
 .search-field { min-height: 46px; border-radius: 12px; box-shadow: var(--shadow-xs); transition: border-color .18s ease, box-shadow .18s ease; }
 .search-field:focus-within { border-color: #93b7f8; box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
 .records-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 18px 0 4px; }
-.records-overview > div { min-height: 74px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.82); box-shadow: var(--shadow-xs); }
-.records-overview > div > span:last-child { display: grid; gap: 2px; }
+.records-overview > button { min-height: 74px; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.82); color: inherit; text-align: left; box-shadow: var(--shadow-xs); cursor: pointer; transition: border-color .18s ease, box-shadow .18s ease, transform .18s var(--ease-standard); }
+.records-overview > button:hover { border-color: #c9d5e4; transform: translateY(-1px); }
+.records-overview > button:focus-visible { outline: 3px solid rgba(37,99,235,.18); outline-offset: 2px; }
+.records-overview > button.is-active { border-color: #93b7f8; background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.09), var(--shadow-sm); }
+.records-overview > button > span:last-child { display: grid; gap: 2px; }
 .records-overview small { color: var(--muted); font-size: 12px; }
 .records-overview strong { font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
 .records-overview-dot { width: 10px; height: 38px; border-radius: 99px; background: #94a3b8; }
@@ -1127,7 +1130,7 @@ main { min-height: 100dvh; }
   .upload-panels--single .upload-panel .materials-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-section { margin-top: 22px; }.attention-section { margin-left: -4px; margin-right: -4px; padding: 12px; }
   .home-title-actions { display: grid; grid-template-columns: 1fr 1fr; }.home-title-actions .text-button { grid-column: 1 / -1; width: 100%; }
-  .records-overview { grid-template-columns: 1fr 1fr; gap: 8px; }.records-overview > div { min-height: 66px; padding: 11px; }
+  .records-overview { grid-template-columns: 1fr 1fr; gap: 8px; }.records-overview > button { min-height: 66px; padding: 11px; }
   .attention-panel { margin-left: -4px; margin-right: -4px; padding: 12px; }
   .attention-panel-actions .text-button { display: none; }
   .attention-item { grid-template-columns: 48px minmax(0, 1fr); }

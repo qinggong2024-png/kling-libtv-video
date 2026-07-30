@@ -43,25 +43,25 @@ async def list_tasks(
     user_id: uuid.UUID,
     *,
     limit: int = 100,
-    cursor_created_at: datetime | None = None,
+    cursor_updated_at: datetime | None = None,
     cursor_id: uuid.UUID | None = None,
 ) -> list[ParentTask]:
     statement = select(ParentTask).where(ParentTask.user_id == user_id)
-    if cursor_created_at is not None and cursor_id is not None:
-        created_at_column = ParentTask.created_at
-        created_at_cursor: object = cursor_created_at
+    if cursor_updated_at is not None and cursor_id is not None:
+        updated_at_column = ParentTask.updated_at
+        updated_at_cursor: object = cursor_updated_at
         if session.get_bind().dialect.name == "sqlite":
-            created_at_column = func.datetime(ParentTask.created_at)
-            created_at_cursor = func.datetime(cursor_created_at.isoformat(sep=" "))
+            updated_at_column = func.datetime(ParentTask.updated_at)
+            updated_at_cursor = func.datetime(cursor_updated_at.isoformat(sep=" "))
         statement = statement.where(
             or_(
-                created_at_column < created_at_cursor,
-                ((created_at_column == created_at_cursor) & (ParentTask.id < cursor_id)),
+                updated_at_column < updated_at_cursor,
+                ((updated_at_column == updated_at_cursor) & (ParentTask.id < cursor_id)),
             )
         )
     result = await session.scalars(
         statement.options(selectinload(ParentTask.variants), selectinload(ParentTask.assets))
-        .order_by(ParentTask.created_at.desc(), ParentTask.id.desc())
+        .order_by(ParentTask.updated_at.desc(), ParentTask.id.desc())
         .limit(limit)
     )
     return list(result.unique())

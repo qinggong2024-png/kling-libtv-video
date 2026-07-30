@@ -1549,7 +1549,7 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   const [query, setQuery] = useState('')
   const groups: Array<{ value: RecordFilter; label: string; test: (task: Task) => boolean }> = [
     { value: 'all', label: '全部', test: () => true },
-    { value: 'attention', label: '需要确认', test: (task) => task.phase === 'AWAITING_CONFIRMATION' },
+    { value: 'attention', label: '需要处理', test: (task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' },
     { value: 'active', label: '处理中', test: (task) => ACTIVE_PHASES.has(task.phase) },
     { value: 'partial', label: '部分完成', test: (task) => task.phase === 'PARTIALLY_DELIVERABLE' },
     { value: 'done', label: '已完成', test: (task) => COMPLETED_PHASES.has(task.phase) },
@@ -1566,10 +1566,10 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   const doneCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
   return <div className="page-view"><div className="page-title"><div><span>Production Tasks</span><h1>任务</h1><p>查找任务、继续处理，或直接播放和下载已完成视频。</p></div><label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称" aria-label="搜索任务名称" /></label></div>
     <section className="records-overview" aria-label="任务概览">
-      <div><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{tasks.length}</strong></span></div>
-      <div><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></div>
-      <div><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></div>
-      <div><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></div>
+      <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{tasks.length}</strong></span></button>
+      <button type="button" className={filter === 'attention' ? 'is-active' : ''} aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></button>
+      <button type="button" className={filter === 'active' ? 'is-active' : ''} aria-pressed={filter === 'active'} onClick={() => setFilter('active')}><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></button>
+      <button type="button" className={filter === 'done' ? 'is-active' : ''} aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></button>
     </section>
     <div className="filter-tabs">{groups.map((item) => { const count = tasks.filter(item.test).length; return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => setFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
     {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>结果进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''} aria-label={variantDisplayName(variant)} title={variantDisplayName(variant)}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
