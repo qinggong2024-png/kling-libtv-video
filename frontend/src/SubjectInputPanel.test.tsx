@@ -51,6 +51,25 @@ describe('SubjectInputPanel', () => {
     expect(markup).toContain('清除主体')
   })
 
+  it('renders local thumbnail containers for uploaded subject images', () => {
+    const front = new File(['front'], 'front.png', { type: 'image/png' })
+    const side = new File(['side'], 'side.png', { type: 'image/png' })
+    const markup = renderToStaticMarkup(<SubjectInputPanel
+      {...baseProps}
+      mode="upload"
+      uploadedFiles={{
+        frontalImage: front,
+        backImage: null,
+        detailImages: [side],
+      }}
+      elements={[]}
+    />)
+    expect(markup).toContain('subject-upload-tile__preview')
+    expect(markup).toContain('正面图预览：front.png')
+    expect(markup).toContain('侧面图预览：side.png')
+    expect(markup).toContain('点击更换')
+  })
+
   it('renders usable history elements as thumbnail cards and hides unavailable entries', () => {
     const markup = renderToStaticMarkup(<SubjectInputPanel
       {...baseProps}

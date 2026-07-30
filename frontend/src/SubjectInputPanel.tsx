@@ -5,7 +5,7 @@ import {
   PackageOpen,
   X,
 } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ChangeEvent } from 'react'
 
 import {
@@ -50,6 +50,26 @@ function isUsableElement(element: SubjectHistoryElement): boolean {
   return !element.raw?.localJob && isKlingElementAvailable(element.status)
 }
 
+function LocalFileThumbnail({ file, alt }: { file: File; alt: string }) {
+  const [preview, setPreview] = useState<{ file: File; src: string } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const objectUrl = URL.createObjectURL(file)
+    queueMicrotask(() => {
+      if (active) setPreview({ file, src: objectUrl })
+    })
+    return () => {
+      active = false
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [file])
+
+  return preview?.file === file
+    ? <img src={preview.src} alt={alt} draggable={false} />
+    : <span className="image-skeleton" aria-label="图片加载中" />
+}
+
 function UploadTile({
   id,
   label,
@@ -81,8 +101,17 @@ function UploadTile({
         if (!disabled) onDrop(Array.from(event.dataTransfer.files))
       }}
     >
-      <strong>{label}</strong>
-      <span>{file ? '已选择，点击更换' : '拖拽或选择'}</span>
+      {file ? <span
+        className="subject-upload-tile__preview"
+        role="img"
+        aria-label={`${label}预览：${file.name}`}
+      >
+        <LocalFileThumbnail file={file} alt="" />
+      </span> : null}
+      <span className="subject-upload-tile__copy">
+        <strong>{label}</strong>
+        <span>{file ? '点击更换' : '拖拽或选择'}</span>
+      </span>
     </label>
     {file ? <button
         type="button"
@@ -133,13 +162,25 @@ function DetailUploadTile({
         if (!disabled && !isFull) onDrop(Array.from(event.dataTransfer.files))
       }}
     >
-      <strong>侧面图</strong>
-      <span>{files.length ? `已选择 ${files.length} 张` : '拖拽或选择'}</span>
+      {files.length ? <span className={`subject-upload-tile__previews subject-upload-tile__previews--${files.length}`}>
+        {files.map((file) => <span
+          key={`${file.name}-${file.size}-${file.lastModified}`}
+          className="subject-upload-tile__preview"
+          role="img"
+          aria-label={`侧面图预览：${file.name}`}
+        >
+          <LocalFileThumbnail file={file} alt="" />
+        </span>)}
+      </span> : null}
+      <span className="subject-upload-tile__copy">
+        <strong>侧面图</strong>
+        <span>{files.length ? `${files.length} 张 · 点击继续添加` : '拖拽或选择'}</span>
+      </span>
     </label>
     {files.map((file, index) => <button
       key={`${file.name}-${file.size}-${file.lastModified}`}
       type="button"
-      className={`subject-upload-tile__remove subject-upload-tile__remove--detail-${index}`}
+      className={`subject-upload-tile__remove${files.length > 1 ? ` subject-upload-tile__remove--detail-${index}` : ''}`}
       disabled={disabled}
       onClick={() => onRemove(index)}
       aria-label={`移除侧面图“${file.name}”`}
