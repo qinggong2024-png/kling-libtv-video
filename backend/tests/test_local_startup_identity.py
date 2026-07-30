@@ -36,6 +36,39 @@ def test_workspace_process_identity_distinguishes_sibling_repository() -> None:
     assert json.loads(completed.stdout) == {"same": True, "sibling": False}
 
 
+def test_alembic_revision_identity_ignores_mergepoint_annotation() -> None:
+    helper = SCRIPTS / "local-instance-identity.ps1"
+    command = (
+        f". '{helper}'; "
+        "$current = @(Get-AlembicRevisionIds "
+        "-Output @('f2b6d8a13c47 (head) (mergepoint)')); "
+        "$expected = @(Get-AlembicRevisionIds "
+        "-Output @('f2b6d8a13c47 (head)')); "
+        "[pscustomobject]@{ "
+        "current = ($current -join ','); "
+        "expected = ($expected -join ',') "
+        "} | ConvertTo-Json -Compress"
+    )
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "current": "f2b6d8a13c47",
+        "expected": "f2b6d8a13c47",
+    }
+
+
 def test_local_startup_scripts_require_workspace_owned_ports() -> None:
     for name in ("start-local-api.ps1", "start-local-frontend.ps1", "start-local-stack.ps1"):
         source = (SCRIPTS / name).read_text(encoding="utf-8")

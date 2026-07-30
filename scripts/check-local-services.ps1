@@ -81,10 +81,12 @@ try {
     $migrationExitCode = $LASTEXITCODE
     $headOutput = & cmd.exe /d /c "uv run alembic -c backend/alembic.ini heads 2>&1"
     $headExitCode = $LASTEXITCODE
-    $currentRevision = @($migrationOutput | Where-Object { $_ -match '\(head\)' } | Select-Object -Last 1)
-    $expectedRevision = @($headOutput | Where-Object { $_ -match '\(head\)' } | Select-Object -Last 1)
+    $currentRevision = @(Get-AlembicRevisionIds -Output $migrationOutput)
+    $expectedRevision = @(Get-AlembicRevisionIds -Output $headOutput)
+    $currentRevisionKey = ($currentRevision -join ',')
+    $expectedRevisionKey = ($expectedRevision -join ',')
     $results.databaseMigration = [ordered]@{
-        status = if ($migrationExitCode -eq 0 -and $headExitCode -eq 0 -and $currentRevision -eq $expectedRevision) { 'PASS' } else { 'FAIL' }
+        status = if ($migrationExitCode -eq 0 -and $headExitCode -eq 0 -and $currentRevisionKey -eq $expectedRevisionKey) { 'PASS' } else { 'FAIL' }
         current = $currentRevision
         expected = $expectedRevision
     }
