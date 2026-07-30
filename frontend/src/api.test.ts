@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cancelTask, changePassword, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount } from './api'
+import { cancelTask, changePassword, confirmTask, createAdminUser, createTask, deactivateAdminUser, getAdminUsers, getKlingConfig, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -146,7 +146,7 @@ describe('API request identity and CSRF contracts', () => {
     expect(body.variants).toEqual(['DYNAMIC'])
   })
 
-  it('accepts quality-review risk as part of confirming the fixed A/B generation flow', async () => {
+  it('accepts quality-review risk as part of confirming the fixed dual-result generation flow', async () => {
     const task = {
       id: 'task-1',
       stateVersion: 7,
@@ -262,6 +262,47 @@ describe('API request identity and CSRF contracts', () => {
       expect(call[1]?.method).toBe('POST')
       expect(new Headers(call[1]?.headers).get('X-User-Id')).toBe(ADMIN_ID)
     }
+  })
+
+  it('reads and updates the administrator Kling provider configuration', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ backend: 'cli', apiKeyConfigured: false }))
+      .mockResolvedValueOnce(jsonResponse({ backend: 'api', apiKeyConfigured: true }))
+
+    await getKlingConfig(ADMIN_ID)
+    await updateKlingConfig(ADMIN_ID, {
+      backend: 'api',
+      apiKey: 'secret-kling-key',
+      model: 'kling-3.0-omni',
+      duration: 10,
+      aspectRatio: '9:16',
+      resolution: '1080p',
+      audio: 'off',
+      multiShot: true,
+      maxSubmitConcurrency: 2,
+      maxPollConcurrency: 6,
+      enabled: true,
+    })
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(String(calls[0][0])).toBe('/api/v1/admin/kling/config')
+    expect(calls[0][1]?.method).toBeUndefined()
+    expect(String(calls[1][0])).toBe('/api/v1/admin/kling/config')
+    expect(calls[1][1]?.method).toBe('PATCH')
+    expect(new Headers(calls[1][1]?.headers).get('X-User-Id')).toBe(ADMIN_ID)
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      backend: 'api',
+      apiKey: 'secret-kling-key',
+      model: 'kling-3.0-omni',
+      duration: 10,
+      aspectRatio: '9:16',
+      resolution: '1080p',
+      audio: 'off',
+      multiShot: true,
+      maxSubmitConcurrency: 2,
+      maxPollConcurrency: 6,
+      enabled: true,
+    })
   })
 
   it('supports administrator account creation, password reset, and deactivation', async () => {

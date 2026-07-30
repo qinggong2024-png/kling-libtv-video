@@ -77,6 +77,18 @@ provider 选择适配器。
 
 ## 配置
 
+管理员现在可以在“管理中心 → Provider 与账号”直接维护以下配置：
+
+- 切换并独立启停官方 API / CLI；
+- 写入、替换或清除 API Key（响应与审计不回显明文）；
+- 修改 API 模型、时长、比例、分辨率、音频、多镜头和提交/查询并发。
+
+Windows 部署使用 DPAPI machine scope、受限 ACL 和原子文件替换，将共享配置提供给 API 与
+独立 Runner。API 进程保存后立即刷新；Runner 在下一调度周期按文件签名加载并替换活动
+adapter。已提交 attempt 继续按其持久化 provider 查询和恢复。
+
+下列环境变量仍是首次启动默认值；后台首次保存后，以共享安全配置文件为准：
+
 ```dotenv
 KLING_PROVIDER_BACKEND=api
 KLING_API_ENABLED=true
@@ -131,9 +143,9 @@ npm --prefix frontend run build
 .\scripts\start-local-stack.ps1
 ```
 
-切换到 API：设置 `KLING_PROVIDER_BACKEND=api`、`KLING_API_ENABLED=true` 和密钥后，同时重启
-API 与 Runner。回滚 CLI：设置 `KLING_PROVIDER_BACKEND=cli`、`KLING_CLI_ENABLED=true`，
-保留原 CLI 登录状态并重启；不需要迁移或改写历史任务。
+推荐在管理后台切换：API 进程立即生效，Runner 在下一调度周期生效，无需重启，也不需要迁移或
+改写历史任务。首次启动或后台不可用时，仍可通过 `KLING_PROVIDER_BACKEND`、
+`KLING_API_ENABLED` / `KLING_CLI_ENABLED` 和对应凭据配置后重启 API 与 Runner。
 
 ## 尚未验证
 

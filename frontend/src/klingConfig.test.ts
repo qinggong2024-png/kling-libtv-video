@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest'
+import {
+  buildKlingConfigPatch,
+  createKlingConfigDraft,
+  validateKlingConfig,
+} from './klingConfig'
+import type { KlingConfig } from './types'
+
+const config: KlingConfig = {
+  backend: 'api',
+  apiKeyConfigured: false,
+  model: 'kling-3.0-omni',
+  duration: 10,
+  aspectRatio: '9:16',
+  resolution: '1080p',
+  audio: 'off',
+  multiShot: true,
+  maxSubmitConcurrency: 1,
+  maxPollConcurrency: 4,
+  enabled: true,
+  provider: 'kling_official_api',
+}
+
+describe('Kling provider configuration', () => {
+  it('never places the saved API key in the editable draft', () => {
+    const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
+
+    expect(draft.apiKey).toBe('')
+    expect(draft.clearApiKey).toBe(false)
+  })
+
+  it('blocks an enabled API provider until a key is available', () => {
+    const draft = createKlingConfigDraft(config)
+
+    expect(validateKlingConfig(draft, false)).toBe('启用可灵官方 API 前，请先配置 API Key。')
+    expect(validateKlingConfig({ ...draft, apiKey: 'new-secret-key' }, false)).toBe('')
+    expect(validateKlingConfig(draft, true)).toBe('')
+    expect(validateKlingConfig({ ...draft, clearApiKey: true }, true)).toBe('启用可灵官方 API 前，请先配置 API Key。')
+  })
+
+  it('keeps an existing key by omission and sends explicit replacement or clearing', () => {
+    const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
+
+    expect(buildKlingConfigPatch(draft)).not.toHaveProperty('apiKey')
+    expect(buildKlingConfigPatch(draft)).not.toHaveProperty('clearApiKey')
+    expect(buildKlingConfigPatch({ ...draft, apiKey: ' replacement-key ' })).toMatchObject({
+      apiKey: 'replacement-key',
+    })
+    expect(buildKlingConfigPatch({ ...draft, clearApiKey: true })).toMatchObject({
+      clearApiKey: true,
+    })
+  })
+
+  it('validates submit and query concurrency limits', () => {
+    const draft = createKlingConfigDraft({ ...config, apiKeyConfigured: true })
+
+    expect(validateKlingConfig({ ...draft, duration: 2 }, true)).toContain('3–15')
+    expect(validateKlingConfig({ ...draft, duration: 16 }, true)).toContain('3–15')
+    expect(validateKlingConfig({ ...draft, maxSubmitConcurrency: 0 }, true)).toContain('1–20')
+    expect(validateKlingConfig({ ...draft, maxPollConcurrency: 51 }, true)).toContain('1–50')
+  })
+})

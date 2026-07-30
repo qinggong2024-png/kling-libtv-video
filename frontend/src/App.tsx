@@ -73,6 +73,7 @@ import {
   getAdminCredentials,
   getAdminUsers,
   getLibTVAccountStatus,
+  getKlingConfig,
   getKlingStatus,
   getOperations,
   getPersonalPromptAutoConfirmation,
@@ -80,6 +81,7 @@ import {
   logoutKling,
   startLibTVLogin,
   updateAdminCredentials,
+  updateKlingConfig,
   switchLibTVAccount,
   refreshKlingCapabilities,
   resetAdminUserPassword,
@@ -92,7 +94,7 @@ import {
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingStatus, LibTVAccountStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingStatus, LibTVAccountStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { OperationsPanel } from './OperationsPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
@@ -111,6 +113,16 @@ import {
   taskNotificationForTransition,
   writeBrowserNotificationPreference,
 } from './browserNotifications'
+import {
+  buildKlingConfigPatch,
+  createKlingConfigDraft,
+  KLING_ASPECT_RATIO_OPTIONS,
+  KLING_AUDIO_OPTIONS,
+  KLING_MODEL_OPTIONS,
+  KLING_RESOLUTION_OPTIONS,
+  validateKlingConfig,
+} from './klingConfig'
+import type { KlingConfigDraft } from './klingConfig'
 
 type View = 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
@@ -1850,24 +1862,77 @@ function LibTVAccountSettings({ adminId }: { adminId: string }) {
   </section>
 }
 
-function KlingCliSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
+function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
+  const [config, setConfig] = useState<KlingConfig | null>(null)
+  const [draft, setDraft] = useState<KlingConfigDraft | null>(null)
   const [status, setStatus] = useState<KlingStatus | null>(null)
-  const [busy, setBusy] = useState<'load' | 'refresh' | 'login' | 'logout' | null>(null)
+  const [busy, setBusy] = useState<'load' | 'save' | 'refresh' | 'login' | 'logout' | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const load = useCallback(async (force = false) => {
-    setBusy(force ? 'refresh' : 'load')
+
+  const load = useCallback(async () => {
+    setBusy('load')
     try {
-      setStatus(force ? await refreshKlingCapabilities(adminId) : await getKlingStatus(adminId))
+      const [nextConfig, nextStatus] = await Promise.all([
+        getKlingConfig(adminId),
+        getKlingStatus(adminId),
+      ])
+      setConfig(nextConfig)
+      setDraft(createKlingConfigDraft(nextConfig))
+      setStatus(nextStatus)
       setError('')
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '无法读取可灵 CLI 状态')
+      setError(cause instanceof ApiError ? cause.message : '无法读取可灵 Provider 配置')
     } finally { setBusy(null) }
   }, [adminId])
+
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  const updateDraft = <K extends keyof KlingConfigDraft>(field: K, value: KlingConfigDraft[K]) => {
+    setDraft((current) => current ? { ...current, [field]: value } : current)
+    setError('')
+    setNotice('')
+  }
+
+  const refreshCapabilities = async () => {
+    setBusy('refresh')
+    setError('')
+    setNotice('')
+    try {
+      setStatus(await refreshKlingCapabilities(adminId))
+      setNotice('Provider 能力状态已刷新。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '刷新 Provider 能力失败')
+    } finally { setBusy(null) }
+  }
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!draft || !config) return
+    const validationError = validateKlingConfig(draft, config.apiKeyConfigured)
+    if (validationError) {
+      setError(validationError)
+      setNotice('')
+      return
+    }
+    setBusy('save')
+    setError('')
+    setNotice('')
+    try {
+      const next = await updateKlingConfig(adminId, buildKlingConfigPatch(draft))
+      setConfig(next)
+      setDraft(createKlingConfigDraft(next))
+      setNotice('可灵 Provider 配置已保存；后续提交使用新配置，已提交任务保持原 Provider。')
+      await onChanged()
+      setStatus(await getKlingStatus(adminId))
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '可灵 Provider 配置保存失败')
+    } finally { setBusy(null) }
+  }
+
   const authenticate = async () => {
     setBusy('login')
     setError('')
@@ -1893,7 +1958,8 @@ function KlingCliSettings({ adminId, onChanged }: { adminId: string; onChanged: 
       setError(cause instanceof ApiError ? cause.message : '退出可灵账号失败')
     } finally { setBusy(null) }
   }
-  const isApi = status?.backend === 'api'
+
+  const isApi = draft?.backend === 'api'
   const isReady = Boolean(status?.available && status.authenticated)
   const stateLabel = isReady
     ? '已就绪'
@@ -1904,31 +1970,99 @@ function KlingCliSettings({ adminId, onChanged }: { adminId: string; onChanged: 
         : status?.enabled
           ? '能力不可用'
           : '未启用'
-  return <section className="settings-section libtv-account-section">
+
+  const apiKeyWillExist = Boolean(draft?.apiKey.trim()) || Boolean(config?.apiKeyConfigured && !draft?.clearApiKey)
+  const hasChanges = Boolean(config && draft && (
+    draft.backend !== config.backend
+    || draft.model !== config.model
+    || draft.duration !== config.duration
+    || draft.aspectRatio !== config.aspectRatio
+    || draft.resolution !== config.resolution
+    || draft.audio !== config.audio
+    || draft.multiShot !== config.multiShot
+    || draft.maxSubmitConcurrency !== config.maxSubmitConcurrency
+    || draft.maxPollConcurrency !== config.maxPollConcurrency
+    || draft.enabled !== config.enabled
+    || draft.apiKey.trim()
+    || draft.clearApiKey
+  ))
+
+  return <form className="settings-section kling-provider-section" onSubmit={(event) => void save(event)}>
     <div className="settings-section-heading">
-      <div><span>{isApi ? '可灵官方 API' : '可灵官方 CLI'}</span><h2>Provider 状态与能力</h2><p>{isApi ? <>生成和查询通过 API 2.0；密钥只从服务端环境变量读取。</> : <>生成、查询和素材上传通过本机官方 <code>kling</code> CLI；账号操作会打开浏览器完成 OAuth。</>}</p></div>
+      <div><span>可灵官方 Provider</span><h2>调用方式与生成配置</h2><p>可在官方 CLI 与 API 之间切换并管理当前通道。新配置用于后续提交；已经提交的任务仍按其持久化 Provider 继续执行。</p></div>
       <div className="libtv-account-actions">
-        <button className="secondary-button" type="button" disabled={busy !== null || !status?.enabled} onClick={() => void load(true)}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />刷新能力</button>
-        <button className="secondary-button" type="button" disabled={busy !== null || isApi || !status?.authenticated} onClick={() => void signOut()}>{busy === 'logout' ? <LoaderCircle className="spin" size={16} /> : <LogOut size={16} />}退出账号</button>
-        <button className="primary-button" type="button" disabled={busy !== null || isApi || !status?.enabled || status?.status === 'KLING_CLI_NOT_INSTALLED'} onClick={() => void authenticate()}>{busy === 'login' ? <LoaderCircle className="spin" size={16} /> : <LogIn size={16} />}{isApi ? '控制台管理密钥' : busy === 'login' ? '等待浏览器授权' : status?.authenticated ? '重新登录' : '登录可灵'}</button>
+        <button className="secondary-button" type="button" disabled={busy !== null || !status?.enabled} onClick={() => void refreshCapabilities()}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />刷新能力</button>
+        <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 Provider'}</button>
       </div>
     </div>
-    <div className="libtv-account-grid">
-      <div className="libtv-account-card">
-        <div className="libtv-account-card-icon"><Clapperboard size={20} /></div>
-        <div><small>当前状态</small><strong>{stateLabel}</strong><span>{status ? `${klingStatusMessage(status.status, status.reason)}${status.cliVersion ? ` · ${status.cliVersion}` : ''}` : '等待能力发现'}</span></div>
-        <span className={`libtv-account-state ${isReady ? 'is-connected' : ''}`}>{busy !== null ? <LoaderCircle className="spin" size={13} /> : isReady ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{stateLabel}</span>
+
+    {busy === 'load' && !draft ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取可灵配置…</div> : null}
+    {draft ? <>
+      <fieldset className="kling-backend-fieldset" disabled={busy !== null}>
+        <legend>调用方式</legend>
+        <div className="kling-backend-options">
+          <label className={draft.backend === 'cli' ? 'is-selected' : ''}>
+            <input type="radio" name="kling-backend" value="cli" checked={draft.backend === 'cli'} onChange={() => updateDraft('backend', 'cli')} />
+            <span><strong>官方 CLI</strong><small>本机 OAuth 登录，适合现有 CLI 工作流</small></span>
+          </label>
+          <label className={draft.backend === 'api' ? 'is-selected' : ''}>
+            <input type="radio" name="kling-backend" value="api" checked={draft.backend === 'api'} onChange={() => updateDraft('backend', 'api')} />
+            <span><strong>官方 API</strong><small>服务端密钥调用，适合持续运行与并发任务</small></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <div className="kling-provider-toolbar">
+        <div className="libtv-account-card">
+          <div className="libtv-account-card-icon"><Clapperboard size={20} /></div>
+          <div><small>当前运行状态</small><strong>{stateLabel}</strong><span>{status ? `${klingStatusMessage(status.status, status.reason)}${status.cliVersion ? ` · ${status.cliVersion}` : ''}` : '等待能力发现'}</span></div>
+          <span className={`libtv-account-state ${isReady ? 'is-connected' : ''}`}>{busy === 'refresh' ? <LoaderCircle className="spin" size={13} /> : isReady ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{stateLabel}</span>
+        </div>
+        <div className="kling-enabled-control">
+          <span><strong>启用当前 Provider</strong><small>{draft.enabled ? '新任务可以使用所选可灵通道' : '新任务不会提交到可灵'}</small></span>
+          <label className="settings-switch">
+            <input type="checkbox" checked={draft.enabled} disabled={busy !== null} aria-label="启用当前可灵 Provider" onChange={(event) => updateDraft('enabled', event.target.checked)} />
+            <span aria-hidden="true" />
+          </label>
+        </div>
       </div>
-      <div className="libtv-account-switch">
-        <label><strong>当前能力</strong><small>{isApi ? 'API 2.0 能力按官方 Kling 3.0 Omni 合同校验。' : <>模型和参数来自实时 <code>who_am_i</code> / <code>tool_list</code>。</>}</small></label>
-        <div><span>{status?.supportedModels.length ? `${status.supportedModels.length} 个图生视频模型` : '尚未发现模型'}</span><span>{status?.imageInputLimit ? `最多 ${status.imageInputLimit} 张输入图` : '图片限制未知'}</span></div>
-      </div>
-    </div>
-    <div className="libtv-account-feedback" aria-live="polite">
+
+      {isApi ? <div className="kling-config-block">
+        <div className="kling-config-heading"><div><strong>API 凭据</strong><small>密钥仅发送到服务端保存，页面不会读取或回显原值。</small></div><span className={apiKeyWillExist ? 'is-configured' : 'is-missing'}>{apiKeyWillExist ? '已配置' : '未配置'}</span></div>
+        <div className="kling-api-key-row">
+          <div className="credential-field">
+            <label htmlFor="kling-api-key"><strong>可灵 API Key</strong><small>{config?.apiKeyConfigured && !draft.clearApiKey ? '输入新 Key 将替换现有密钥' : '保存后输入框会自动清空'}</small></label>
+            <div className="secret-input"><LockKeyhole size={16} /><input id="kling-api-key" type="password" value={draft.apiKey} onChange={(event) => setDraft((current) => current ? { ...current, apiKey: event.target.value, clearApiKey: false } : current)} placeholder={config?.apiKeyConfigured && !draft.clearApiKey ? '已配置 · 输入新 Key 进行替换' : '输入可灵官方 API Key'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} aria-describedby="kling-api-key-help" /></div>
+            <small id="kling-api-key-help">为安全起见，已保存的 Key 永不回显；留空不会覆盖原值。</small>
+          </div>
+          <button className="danger-button" type="button" disabled={busy !== null || (!config?.apiKeyConfigured && !draft.apiKey)} onClick={() => setDraft((current) => current ? { ...current, apiKey: '', clearApiKey: !current.clearApiKey } : current)}>{draft.clearApiKey ? <RotateCcw size={15} /> : <X size={15} />}{draft.clearApiKey ? '取消清除' : '清除 API Key'}</button>
+        </div>
+        {draft.clearApiKey ? <div className="inline-alert inline-alert--warning"><AlertTriangle size={16} />保存后将清除现有 API Key。若仍要启用 API，请先输入新 Key。</div> : null}
+      </div> : <div className="kling-config-block">
+        <div className="kling-config-heading"><div><strong>CLI 账号</strong><small>账号授权由本机官方 <code>kling</code> CLI 保存。</small></div><span className={status?.authenticated ? 'is-configured' : 'is-missing'}>{status?.authenticated ? '已登录' : '未登录'}</span></div>
+        <div className="kling-cli-actions">
+          <button className="secondary-button" type="button" disabled={busy !== null || !status?.authenticated} onClick={() => void signOut()}>{busy === 'logout' ? <LoaderCircle className="spin" size={16} /> : <LogOut size={16} />}退出账号</button>
+          <button className="primary-button" type="button" disabled={busy !== null || !draft.enabled || status?.status === 'KLING_CLI_NOT_INSTALLED'} onClick={() => void authenticate()}>{busy === 'login' ? <LoaderCircle className="spin" size={16} /> : <LogIn size={16} />}{busy === 'login' ? '等待浏览器授权' : status?.authenticated ? '重新登录' : '登录可灵'}</button>
+        </div>
+      </div>}
+
+      {isApi ? <div className="kling-settings-grid">
+        <label htmlFor="kling-model"><strong>模型</strong><select id="kling-model" value={draft.model} disabled={busy !== null} onChange={(event) => updateDraft('model', event.target.value)}>{Array.from(new Set([...KLING_MODEL_OPTIONS, draft.model])).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label htmlFor="kling-duration"><strong>时长</strong><input id="kling-duration" type="number" min={3} max={15} step={1} value={draft.duration} disabled={busy !== null} onChange={(event) => updateDraft('duration', Number(event.target.value))} /><small>允许范围 3–15 秒</small></label>
+        <label htmlFor="kling-aspect-ratio"><strong>画面比例</strong><select id="kling-aspect-ratio" value={draft.aspectRatio} disabled={busy !== null} onChange={(event) => updateDraft('aspectRatio', event.target.value)}>{Array.from(new Set([...KLING_ASPECT_RATIO_OPTIONS, draft.aspectRatio])).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label htmlFor="kling-resolution"><strong>分辨率</strong><select id="kling-resolution" value={draft.resolution} disabled={busy !== null} onChange={(event) => updateDraft('resolution', event.target.value)}>{Array.from(new Set([...KLING_RESOLUTION_OPTIONS, draft.resolution])).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label htmlFor="kling-audio"><strong>音频</strong><select id="kling-audio" value={draft.audio} disabled={busy !== null} onChange={(event) => updateDraft('audio', event.target.value)}>{KLING_AUDIO_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label htmlFor="kling-submit-concurrency"><strong>提交并发</strong><input id="kling-submit-concurrency" type="number" min={1} max={20} step={1} value={draft.maxSubmitConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxSubmitConcurrency', Number(event.target.value))} /><small>允许范围 1–20</small></label>
+        <label htmlFor="kling-poll-concurrency"><strong>查询并发</strong><input id="kling-poll-concurrency" type="number" min={1} max={50} step={1} value={draft.maxPollConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxPollConcurrency', Number(event.target.value))} /><small>允许范围 1–50</small></label>
+        <label className="kling-inline-switch"><span><strong>多镜头</strong><small>允许模型在一次生成中规划多个镜头</small></span><span className="settings-switch"><input type="checkbox" checked={draft.multiShot} disabled={busy !== null} aria-label="启用可灵多镜头" onChange={(event) => updateDraft('multiShot', event.target.checked)} /><span aria-hidden="true" /></span></label>
+      </div> : null}
+    </> : null}
+
+    <div className="kling-provider-feedback" aria-live="polite" aria-atomic="true">
       {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
     </div>
-  </section>
+  </form>
 }
 
 function BrowserNotificationSetting({
@@ -2061,12 +2195,13 @@ function SettingsView({
     window.setTimeout(() => setSaved(false), 1800)
   }
   const klingReady = Boolean(system?.kling.available && system.kling.authenticated)
+  const klingProviderLabel = system?.kling.backend === 'api' ? 'Kling 官方 API' : 'Kling 官方 CLI'
   const klingLabel = system?.kling.status === 'KLING_CLI_NOT_INSTALLED'
     ? 'Kling · CLI 未安装'
     : system?.kling.status === 'KLING_CLI_NOT_AUTHENTICATED'
       ? 'Kling · 账号未登录'
       : system?.kling.enabled
-        ? 'Kling 官方 CLI'
+        ? klingProviderLabel
         : 'Kling · 未启用'
   return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>设置</h1><p>配置默认生成偏好，减少每次制作时的重复选择。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}<button className="primary-button" disabled={!settings.model.trim() || (settings.provider === 'kling' && !klingReady)} onClick={save}>{saved ? <Check size={17} /> : null}{saved ? '已保存' : '保存偏好'}</button></div></div>
     {saved ? <div className="save-toast" role="status" aria-live="polite"><CheckCircle2 size={17} /><span><strong>偏好已保存</strong><small>下次新建任务时自动应用</small></span></div> : null}
@@ -2300,7 +2435,7 @@ function AdminCenterView({
       </> : null}
       {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
-        <KlingCliSettings adminId={actor!.userId} onChanged={onKlingChanged} />
+        <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
         <LibTVAccountSettings adminId={actor!.userId} />
       </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="Provider 登录和账号空间仅允许管理员修改。" /> : null}
       {section === 'security' ? <>

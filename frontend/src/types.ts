@@ -274,6 +274,36 @@ export interface KlingStatus {
   supportsWatermarkFreeOutput: boolean
 }
 
+export interface KlingConfig {
+  backend: 'cli' | 'api'
+  apiKeyConfigured: boolean
+  model: string
+  duration: number
+  aspectRatio: string
+  resolution: string
+  audio: string
+  multiShot: boolean
+  maxSubmitConcurrency: number
+  maxPollConcurrency: number
+  enabled: boolean
+  provider: string
+}
+
+export interface KlingConfigPatch {
+  backend?: 'cli' | 'api'
+  apiKey?: string
+  clearApiKey?: boolean
+  model?: string
+  duration?: number
+  aspectRatio?: string
+  resolution?: string
+  audio?: string
+  multiShot?: boolean
+  maxSubmitConcurrency?: number
+  maxPollConcurrency?: number
+  enabled?: boolean
+}
+
 export interface AdminCredentialsStatus {
   libtvConfigured: boolean
   modelConfigured: boolean

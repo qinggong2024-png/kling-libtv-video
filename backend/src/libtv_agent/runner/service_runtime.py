@@ -19,6 +19,10 @@ from libtv_agent.domain.models import AuditEvent, RunnerHost
 from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
+from libtv_agent.services.kling_config import (
+    kling_admin_config_signature,
+    load_kling_admin_config,
+)
 from libtv_agent.services.observability import (
     operational_backlog_count,
     prune_operational_samples,
@@ -101,6 +105,8 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     os.chdir(project_root)
     settings = Settings()
     settings.validate_shared_environment()
+    load_kling_admin_config(settings)
+    kling_config_signature = kling_admin_config_signature(settings)
     database = Database(settings.database_url)
     adapter = create_libtv_adapter(settings)
     kling_adapter = create_kling_adapter(settings)
@@ -132,6 +138,12 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     try:
         while not stopping.is_set():
             try:
+                current_kling_config_signature = kling_admin_config_signature(settings)
+                if current_kling_config_signature != kling_config_signature:
+                    load_kling_admin_config(settings)
+                    kling_adapter = create_kling_adapter(settings)
+                    supervisor.replace_kling_adapter(kling_adapter)
+                    kling_config_signature = kling_admin_config_signature(settings)
                 disk = manager.disk_status(
                     settings.runner_log_disk_warning_percent,
                     settings.runner_log_disk_stop_percent,

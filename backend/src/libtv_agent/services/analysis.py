@@ -639,6 +639,17 @@ async def analyze_task(
     timelines = _validated_analysis_timelines(analysis_json, required_ids)
     mode_type = select_mode_type(len(ordered), snapshot.schema_json)
     model_key = snapshot.model_key if generation_provider == "kling" else "kling-v3-omni"
+    generation_duration = (
+        settings.active_kling_duration if generation_provider == "kling" else 10
+    )
+    generation_aspect_ratio = (
+        settings.active_kling_aspect_ratio if generation_provider == "kling" else "9:16"
+    )
+    generation_sound = (
+        settings.kling_api_audio
+        if generation_provider == "kling" and settings.kling_provider_backend == "api"
+        else "off"
+    )
     config = {
         "preset": "DEFAULT_10S_9X16",
         "analysisModel": analysis_model,
@@ -647,9 +658,9 @@ async def analyze_task(
         "modelKey": model_key,
         "modeType": mode_type,
         "quality": "high",
-        "duration": 10,
-        "aspectRatio": "9:16",
-        "sound": "off",
+        "duration": generation_duration,
+        "aspectRatio": generation_aspect_ratio,
+        "sound": generation_sound,
         "smartStoryboard": len(ordered) > 1,
         "count": 1,
     }
