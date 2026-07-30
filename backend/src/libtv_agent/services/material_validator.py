@@ -58,14 +58,10 @@ def action_context_from_materials(materials: list[MaterialDescriptor]) -> Action
     from filename, dimensions, ordering, or other metadata.
     """
 
-    evidence_sets = tuple(
-        material.confirmed_action_capabilities for material in materials
-    )
+    evidence_sets = tuple(material.confirmed_action_capabilities for material in materials)
     confirmed = frozenset(capability for evidence in evidence_sets for capability in evidence)
     denied = (
-        frozenset.intersection(
-            *(material.denied_action_capabilities for material in materials)
-        )
+        frozenset.intersection(*(material.denied_action_capabilities for material in materials))
         if materials
         else frozenset()
     ) - confirmed

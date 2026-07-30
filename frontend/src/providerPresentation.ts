@@ -81,6 +81,10 @@ type VariantExecution = {
   provider?: string | null
   providerTaskId?: string | null
   providerStatus?: string | null
+  errorMessage?: string | null
+  retryable?: boolean | null
+  providerErrorMessage?: string | null
+  providerErrorRetryable?: boolean | null
 }
 
 export function variantExecutionMessage(
@@ -95,7 +99,19 @@ export function variantExecutionMessage(
       ? `${meta.cliLabel} 提交或查询结果不确定；禁止自动重投，请用任务 ID 对账`
       : 'LibTV CLI 运行状态不确定；禁止重复执行 --run，请读取画布节点对账'
   }
-  if (variant.errorCode) return `${meta.cliLabel}：${variant.errorCode}`
+  if (variant.errorCode) {
+    const retryable = variant.retryable ?? variant.providerErrorRetryable
+    const retry = retryable === true
+      ? '可以重试'
+      : retryable === false
+        ? '需要人工处理'
+        : ''
+    return [
+      `${meta.cliLabel}：${variant.errorCode}`,
+      (variant.errorMessage ?? variant.providerErrorMessage)?.trim(),
+      retry,
+    ].filter(Boolean).join(' · ')
+  }
   if (variant.providerTaskId) {
     return meta.kind === 'kling'
       ? `可灵任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待查询'}`

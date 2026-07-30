@@ -639,9 +639,7 @@ async def analyze_task(
     timelines = _validated_analysis_timelines(analysis_json, required_ids)
     mode_type = select_mode_type(len(ordered), snapshot.schema_json)
     model_key = snapshot.model_key if generation_provider == "kling" else "kling-v3-omni"
-    generation_duration = (
-        settings.active_kling_duration if generation_provider == "kling" else 10
-    )
+    generation_duration = settings.active_kling_duration if generation_provider == "kling" else 10
     generation_aspect_ratio = (
         settings.active_kling_aspect_ratio if generation_provider == "kling" else "9:16"
     )

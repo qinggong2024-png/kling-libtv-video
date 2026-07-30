@@ -47,6 +47,12 @@ export interface Variant {
   providerTaskId: string | null
   providerStatus: string | null
   executionBackend: string | null
+  errorMessage?: string | null
+  errorDetails?: Record<string, unknown> | unknown[] | null
+  retryable?: boolean | null
+  providerErrorMessage?: string | null
+  providerErrorDetails?: Record<string, unknown> | null
+  providerErrorRetryable?: boolean | null
   variantIndex?: number | null
   variantKey?: string | null
   variantSeed?: Record<string, string | number>
@@ -217,10 +223,42 @@ export interface UploadResult {
 export interface FixedVideoTaskOptions {
   templateId: string
   siteProfileId: string
+  elementIds: string[]
   resultCount: number
   actionIntensity: 'low' | 'standard' | 'high'
   cameraTempo: 'slow' | 'standard' | 'fast'
   cutMode: 'explicit_cuts' | 'continuous_when_possible'
+}
+
+export interface KlingElement {
+  id: string
+  name: string | null
+  description: string | null
+  status: string
+  imageUrls: string[]
+  videoUrl: string | null
+  voiceId: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface KlingElementList {
+  items: KlingElement[]
+  pageNum: number
+  pageSize: number
+  total: number
+  official: boolean
+}
+
+export interface KlingElementCreate {
+  name: string
+  description: string
+  imageReferences?: string[]
+  videoReferences?: string[]
+  voiceId?: string
+  tagIds?: string[]
+  callbackUrl?: string
+  externalId?: string
 }
 
 export interface SystemStatus {
@@ -277,6 +315,8 @@ export interface KlingStatus {
 export interface KlingConfig {
   backend: 'cli' | 'api'
   apiKeyConfigured: boolean
+  baseUrl: string
+  callbackUrl: string | null
   model: string
   duration: number
   aspectRatio: string
@@ -293,6 +333,9 @@ export interface KlingConfigPatch {
   backend?: 'cli' | 'api'
   apiKey?: string
   clearApiKey?: boolean
+  baseUrl?: string
+  callbackUrl?: string | null
+  clearCallbackUrl?: boolean
   model?: string
   duration?: number
   aspectRatio?: string

@@ -44,6 +44,14 @@ class FixedVideoTaskValidationError(ValueError):
         self.details = details or {}
 
 
+def _paid_boundary(provider: str, settings: Settings) -> str:
+    if provider == settings.kling_api_provider_name:
+        return "Kling official API omni video generation"
+    if provider == settings.kling_cli_provider_name:
+        return "Kling official CLI historical recovery"
+    return f"{provider} video generation"
+
+
 def _validation_snapshot(result: Any) -> dict[str, Any]:
     return {
         "valid": result.valid,
@@ -179,6 +187,7 @@ async def create_fixed_video_task(
     consent_at = datetime.now(UTC)
     settings_json = {
         "generationProvider": "kling",
+        "elementIds": list(payload.element_ids),
         "resultCount": payload.result_count,
         "actionIntensity": payload.action_intensity,
         "cameraTempo": payload.camera_tempo,
@@ -188,6 +197,7 @@ async def create_fixed_video_task(
         "sound": template.sound,
         "subtitles": template.subtitles,
         "smartStoryboard": template.smart_storyboard,
+        "multiShot": template.smart_storyboard,
     }
     asset_hash = ordered_assets_hash(
         [
@@ -298,14 +308,17 @@ async def create_fixed_video_task(
     try:
         for attempt in attempts:
             variant = next(item for item in task.variants if item.id == attempt.variant_id)
+            paid_boundary = _paid_boundary(attempt.provider, settings)
             preview = {
-                "paidBoundary": "kling image_to_video",
+                "paidBoundary": paid_boundary,
                 "provider": attempt.provider,
                 "model": attempt.provider_model,
                 "variantIndex": variant.variant_index,
                 "promptHash": variant.prompt_hash,
                 "estimatedGenerationCount": 1,
-                "costRisk": "Executing this command consumes Kling credits.",
+                "costRisk": (
+                    f"Submitting through {attempt.provider} consumes Kling generation credits."
+                ),
             }
             previews.append(preview)
             await reserve_points(
@@ -347,7 +360,10 @@ async def create_fixed_video_task(
         {
             "taskId": str(task.id),
             "workflowKind": "FIXED_TEMPLATE",
-            "paidGenerationBoundary": "kling image_to_video",
+            "paidGenerationBoundary": _paid_boundary(
+                kling_adapter.get_provider_name(),
+                settings,
+            ),
             "commands": previews,
         },
     )

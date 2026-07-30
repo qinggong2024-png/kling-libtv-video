@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -34,12 +35,18 @@ class ProviderCapabilities:
 
 
 @dataclass(frozen=True)
+class VideoElementReference:
+    element_id: str
+    content_id: str
+
+
+@dataclass(frozen=True)
 class VideoGenerationRequest:
     prompt: str
     model: str | None
-    image_paths: tuple[Path, ...]
-    duration: int | None
-    aspect_ratio: str | None
+    image_paths: tuple[Path, ...] = ()
+    duration: int | None = None
+    aspect_ratio: str | None = None
     product_reference_paths: tuple[Path, ...] = ()
     fallback_mode: str = "disabled"
     task_trace_id: str | None = None
@@ -48,6 +55,20 @@ class VideoGenerationRequest:
     multi_shot: bool | None = None
     external_task_id: str | None = None
     callback_url: str | None = None
+    first_frame_path: Path | None = None
+    last_frame_path: Path | None = None
+    refer_image_paths: tuple[Path, ...] = ()
+    feature_video_url: str | None = None
+    base_video_url: str | None = None
+    element_references: tuple[VideoElementReference, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProviderBillingCharge:
+    charge_type: str
+    amount: Decimal
+    package_type: str | None = None
+    list_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +78,7 @@ class ProviderSubmissionResult:
     credits_consumed: int | None
     provider_model: str
     raw_response: dict[str, Any]
+    billing: tuple[ProviderBillingCharge, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,6 +87,7 @@ class ProviderOutput:
     content_type: str | None = None
     url_without_watermark: str | None = None
     cover_url: str | None = None
+    watermark_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +97,8 @@ class ProviderTaskResult:
     outputs: tuple[ProviderOutput, ...]
     raw_response: dict[str, Any]
     credits_consumed: int | None = None
+    message: str | None = None
+    billing: tuple[ProviderBillingCharge, ...] = ()
 
 
 @dataclass(frozen=True)

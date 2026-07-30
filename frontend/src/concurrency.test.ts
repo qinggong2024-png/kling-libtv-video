@@ -22,4 +22,17 @@ describe('mapWithConcurrency', () => {
     const mapper = () => Promise.resolve('unused')
     expect(await mapWithConcurrency([], 4, mapper)).toEqual([])
   })
+
+  it('waits for every worker to settle before surfacing a failure', async () => {
+    const events: string[] = []
+    const pending = mapWithConcurrency([1, 2], 2, async (value) => {
+      if (value === 1) throw new Error('upload failed')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      events.push('slow worker settled')
+      return value
+    })
+
+    await expect(pending).rejects.toThrow('upload failed')
+    expect(events).toEqual(['slow worker settled'])
+  })
 })

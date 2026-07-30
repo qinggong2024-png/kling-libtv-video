@@ -1,10 +1,11 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
 const UPLOAD_TIMEOUT_MS = 60_000
 const LONG_RUNNING_TIMEOUT_MS = 120_000
+const DOWNLOAD_TIMEOUT_MS = 300_000
 let developmentUserId: string | null = DEFAULT_USER_ID
 let csrfCookieName = 'libtv_csrf'
 let csrfToken = ''
@@ -19,11 +20,22 @@ type RequestPolicy = {
 export class ApiError extends Error {
   code: string
   status: number
+  details: unknown
+  retryable: boolean | null
 
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details: unknown = null,
+    retryable: boolean | null = null,
+  ) {
     super(message)
+    this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.details = details
+    this.retryable = retryable
   }
 }
 
@@ -42,7 +54,57 @@ function readCookie(name: string): string {
   return match ? decodeURIComponent(match.slice(prefix.length)) : ''
 }
 
-async function request<T>(path: string, init: RequestInit = {}, policy: RequestPolicy = {}): Promise<T> {
+type ErrorPayload = {
+  code?: unknown
+  message?: unknown
+  details?: unknown
+  retryable?: unknown
+}
+
+function validationDetailMessage(detail: unknown[]): string {
+  const messages = detail.flatMap((item) => {
+    if (typeof item === 'string') return [item]
+    if (!item || typeof item !== 'object') return []
+    const entry = item as { loc?: unknown; msg?: unknown }
+    if (typeof entry.msg !== 'string') return []
+    const location = Array.isArray(entry.loc)
+      ? entry.loc.filter((part) => part !== 'body').join('.')
+      : ''
+    return [location ? `${location}: ${entry.msg}` : entry.msg]
+  })
+  return messages.join('；')
+}
+
+function apiErrorFromBody(status: number, statusText: string, body: unknown): ApiError {
+  const envelope = body && typeof body === 'object' && !Array.isArray(body)
+    ? body as Record<string, unknown>
+    : {}
+  const rawDetail = envelope.detail ?? envelope.error ?? body
+  if (typeof rawDetail === 'string') {
+    return new ApiError(status, 'REQUEST_FAILED', rawDetail)
+  }
+  if (Array.isArray(rawDetail)) {
+    return new ApiError(
+      status,
+      'VALIDATION_FAILED',
+      validationDetailMessage(rawDetail) || `${status} ${statusText}`,
+      rawDetail,
+      false,
+    )
+  }
+  const detail = rawDetail && typeof rawDetail === 'object'
+    ? rawDetail as ErrorPayload
+    : {}
+  return new ApiError(
+    status,
+    typeof detail.code === 'string' ? detail.code : 'REQUEST_FAILED',
+    typeof detail.message === 'string' ? detail.message : `${status} ${statusText}`,
+    detail.details ?? null,
+    typeof detail.retryable === 'boolean' ? detail.retryable : null,
+  )
+}
+
+async function fetchResponse(path: string, init: RequestInit = {}, policy: RequestPolicy = {}): Promise<Response> {
   const { authenticate = true, actorId = developmentUserId, timeoutMs = DEFAULT_TIMEOUT_MS } = policy
   const headers = new Headers(init.headers)
   if (authenticate && actorId) headers.set('X-User-Id', actorId)
@@ -74,16 +136,24 @@ async function request<T>(path: string, init: RequestInit = {}, policy: RequestP
   }
   policy.onResponse?.(response)
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}))
-    const detail = body.detail ?? body.error ?? body
-    throw new ApiError(response.status, detail.code ?? 'REQUEST_FAILED', detail.message ?? `${response.status} ${response.statusText}`)
+    const body = await response.json().catch(() => null)
+    throw apiErrorFromBody(response.status, response.statusText, body)
   }
+  return response
+}
+
+async function request<T>(path: string, init: RequestInit = {}, policy: RequestPolicy = {}): Promise<T> {
+  const response = await fetchResponse(path, init, policy)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
+async function requestBlob(path: string, policy: RequestPolicy = {}): Promise<Blob> {
+  const response = await fetchResponse(path, {}, policy)
+  return response.blob()
+}
+
 const key = () => createUuid()
-const developmentHeaders = (): Record<string, string> => developmentUserId ? { 'X-User-Id': developmentUserId } : {}
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
@@ -138,10 +208,10 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   })
 }
 
-export async function uploadStoryboard(file: File): Promise<UploadResult> {
+export async function uploadStoryboard(file: File, signal?: AbortSignal): Promise<UploadResult> {
   const body = new FormData()
   body.append('file', file)
-  return request('/api/v1/uploads', { method: 'POST', body, headers: { 'Idempotency-Key': key() } }, { timeoutMs: UPLOAD_TIMEOUT_MS })
+  return request('/api/v1/uploads', { method: 'POST', body, headers: { 'Idempotency-Key': key() }, signal }, { timeoutMs: UPLOAD_TIMEOUT_MS })
 }
 
 export function getVideoTemplates(): Promise<VideoTemplateSummary[]> {
@@ -197,6 +267,7 @@ export function createVideoTask(
       storyboards: uploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1, required: true })),
       templateId: options.templateId,
       siteProfileId: options.siteProfileId,
+      elementIds: options.elementIds,
       resultCount: options.resultCount,
       actionIntensity: options.actionIntensity,
       cameraTempo: options.cameraTempo,
@@ -284,9 +355,7 @@ export const restoreOutput = (taskId: string, variant: VariantKind) => request<{
 export const downloadUrl = (artifactId: string) => `/api/v1/downloads/${artifactId}`
 
 export async function saveArtifact(artifactId: string, filename: string): Promise<void> {
-  const response = await fetch(downloadUrl(artifactId), { credentials: 'include', headers: developmentHeaders() })
-  if (!response.ok) throw new ApiError(response.status, 'DOWNLOAD_FAILED', '下载失败')
-  const url = URL.createObjectURL(await response.blob())
+  const url = URL.createObjectURL(await requestBlob(downloadUrl(artifactId), { timeoutMs: DOWNLOAD_TIMEOUT_MS }))
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
@@ -295,22 +364,16 @@ export async function saveArtifact(artifactId: string, filename: string): Promis
 }
 
 export async function fetchAssetObjectUrl(path: string): Promise<string> {
-  const response = await fetch(path, { credentials: 'include', headers: developmentHeaders() })
-  if (!response.ok) throw new ApiError(response.status, 'ASSET_FAILED', '分镜加载失败')
-  return URL.createObjectURL(await response.blob())
+  return URL.createObjectURL(await requestBlob(path, { timeoutMs: UPLOAD_TIMEOUT_MS }))
 }
 
 export async function fetchAssetFile(path: string, filename: string): Promise<File> {
-  const response = await fetch(path, { credentials: 'include', headers: developmentHeaders() })
-  if (!response.ok) throw new ApiError(response.status, 'ASSET_FAILED', '素材加载失败')
-  const blob = await response.blob()
+  const blob = await requestBlob(path, { timeoutMs: UPLOAD_TIMEOUT_MS })
   return new File([blob], filename, { type: blob.type || 'image/jpeg' })
 }
 
 export async function fetchArtifactObjectUrl(artifactId: string): Promise<string> {
-  const response = await fetch(downloadUrl(artifactId), { credentials: 'include', headers: developmentHeaders() })
-  if (!response.ok) throw new ApiError(response.status, 'VIDEO_FAILED', '视频加载失败')
-  return URL.createObjectURL(await response.blob())
+  return URL.createObjectURL(await requestBlob(downloadUrl(artifactId), { timeoutMs: DOWNLOAD_TIMEOUT_MS }))
 }
 
 export async function getReconciliations(adminId: string | null): Promise<Reconciliation[]> {
@@ -398,6 +461,34 @@ export function logoutKling(adminId: string): Promise<KlingStatus> {
   return request('/api/v1/admin/kling/logout', {
     method: 'POST',
   }, { actorId: adminId })
+}
+
+export function getKlingElements(
+  adminId: string | null,
+  pageNum = 1,
+  pageSize = 50,
+  official = false,
+  signal?: AbortSignal,
+): Promise<KlingElementList> {
+  const query = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+    official: String(official),
+  })
+  return request(`/api/v1/admin/kling/elements?${query.toString()}`, { signal }, { actorId: adminId })
+}
+
+export function createKlingElement(adminId: string, values: KlingElementCreate): Promise<KlingElement> {
+  return request('/api/v1/admin/kling/elements', {
+    method: 'POST',
+    body: JSON.stringify(values),
+  }, { actorId: adminId, timeoutMs: LONG_RUNNING_TIMEOUT_MS })
+}
+
+export function deleteKlingElement(adminId: string, elementId: string): Promise<void> {
+  return request(`/api/v1/admin/kling/elements/${encodeURIComponent(elementId)}`, {
+    method: 'DELETE',
+  }, { actorId: adminId, timeoutMs: LONG_RUNNING_TIMEOUT_MS })
 }
 
 export function startLibTVLogin(adminId: string): Promise<LibTVLoginStart> {

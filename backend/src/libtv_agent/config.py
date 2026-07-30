@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -66,7 +67,9 @@ class Settings(BaseSettings):
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
     fake_libtv_scenario: str = "success"
-    kling_provider_backend: Literal["cli", "api"] = "cli"
+    # Retained only so older environment/config snapshots continue to parse.
+    # New work is always routed to the official API; CLI is recovery-only.
+    kling_provider_backend: Literal["cli", "api"] = "api"
     kling_cli_enabled: bool = False
     kling_cli_executable: str = "kling"
     kling_cli_provider_name: str = "kling_official_cli"
@@ -86,13 +89,13 @@ class Settings(BaseSettings):
     kling_enable_paid_integration_test: bool = False
     kling_api_enabled: bool = False
     kling_api_key: str | None = None
-    kling_api_base_url: str = "https://api-singapore.klingai.com"
+    kling_api_base_url: str = "https://api-beijing.klingai.com"
     kling_api_provider_name: str = "kling_official_api"
     kling_api_model: Literal["kling-3.0-omni"] = "kling-3.0-omni"
     kling_api_duration: int = Field(default=10, ge=3, le=15)
     kling_api_aspect_ratio: Literal["16:9", "9:16", "1:1"] = "9:16"
     kling_api_resolution: Literal["720p", "1080p", "4k"] = "1080p"
-    kling_api_audio: Literal["native", "off"] = "off"
+    kling_api_audio: Literal["native", "original", "off"] = "off"
     kling_api_multi_shot: bool = True
     kling_api_callback_url: str | None = None
     kling_api_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
@@ -194,6 +197,33 @@ class Settings(BaseSettings):
             raise ValueError("Kling API poll interval cannot exceed its maximum")
         if self.kling_api_base_url.rstrip("/") != self.kling_api_base_url:
             self.kling_api_base_url = self.kling_api_base_url.rstrip("/")
+        api_url = urlsplit(self.kling_api_base_url)
+        official_hosts = {"api-beijing.klingai.com", "api-singapore.klingai.com"}
+        loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+        official_endpoint = (
+            api_url.scheme == "https"
+            and api_url.hostname in official_hosts
+            and not api_url.username
+            and not api_url.password
+            and api_url.path in {"", "/"}
+            and not api_url.query
+            and not api_url.fragment
+        )
+        local_test_endpoint = (
+            self.app_env in {"development", "test"}
+            and api_url.scheme in {"http", "https"}
+            and api_url.hostname in loopback_hosts
+            and not api_url.username
+            and not api_url.password
+            and api_url.path in {"", "/"}
+            and not api_url.query
+            and not api_url.fragment
+        )
+        if not official_endpoint and not local_test_endpoint:
+            raise ValueError(
+                "Kling API base URL must use an official Kling endpoint; "
+                "loopback endpoints are allowed only in development or test"
+            )
         return self
 
     def analysis_timeout_for_image_count(self, image_count: int) -> float:
@@ -205,43 +235,23 @@ class Settings(BaseSettings):
 
     @property
     def kling_enabled(self) -> bool:
-        return (
-            self.kling_api_enabled
-            if self.kling_provider_backend == "api"
-            else self.kling_cli_enabled
-        )
+        return self.kling_api_enabled
 
     @property
     def active_kling_provider_name(self) -> str:
-        return (
-            self.kling_api_provider_name
-            if self.kling_provider_backend == "api"
-            else self.kling_cli_provider_name
-        )
+        return self.kling_api_provider_name
 
     @property
     def active_kling_model(self) -> str | None:
-        return (
-            self.kling_api_model
-            if self.kling_provider_backend == "api"
-            else self.kling_cli_default_model
-        )
+        return self.kling_api_model
 
     @property
     def active_kling_duration(self) -> int:
-        return (
-            self.kling_api_duration
-            if self.kling_provider_backend == "api"
-            else self.kling_cli_default_duration
-        )
+        return self.kling_api_duration
 
     @property
     def active_kling_aspect_ratio(self) -> str:
-        return (
-            self.kling_api_aspect_ratio
-            if self.kling_provider_backend == "api"
-            else self.kling_cli_default_aspect_ratio
-        )
+        return self.kling_api_aspect_ratio
 
     @property
     def kling_provider_names(self) -> tuple[str, ...]:
@@ -250,16 +260,10 @@ class Settings(BaseSettings):
         )
 
     def kling_poll_interval(self, *, unknown: bool = False) -> float:
-        if self.kling_provider_backend == "api":
-            return (
-                self.kling_api_max_poll_interval_seconds
-                if unknown
-                else self.kling_api_poll_interval_seconds
-            )
         return (
-            self.kling_cli_max_poll_interval_seconds
+            self.kling_api_max_poll_interval_seconds
             if unknown
-            else self.kling_cli_poll_interval_seconds
+            else self.kling_api_poll_interval_seconds
         )
 
     def kling_poll_interval_for_provider(self, provider: str, *, unknown: bool = False) -> float:
@@ -276,6 +280,7 @@ class Settings(BaseSettings):
         )
 
     def kling_provider_enabled(self, provider: str) -> bool:
+        """Return whether a provider may be queried for an existing attempt."""
         normalized = provider.strip().lower()
         if normalized == "kling":
             return self.kling_enabled
@@ -284,6 +289,14 @@ class Settings(BaseSettings):
         if normalized == self.kling_cli_provider_name.strip().lower():
             return self.kling_cli_enabled
         return False
+
+    def kling_provider_submission_enabled(self, provider: str) -> bool:
+        """Only the official API may receive new paid submissions."""
+        normalized = provider.strip().lower()
+        return (
+            normalized in {"kling", self.kling_api_provider_name.strip().lower()}
+            and self.kling_api_enabled
+        )
 
     def validate_shared_environment(self) -> None:
         if (

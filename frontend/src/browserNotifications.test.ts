@@ -26,6 +26,8 @@ describe('browser task notifications', () => {
   it.each([
     ['DELIVERABLE', '视频生成完成'],
     ['PARTIALLY_DELIVERABLE', '视频部分完成'],
+    ['ACTION_REQUIRED', '视频任务需要处理'],
+    ['CANCELLED', '视频任务已取消'],
   ])('notifies when a task becomes %s', (phase, title) => {
     expect(taskNotificationForTransition('GENERATING', task(phase))?.title).toBe(title)
   })
@@ -40,5 +42,7 @@ describe('browser task notifications', () => {
     expect(shouldCloseTaskNotification('PREPARING', false)).toBe(true)
     expect(shouldCloseTaskNotification('AWAITING_CONFIRMATION', false)).toBe(false)
     expect(shouldCloseTaskNotification('DELIVERABLE', false)).toBe(false)
+    expect(shouldCloseTaskNotification('ACTION_REQUIRED', false)).toBe(false)
+    expect(shouldCloseTaskNotification('CANCELLED', false)).toBe(false)
   })
 })

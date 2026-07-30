@@ -382,6 +382,8 @@ class GenerationAttempt(Base):
     local_output_path: Mapped[str | None] = mapped_column(String(500))
     credits_consumed: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
+    provider_error_details_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    provider_error_retryable: Mapped[bool | None] = mapped_column(Boolean)
     raw_response_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     launch_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     process_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

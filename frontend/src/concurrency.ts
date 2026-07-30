@@ -12,8 +12,10 @@ export async function mapWithConcurrency<T, R>(
       results[index] = await mapper(items[index], index)
     }
   }
-  await Promise.all(
+  const workers = await Promise.allSettled(
     Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, worker),
   )
+  const failed = workers.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failed) throw failed.reason
   return results
 }

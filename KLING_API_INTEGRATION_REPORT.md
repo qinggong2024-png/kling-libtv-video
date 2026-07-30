@@ -73,19 +73,24 @@ provider 选择适配器。
 - 任务超过配置等待时间后进入 `UNKNOWN_AFTER_SUBMIT`，不会自动重新扣费。
 - 下载使用 `.part` 临时文件、流式写入、HTTP/Content-Type/非空检查和原子替换。
 - API Key、Authorization、Base64 和完整签名 URL 不进入请求摘要。
-- API 默认关闭；CLI 保留，历史 attempt 继续按其持久化 provider 恢复。
+- API 默认关闭；CLI 只保留历史 attempt 的查询和下载恢复，不能接收新提交。
 
 ## 配置
 
 管理员现在可以在“管理中心 → Provider 与账号”直接维护以下配置：
 
-- 切换并独立启停官方 API / CLI；
+- 启停正式 API；新生产任务不能切换回 CLI；
 - 写入、替换或清除 API Key（响应与审计不回显明文）；
 - 修改 API 模型、时长、比例、分辨率、音频、多镜头和提交/查询并发。
 
 Windows 部署使用 DPAPI machine scope、受限 ACL 和原子文件替换，将共享配置提供给 API 与
 独立 Runner。API 进程保存后立即刷新；Runner 在下一调度周期按文件签名加载并替换活动
 adapter。已提交 attempt 继续按其持久化 provider 查询和恢复。
+
+仅配置 Key 时状态为 `KLING_API_CONFIGURED_UNVERIFIED`。系统使用正式 API 的任务查询端点做
+只读鉴权校验；该边界不会创建媒体或消耗生成额度。只有真实查询成功后才标记
+`KLING_API_READY`。网络错误、鉴权失败或缺少 Key 都保持不可提交，不会以“已配置”冒充
+“已验证”。
 
 下列环境变量仍是首次启动默认值；后台首次保存后，以共享安全配置文件为准：
 
@@ -128,7 +133,7 @@ uv run python scripts/kling_api_dry_run.py `
   --duration 10 --aspect-ratio 9:16 --resolution 1080p --audio off
 ```
 
-## 测试、启动、切换与回滚
+## 测试、启动与历史恢复
 
 ```powershell
 uv run ruff check .
@@ -143,9 +148,10 @@ npm --prefix frontend run build
 .\scripts\start-local-stack.ps1
 ```
 
-推荐在管理后台切换：API 进程立即生效，Runner 在下一调度周期生效，无需重启，也不需要迁移或
-改写历史任务。首次启动或后台不可用时，仍可通过 `KLING_PROVIDER_BACKEND`、
-`KLING_API_ENABLED` / `KLING_CLI_ENABLED` 和对应凭据配置后重启 API 与 Runner。
+推荐在管理后台配置 API：API 进程立即生效，Runner 在下一调度周期生效，无需重启，也不需要
+迁移或改写历史任务。首次启动或后台不可用时，可通过 `KLING_API_ENABLED` 和对应凭据配置后
+重启 API 与 Runner。只有需要恢复已提交的旧 CLI attempt 时才设置
+`KLING_CLI_ENABLED=true`；它不会重新开放 CLI 新提交。
 
 ## 尚未验证
 

@@ -374,9 +374,10 @@ async def ensure_provider_submission_allowed(
         raise RuntimeControlBlockedError(
             "PROVIDER_UNSUPPORTED", f"unsupported generation provider: {provider}"
         )
-    if not settings.kling_provider_enabled(provider):
+    if not settings.kling_provider_submission_enabled(provider):
         raise RuntimeControlBlockedError(
-            "KLING_CAPABILITY_UNSUPPORTED", "The selected Kling Provider is disabled"
+            "KLING_CAPABILITY_UNSUPPORTED",
+            "New Kling submissions require the enabled official API Provider",
         )
     current = await get_runtime_config(session, settings)
     if current is None:
@@ -426,8 +427,9 @@ async def provider_claims_allowed(
             user_id=user_id,
         )
         return not risk.block_provider and not risk.block_user
-    if provider not in settings.kling_provider_names or not settings.kling_provider_enabled(
-        provider
+    if (
+        provider not in settings.kling_provider_names
+        or not settings.kling_provider_submission_enabled(provider)
     ):
         return False
     risk = await assess_unknown_submission_risk(

@@ -6,6 +6,7 @@ import json
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -15,11 +16,22 @@ import pytest
 from libtv_agent.adapters.kling_official_api import (
     ApiHttpResponse,
     KlingApiError,
+    KlingElementCreateRequest,
     KlingOfficialApiAdapter,
     map_kling_api_status,
 )
-from libtv_agent.adapters.video_provider import VideoGenerationRequest
+from libtv_agent.adapters.kling_official_cli import KlingOfficialCliAdapter
+from libtv_agent.adapters.kling_provider import (
+    create_kling_adapter,
+    create_kling_adapter_for_provider,
+)
+from libtv_agent.adapters.video_provider import VideoElementReference, VideoGenerationRequest
 from libtv_agent.config import Settings
+from libtv_agent.services.kling_preparation import (
+    _asset_suffix,
+    _resolve_element_references,
+    _resolve_multi_shot,
+)
 from PIL import Image
 
 
@@ -59,6 +71,87 @@ def _request(first: Path, second: Path | None = None) -> VideoGenerationRequest:
     )
 
 
+def test_default_routing_uses_api_and_cli_is_explicit_recovery_only(tmp_path: Path) -> None:
+    settings = Settings(
+        runner_root=tmp_path / "runner",
+        kling_provider_backend="cli",
+        _env_file=None,
+    )
+
+    assert isinstance(create_kling_adapter(settings), KlingOfficialApiAdapter)
+    assert isinstance(create_kling_adapter_for_provider(settings, "kling"), KlingOfficialApiAdapter)
+    assert isinstance(
+        create_kling_adapter_for_provider(settings, settings.kling_cli_provider_name),
+        KlingOfficialCliAdapter,
+    )
+    assert settings.active_kling_provider_name == settings.kling_api_provider_name
+    assert not settings.kling_provider_submission_enabled(settings.kling_cli_provider_name)
+
+
+@pytest.mark.asyncio
+async def test_api_is_unverified_until_official_read_only_query_succeeds(tmp_path: Path) -> None:
+    calls: list[tuple[str, str, bytes | None]] = []
+
+    async def verify(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        request_timeout: float,
+    ) -> ApiHttpResponse:
+        del headers, request_timeout
+        calls.append((method, url, body))
+        return ApiHttpResponse(
+            200,
+            {},
+            json.dumps({"code": 0, "message": "ok", "data": []}).encode(),
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=verify)
+
+    snapshot = adapter.availability_snapshot()
+    assert snapshot.status == "KLING_API_CONFIGURED_UNVERIFIED"
+    assert snapshot.available is False
+    assert snapshot.authenticated is False
+
+    verified = await adapter.check_availability()
+    assert verified.status == "KLING_API_READY"
+    assert verified.available is True
+    assert verified.authenticated is True
+    assert len(calls) == 1
+    assert calls[0][0] == "GET"
+    assert "/tasks?external_task_ids=libtv-read-only-provider-verification" in calls[0][1]
+    assert calls[0][2] is None
+
+    await adapter.refresh_capabilities()
+    await adapter.refresh_capabilities(force=True)
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_read_only_verification_never_reports_ready(tmp_path: Path) -> None:
+    async def reject(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        request_timeout: float,
+    ) -> ApiHttpResponse:
+        del method, url, headers, body, request_timeout
+        return ApiHttpResponse(
+            401,
+            {},
+            json.dumps({"code": 1001, "message": "invalid credential"}).encode(),
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=reject)
+    availability = await adapter.check_availability()
+
+    assert availability.status == "KLING_API_AUTHENTICATION_FAILED"
+    assert availability.available is False
+    assert availability.authenticated is False
+
+
 @pytest.mark.asyncio
 async def test_request_mapping_preserves_prompt_and_image_order(tmp_path: Path) -> None:
     first = _image(tmp_path / "01-first.png", "red")
@@ -84,6 +177,76 @@ async def test_request_mapping_preserves_prompt_and_image_order(tmp_path: Path) 
     assert payload["options"]["external_task_id"] == "local-intent-001"
 
 
+@pytest.mark.asyncio
+async def test_prompt_only_and_explicit_omni_content_mapping(tmp_path: Path) -> None:
+    first = _image(tmp_path / "first.png", "red")
+    last = _image(tmp_path / "last.png", "blue")
+    refer = _image(tmp_path / "refer.png", "green")
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path))
+
+    prompt_only = await adapter.build_request_payload(
+        VideoGenerationRequest(
+            prompt="A quiet sunrise",
+            model="kling-3.0-omni",
+            external_task_id="prompt-only",
+        )
+    )
+    assert prompt_only["contents"] == [{"type": "prompt", "text": "A quiet sunrise"}]
+
+    payload = await adapter.build_request_payload(
+        VideoGenerationRequest(
+            prompt="Use every explicit reference",
+            model="kling-3.0-omni",
+            first_frame_path=first,
+            last_frame_path=last,
+            refer_image_paths=(refer,),
+            feature_video_url="https://cdn.example/feature.mp4",
+            element_references=(VideoElementReference("172", "element_1"),),
+            external_task_id="explicit-inputs",
+        )
+    )
+    assert [(item["type"], item.get("id")) for item in payload["contents"][1:]] == [
+        ("first_frame", "image_1"),
+        ("last_frame", "image_2"),
+        ("refer_image", "image_3"),
+        ("feature_video", "video_1"),
+        ("element", "element_1"),
+    ]
+    assert payload["contents"][-1]["element_id"] == "172"
+
+
+@pytest.mark.asyncio
+async def test_last_frame_without_first_frame_is_rejected(tmp_path: Path) -> None:
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path))
+    with pytest.raises(KlingApiError, match="last frame"):
+        await adapter.validate_request(
+            VideoGenerationRequest(
+                prompt="invalid",
+                model="kling-3.0-omni",
+                last_frame_path=_image(tmp_path / "last.png", "blue"),
+            )
+        )
+
+
+def test_normalized_object_suffix_wins_over_original_webp_name() -> None:
+    assert _asset_suffix("source.webp", "users/u/inputs/a/normalized.jpg") == ".jpg"
+
+
+def test_variant_multi_shot_overrides_smart_storyboard_and_global(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, kling_api_multi_shot=True)
+    assert _resolve_multi_shot({"multiShot": False, "smartStoryboard": True}, settings) is False
+    assert _resolve_multi_shot({"smartStoryboard": False}, settings) is False
+    assert _resolve_multi_shot({}, settings) is True
+
+
+def test_element_ids_become_stable_prompt_references() -> None:
+    references = _resolve_element_references({"elementIds": ["172", "173"]})
+    assert references == (
+        VideoElementReference("172", "element_1"),
+        VideoElementReference("173", "element_2"),
+    )
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -97,6 +260,143 @@ async def test_request_mapping_preserves_prompt_and_image_order(tmp_path: Path) 
 )
 def test_status_mapping_is_strict(raw: str, expected: str) -> None:
     assert map_kling_api_status(raw) == expected
+
+
+def test_task_result_preserves_failure_message_watermark_and_all_billing(tmp_path: Path) -> None:
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path))
+    result = adapter._task_result(
+        {
+            "id": "task-1",
+            "status": "failed",
+            "message": "content policy rejected the request",
+            "outputs": [
+                {
+                    "type": "video",
+                    "url": "https://cdn.example/clean.mp4",
+                    "watermark_url": "https://cdn.example/watermarked.mp4",
+                }
+            ],
+            "billing": [
+                {"charge_type": "unit", "amount": "1.5", "package_type": "video"},
+                {"charge_type": "cash", "amount": "0.25", "list_price": "0.50"},
+            ],
+        }
+    )
+
+    assert result.message == "content policy rejected the request"
+    assert result.outputs[0].url_without_watermark == "https://cdn.example/clean.mp4"
+    assert result.outputs[0].watermark_url == "https://cdn.example/watermarked.mp4"
+    assert result.credits_consumed is None
+    assert [charge.amount for charge in result.billing] == [
+        Decimal("1.5"),
+        Decimal("0.25"),
+    ]
+    assert result.billing[1].list_price == Decimal("0.50")
+
+
+@pytest.mark.asyncio
+async def test_batch_and_cursor_task_queries_use_official_contract(tmp_path: Path) -> None:
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    async def respond(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        request_timeout: float,
+    ) -> ApiHttpResponse:
+        del headers, request_timeout
+        payload = json.loads(body) if body else None
+        calls.append((method, url, payload))
+        data: Any
+        if method == "GET":
+            data = [
+                {"id": "task-1", "status": "processing", "outputs": []},
+                {"id": "task-2", "status": "failed", "message": "rejected", "outputs": []},
+            ]
+        else:
+            data = {
+                "result": [{"id": "task-3", "status": "processing", "outputs": []}],
+                "count": 1,
+                "next_cursor": "next-1",
+                "has_more": True,
+            }
+        return ApiHttpResponse(
+            200,
+            {},
+            json.dumps({"code": 0, "message": "ok", "data": data}).encode(),
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=respond)
+    batch = await adapter.query_many(task_ids=("task-1", "task-2"))
+    page = await adapter.query_tasks_cursor(
+        cursor="cursor-1",
+        limit=25,
+        filters=({"key": "status", "values": ["processing"]},),
+    )
+
+    assert [task.raw_status for task in batch] == ["processing", "failed"]
+    assert "task_ids=task-1%2Ctask-2" in calls[0][1]
+    assert calls[1] == (
+        "POST",
+        f"{adapter.settings.kling_api_base_url}/tasks",
+        {
+            "limit": 25,
+            "cursor": "cursor-1",
+            "filters": [{"key": "status", "values": ["processing"]}],
+        },
+    )
+    assert page.next_cursor == "next-1"
+    assert page.has_more is True
+
+
+@pytest.mark.asyncio
+async def test_element_rest_client_maps_create_query_list_and_delete(tmp_path: Path) -> None:
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    async def respond(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        request_timeout: float,
+    ) -> ApiHttpResponse:
+        del headers, request_timeout
+        calls.append((method, url, json.loads(body) if body else None))
+        return ApiHttpResponse(
+            200,
+            {},
+            json.dumps({"code": 0, "message": "ok", "data": {}}).encode(),
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=respond)
+    await adapter.create_element(
+        KlingElementCreateRequest(
+            element_name="Actor",
+            element_description="Primary actor",
+            reference_type="image_refer",
+            frontal_image="https://cdn.example/front.jpg",
+            refer_images=("https://cdn.example/side.jpg",),
+            element_voice_id="voice-1",
+            tag_ids=("o_102",),
+            external_task_id="element-task-1",
+        )
+    )
+    await adapter.get_element("element-task-1")
+    await adapter.list_elements(cursor="2", limit=10)
+    await adapter.delete_element("element-1")
+
+    assert calls[0][0:2] == (
+        "POST",
+        f"{adapter.settings.kling_api_base_url}/v1/general/advanced-custom-elements",
+    )
+    assert calls[0][2]["element_voice_id"] == "voice-1"
+    assert calls[0][2]["element_image_list"]["refer_images"] == [
+        {"image_url": "https://cdn.example/side.jpg"}
+    ]
+    assert calls[1][1].endswith("/advanced-custom-elements/element-task-1")
+    assert calls[2][1].endswith("/advanced-custom-elements?pageNum=2&pageSize=10")
+    assert calls[3][2] == {"element_id": "element-1"}
 
 
 @pytest.mark.asyncio
@@ -275,6 +575,36 @@ async def test_mock_http_submit_poll_and_atomic_download(tmp_path: Path) -> None
     assert not destination.with_suffix(".mp4.part").exists()
     assert len(_KlingMockHandler.post_bodies) == 1
     assert _KlingMockHandler.post_bodies[0]["contents"][0]["text"] == "原样提示词 @image_2"
+
+
+@pytest.mark.asyncio
+async def test_download_replaces_non_video_destination_instead_of_reusing_it(
+    tmp_path: Path,
+) -> None:
+    with _mock_server() as server:
+        adapter = KlingOfficialApiAdapter(
+            _settings(tmp_path, kling_api_base_url=f"http://127.0.0.1:{server.server_port}")
+        )
+        destination = tmp_path / "output.mp4"
+        destination.write_bytes(b"not-a-video")
+        result = await adapter.download(
+            adapter._task_result(
+                {
+                    "id": "task",
+                    "status": "succeeded",
+                    "outputs": [
+                        {
+                            "type": "video",
+                            "url": f"http://127.0.0.1:{server.server_port}/video.mp4",
+                        }
+                    ],
+                }
+            ).outputs[0],
+            destination,
+        )
+
+    assert result.reused is False
+    assert destination.read_bytes() == _KlingMockHandler.video
 
 
 @pytest.mark.asyncio

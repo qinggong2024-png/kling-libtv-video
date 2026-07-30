@@ -418,6 +418,9 @@ def _build_task_read(
                 validation_status=variant.validation_status,
                 download_artifact_id=artifact.id if artifact else None,
                 error_code=attempt.last_error_code if attempt else None,
+                provider_error_message=attempt.error_message if attempt else None,
+                provider_error_details=(attempt.provider_error_details_json if attempt else None),
+                provider_error_retryable=(attempt.provider_error_retryable if attempt else None),
                 provider=attempt.provider
                 if attempt
                 else str(variant.generation_config_json.get("generationProvider") or "libtv"),

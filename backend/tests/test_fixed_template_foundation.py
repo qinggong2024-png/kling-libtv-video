@@ -7,7 +7,12 @@ from httpx import ASGITransport, AsyncClient
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import AttemptStatus, ParentTaskPhase
-from libtv_agent.domain.models import Base, GenerationAttempt, GenerationCommand
+from libtv_agent.domain.models import (
+    Base,
+    GenerationAttempt,
+    GenerationCommand,
+    GenerationVariant,
+)
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
 from libtv_agent.templates.motion_actions import (
@@ -121,9 +126,7 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "tokyotiger",
         "boldoversize",
     }
-    assert {
-        profile.id for profile in profiles if profile.status == "active"
-    } == {
+    assert {profile.id for profile in profiles if profile.status == "active"} == {
         "geeksoutfit",
         "guidingcross",
         "teachersgram",
@@ -149,9 +152,7 @@ def test_motion_actions_are_filtered_by_video_type() -> None:
     detail_actions = compatible_action_ids(
         "garment_detail",
         profile.preferred_actions,
-        context=ActionContext(
-            confirmed=frozenset({ActionCapability.FRONT_PRINT_VISIBLE})
-        ),
+        context=ActionContext(confirmed=frozenset({ActionCapability.FRONT_PRINT_VISIBLE})),
     )
 
     assert "controlled_walk" not in detail_actions
@@ -401,9 +402,7 @@ async def test_site_style_profile_api_exposes_evidence_gated_status() -> None:
     assert response.status_code == 200
     profiles = response.json()
     assert len(profiles) == 12
-    assert {
-        item["id"] for item in profiles if item["status"] == "active"
-    } == {
+    assert {item["id"] for item in profiles if item["status"] == "active"} == {
         "geeksoutfit",
         "guidingcross",
         "teachersgram",
@@ -656,6 +655,7 @@ async def test_fixed_video_task_queues_only_kling_commands_without_analysis(
                     "storyboards": [
                         {"uploadId": uploaded.json()["id"], "order": 1, "required": True}
                     ],
+                    "elementIds": ["element-model-1"],
                     "templateId": "garment_detail",
                     "siteProfileId": "teachersgram",
                     "resultCount": 4,
@@ -667,9 +667,66 @@ async def test_fixed_video_task_queues_only_kling_commands_without_analysis(
             assert task["phase"] == "QUEUED"
             assert task["analysisResult"] is None
             assert task["analysisRunId"] is None
+            assert task["settings"]["elementIds"] == ["element-model-1"]
             assert [variant["variantIndex"] for variant in task["variants"]] == [1, 2, 3, 4]
             assert {variant["provider"] for variant in task["variants"]} == {"kling_official_cli"}
         async with app.state.database.session_factory() as session:
             commands = list(await session.scalars(select(GenerationCommand)))
             assert len(commands) == 4
             assert {command.command_manifest_json["provider"] for command in commands} == {"kling"}
+            variants = list(await session.scalars(select(GenerationVariant)))
+            element_id_sets = {
+                tuple(variant.generation_config_json["elementIds"]) for variant in variants
+            }
+            assert element_id_sets == {("element-model-1",)}
+
+
+@pytest.mark.asyncio
+async def test_video_task_rejects_storyboard_and_element_references_over_omni_limit(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        object_store_mode="local",
+        artifact_root=tmp_path / "artifacts-element-limit",
+        runner_root=tmp_path / "runner-element-limit",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/video-tasks",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "fixed-element-limit",
+                },
+                json={
+                    "clientTaskId": "fixed-element-limit",
+                    "title": "Fixed element limit",
+                    "storyboards": [
+                        {
+                            "uploadId": str(uuid.uuid4()),
+                            "order": index,
+                            "required": True,
+                        }
+                        for index in range(1, 5)
+                    ],
+                    "elementIds": [
+                        "element-1",
+                        "element-2",
+                        "element-3",
+                        "element-4",
+                    ],
+                    "templateId": "ootd_walk",
+                    "siteProfileId": "geeksoutfit",
+                    "resultCount": 1,
+                    "paidSubmissionConsent": True,
+                },
+            )
+
+    assert response.status_code == 422
+    assert "7-reference limit" in response.text

@@ -11,7 +11,11 @@ from libtv_agent.adapters.kling_provider import (
 )
 from libtv_agent.adapters.libtv import GenerationResult, LibTVAdapter, LibTVError
 from libtv_agent.adapters.object_store import ObjectStore
-from libtv_agent.adapters.video_provider import VideoGenerationRequest, VideoProviderAdapter
+from libtv_agent.adapters.video_provider import (
+    VideoElementReference,
+    VideoGenerationRequest,
+    VideoProviderAdapter,
+)
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import delivery_filename
 from libtv_agent.domain.enums import (
@@ -42,6 +46,7 @@ from libtv_agent.services.generation_safety import (
 )
 from libtv_agent.services.media import download_with_retries, technical_validate
 from libtv_agent.services.points import business_date, settle_points
+from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
 from libtv_agent.services.runtime_control import (
     provider_claims_allowed,
@@ -52,6 +57,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+def _kling_asset_suffix(filename: str, object_key: str | None) -> str:
+    for candidate in (object_key, filename):
+        suffix = Path(candidate or "").suffix.lower()
+        if suffix in {".jpg", ".jpeg", ".png"}:
+            return suffix
+    return ".jpg"
 
 
 @dataclass(frozen=True)
@@ -434,6 +447,17 @@ class RunnerSupervisor:
         command: GenerationCommand,
         attempt: GenerationAttempt,
     ) -> bool:
+        if not self.settings.kling_provider_submission_enabled(attempt.provider):
+            await self._handle_error(
+                session,
+                command,
+                attempt,
+                KlingCliError(
+                    "KLING_LEGACY_PROVIDER_RECOVERY_ONLY",
+                    "The Kling CLI Provider may only recover an already-submitted historical task",
+                ),
+            )
+            return True
         variant = await session.get(GenerationVariant, attempt.variant_id)
         if variant is None:
             await self._handle_error(
@@ -471,9 +495,7 @@ class RunnerSupervisor:
                         "KLING_INVALID_INPUT",
                         f"Storyboard asset {asset.id} has no source object",
                     )
-                suffix = Path(asset.original_filename).suffix.lower()
-                if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-                    suffix = ".jpg"
+                suffix = _kling_asset_suffix(asset.original_filename, asset.object_key)
                 storyboard_paths.append(
                     await self.object_store.localize(
                         asset.object_key,
@@ -490,9 +512,7 @@ class RunnerSupervisor:
                         "KLING_INVALID_INPUT",
                         f"Product reference asset {asset.id} has no source object",
                     )
-                suffix = Path(asset.original_filename).suffix.lower()
-                if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
-                    suffix = ".jpg"
+                suffix = _kling_asset_suffix(asset.original_filename, asset.object_key)
                 product_reference_paths.append(
                     await self.object_store.localize(
                         asset.object_key,
@@ -531,11 +551,25 @@ class RunnerSupervisor:
                 ),
                 multi_shot=bool(
                     variant.generation_config_json.get(
-                        "multiShot", self.settings.kling_api_multi_shot
+                        "multiShot",
+                        variant.generation_config_json.get(
+                            "smartStoryboard",
+                            self.settings.kling_api_multi_shot,
+                        ),
                     )
                 ),
                 external_task_id=attempt.intent_hash,
                 callback_url=self.settings.kling_api_callback_url,
+                element_references=tuple(
+                    VideoElementReference(
+                        element_id=str(element_id),
+                        content_id=f"element_{index}",
+                    )
+                    for index, element_id in enumerate(
+                        variant.generation_config_json.get("elementIds") or (),
+                        start=1,
+                    )
+                ),
             )
             command.status = CommandStatus.LAUNCH_STARTED
             command.launch_started_at = datetime.now(UTC)
@@ -616,10 +650,15 @@ class RunnerSupervisor:
                     )
                     attempt.status = AttemptStatus.UNKNOWN_AFTER_SUBMIT
                     attempt.provider_status = "unknown"
-                    attempt.last_error_code = "KLING_API_TASK_TIMEOUT"
-                    attempt.error_message = (
-                        "Kling API task exceeded the configured wait time; "
-                        "the remote task was not resubmitted"
+                    record_provider_error(
+                        attempt,
+                        code="KLING_API_TASK_TIMEOUT",
+                        message=(
+                            "Kling API task exceeded the configured wait time; "
+                            "the remote task was not resubmitted"
+                        ),
+                        details={"providerTaskId": attempt.task_id},
+                        retryable=True,
                     )
                     if command is not None:
                         command.status = CommandStatus.UNCERTAIN
@@ -662,8 +701,13 @@ class RunnerSupervisor:
                 )
             except KlingCliError as exc:
                 attempt.last_polled_at = datetime.now(UTC)
-                attempt.last_error_code = exc.code
-                attempt.error_message = str(exc)
+                record_provider_error(
+                    attempt,
+                    code=exc.code,
+                    message=str(exc),
+                    details=getattr(exc, "details", None),
+                    retryable=exc.retryable,
+                )
                 if not exc.retryable:
                     attempt.status = AttemptStatus.UNKNOWN_AFTER_SUBMIT
                     attempt.provider_status = "unknown"
@@ -680,6 +724,8 @@ class RunnerSupervisor:
             attempt.provider_status = result.status
             attempt.provider_raw_status = result.raw_status
             attempt.raw_response_json = result.raw_response
+            if result.status in {"queued", "running", "succeeded"}:
+                clear_provider_error(attempt)
             if result.credits_consumed is not None:
                 attempt.credits_consumed = result.credits_consumed
             variant = await session.get(GenerationVariant, attempt.variant_id)
@@ -697,14 +743,32 @@ class RunnerSupervisor:
                         "raw_status": result.raw_status,
                     },
                 )
-                attempt.last_error_code = "KLING_REMOTE_STATUS_UNKNOWN"
+                record_provider_error(
+                    attempt,
+                    code="KLING_REMOTE_STATUS_UNKNOWN",
+                    message=f"Kling returned unknown status: {result.raw_status or 'empty'}",
+                    details={
+                        "providerTaskId": attempt.task_id,
+                        "rawStatus": result.raw_status,
+                    },
+                    retryable=True,
+                )
                 if variant:
                     variant.generation_status = GenerationStatus.UNKNOWN
                 await session.commit()
             elif result.status == "failed":
                 attempt.provider_status = "failed"
                 attempt.completed_at = datetime.now(UTC)
-                attempt.error_message = "Kling remote generation failed"
+                record_provider_error(
+                    attempt,
+                    code="KLING_REMOTE_TASK_FAILED",
+                    message=result.message or "Kling remote generation failed",
+                    details={
+                        "providerTaskId": attempt.task_id,
+                        "providerStatus": result.raw_status,
+                    },
+                    retryable=False,
+                )
                 await self._handle_terminal_failure(
                     session,
                     command,
@@ -859,8 +923,17 @@ class RunnerSupervisor:
             variant = await session.get(GenerationVariant, attempt.variant_id)
             if variant:
                 variant.generation_status = GenerationStatus.FAILED
-        attempt.last_error_code = error.code
-        attempt.error_message = str(error)
+        if attempt.provider != "libtv":
+            record_provider_error(
+                attempt,
+                code=error.code,
+                message=str(error),
+                details=getattr(error, "details", None),
+                retryable=getattr(error, "retryable", None),
+            )
+        else:
+            attempt.last_error_code = error.code
+            attempt.error_message = str(error)
         if attempt.provider != "libtv":
             attempt.provider_status = "unknown" if error.submitted or error.uncertain else "failed"
         attempt.state_version += 1
@@ -883,7 +956,16 @@ class RunnerSupervisor:
         )
         attempt.provider_status = "failed"
         attempt.completed_at = attempt.completed_at or datetime.now(UTC)
-        attempt.raw_response_json = result.payload
+        if result.payload:
+            attempt.raw_response_json = result.payload
+        if attempt.provider != "libtv" and not attempt.error_message:
+            record_provider_error(
+                attempt,
+                code="KLING_REMOTE_TASK_FAILED",
+                message="Kling remote generation failed",
+                details={"providerTaskId": attempt.task_id},
+                retryable=False,
+            )
         command.status = CommandStatus.TERMINAL
         reservation = await session.scalar(
             select(PointsReservation).where(PointsReservation.attempt_id == attempt.id)
@@ -918,6 +1000,7 @@ class RunnerSupervisor:
         generation_status: GenerationStatus = GenerationStatus.SUCCEEDED,
     ) -> None:
         attempt.status = AttemptStatus.SUCCEEDED
+        clear_provider_error(attempt)
         attempt.task_id = str(result.payload.get("taskId") or "")
         attempt.provider_status = (
             "partial" if generation_status == GenerationStatus.PARTIAL else "succeeded"
@@ -993,7 +1076,7 @@ class RunnerSupervisor:
             variant.generation_config_json.get("audio")
             or variant.generation_config_json.get("sound")
             or "off"
-        ).lower() in {"native", "on", "true"}
+        ).lower() in {"native", "original", "on", "true"}
         try:
             await download_with_retries(
                 download_adapter or self.adapter,
