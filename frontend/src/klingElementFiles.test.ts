@@ -8,8 +8,9 @@ import {
 const image = (name: string, type = 'image/jpeg', size = 1024) => ({ name, type, size })
 
 describe('Kling element references', () => {
-  it('requires two to four JPG or PNG images within size limits', () => {
-    expect(validateKlingElementImages([image('front.jpg')])).toContain('2–4')
+  it('requires one to four JPG or PNG images within size limits', () => {
+    expect(validateKlingElementImages([])).toContain('1–4')
+    expect(validateKlingElementImages([image('front.jpg')])).toBe('')
     expect(validateKlingElementImages([image('front.jpg'), image('side.png', 'image/png')])).toBe('')
     expect(validateKlingElementImages([image('front.webp', 'image/webp'), image('side.jpg')])).toContain('JPG')
     expect(validateKlingElementImages([image('front.jpg', 'image/jpeg', 11 * 1024 * 1024), image('side.jpg')])).toContain('10 MB')

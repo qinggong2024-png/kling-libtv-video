@@ -67,12 +67,12 @@ export function KlingElementsPanel({ adminId }: { adminId: string }) {
   const selectImages = (selected: File[]) => {
     const next = [...images, ...selected]
     const validationError = validateKlingElementImages(next)
-    if (next.length > KLING_ELEMENT_MAX_IMAGES || validationError && !validationError.includes('2–4')) {
+    if (validationError) {
       setError(validationError)
       return
     }
     setImages(next)
-    setError(next.length < 2 ? '请再添加至少 1 张参考图。' : '')
+    setError('')
     setNotice('')
   }
 
@@ -158,7 +158,7 @@ export function KlingElementsPanel({ adminId }: { adminId: string }) {
         </div>
         {mode === 'images' ? <div className="kling-element-images">
           <input ref={imageInputRef} type="file" multiple accept=".jpg,.jpeg,.png,image/jpeg,image/png" disabled={formBusy || images.length >= KLING_ELEMENT_MAX_IMAGES} onChange={(event) => { selectImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
-          <small>选择 2–4 张 JPG/PNG；单张不超过 10 MB，总计不超过 40 MB。图片仅在提交时转码，不在页面回显内容。</small>
+          <small>选择 1–4 张 JPG/PNG；单张不超过 10 MB，总计不超过 40 MB。图片仅在提交时转码，不在页面回显内容。</small>
           {images.length ? <ul>{images.map((file, index) => <li key={`${file.name}-${file.lastModified}-${index}`}><span>{file.name}<small>{(file.size / 1024 / 1024).toFixed(1)} MB</small></span><button type="button" className="icon-button" disabled={formBusy} onClick={() => setImages((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`移除 ${file.name}`}><Trash2 size={15} /></button></li>)}</ul> : null}
         </div> : <label className="kling-element-video"><strong>参考视频 URL</strong><input type="url" value={videoUrl} disabled={formBusy} maxLength={4096} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://cdn.example.com/reference.mp4" /><small>当前支持一个可公开读取的 HTTPS 视频地址</small></label>}
       </fieldset>

@@ -1,4 +1,4 @@
-export const SUBJECT_MIN_IMAGES = 2
+export const SUBJECT_MIN_IMAGES = 1
 export const SUBJECT_MAX_IMAGES = 4
 export const SUBJECT_MAX_DETAIL_IMAGES = 2
 export const SUBJECT_MAX_IMAGE_BYTES = 10 * 1024 * 1024

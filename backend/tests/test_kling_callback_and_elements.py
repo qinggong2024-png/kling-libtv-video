@@ -316,10 +316,9 @@ async def test_element_routes_form_minimum_adapter_contract(tmp_path: Path) -> N
                 headers=admin_headers,
                 json={
                     "name": "model",
-                    "description": "two-angle subject",
+                    "description": "single-image subject",
                     "imageReferences": [
                         "https://cdn.example.test/front.jpg",
-                        "https://cdn.example.test/side.jpg",
                     ],
                 },
             )

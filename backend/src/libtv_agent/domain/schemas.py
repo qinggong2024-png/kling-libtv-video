@@ -163,8 +163,6 @@ class VideoTaskCreate(ApiModel):
         if len(set(upload_ids)) != len(upload_ids):
             raise ValueError("storyboard and subject image uploads must be unique")
         subject_orders = [item.order for item in self.subject_images]
-        if len(subject_orders) == 1:
-            raise ValueError("subject images must contain between 2 and 4 references when provided")
         if subject_orders and sorted(subject_orders) != list(range(1, len(subject_orders) + 1)):
             raise ValueError("subject image order must be contiguous and start at 1")
         normalized_element_ids = [element_id.strip() for element_id in self.element_ids]
