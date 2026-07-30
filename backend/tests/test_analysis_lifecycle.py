@@ -324,7 +324,7 @@ async def test_shutdown_cancels_active_analysis_and_persists_terminal_state(
             database=SimpleNamespace(
                 session_factory=lambda: AsyncSession(engine, expire_on_commit=False)
             ),
-            settings=SimpleNamespace(analysis_shutdown_grace_seconds=0.2),
+            settings=SimpleNamespace(analysis_shutdown_grace_seconds=1.0),
             object_store=object(),
             kling_adapter=object(),
             analysis_jobs=set(),

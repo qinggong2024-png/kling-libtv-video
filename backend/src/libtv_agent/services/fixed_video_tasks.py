@@ -219,6 +219,7 @@ async def create_fixed_video_task(
             PromptCompileInput(
                 template=template,
                 storyboard_count=len(ordered_inputs),
+                result_count=payload.result_count,
                 action_intensity=payload.action_intensity,
                 camera_tempo=payload.camera_tempo,
                 cut_mode=payload.cut_mode,
