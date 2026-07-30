@@ -119,14 +119,17 @@ async def list_elements(
         items_value, total = result, len(result)
     elif isinstance(result, dict):
         data = result.get("data", result)
-        if not isinstance(data, dict):
+        if isinstance(data, list):
+            items_value, total = data, len(data)
+        elif isinstance(data, dict):
+            items_value = data.get("items") or data.get("elements") or []
+            total = data.get("total") or data.get("count") or len(items_value)
+        else:
             raise KlingElementError(
                 "KLING_ELEMENT_RESPONSE_INVALID",
-                "Kling element list response data must be an object",
+                "Kling element list response data must be an object or array",
                 status_code=502,
             )
-        items_value = data.get("items") or data.get("elements") or []
-        total = data.get("total") or data.get("count") or len(items_value)
     else:
         raise KlingElementError(
             "KLING_ELEMENT_RESPONSE_INVALID",

@@ -334,3 +334,34 @@ async def test_element_routes_form_minimum_adapter_contract(tmp_path: Path) -> N
 
             deleted = await client.delete("/api/v1/admin/kling/elements/element-1", headers=headers)
             assert deleted.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_element_list_accepts_official_empty_array_shape() -> None:
+    from libtv_agent.services.kling_elements import list_elements
+
+    class EmptyElementAdapter:
+        async def list_elements(
+            self,
+            *,
+            page_num: int,
+            page_size: int,
+            official: bool,
+        ) -> dict[str, Any]:
+            assert (page_num, page_size, official) == (1, 30, False)
+            return {"code": 0, "message": "ok", "data": []}
+
+    page = await list_elements(
+        EmptyElementAdapter(),
+        page_num=1,
+        page_size=30,
+        official=False,
+    )
+
+    assert page == {
+        "items": [],
+        "pageNum": 1,
+        "pageSize": 30,
+        "total": 0,
+        "official": False,
+    }
