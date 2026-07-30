@@ -958,18 +958,18 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           elementsError={elementCatalogError}
         />
         <div className="fixed-workflow-options">
-        <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
-        <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
-        <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
-      </div>
-        <details className="advanced-settings">
-        <summary><Settings size={16} />高级设置</summary>
-        <div>
-          <label className="catalog-field"><span>动作强度</span><select value={actionIntensity} onChange={(event) => setActionIntensity(event.target.value as typeof actionIntensity)}><option value="low">克制</option><option value="standard">标准</option><option value="high">增强</option></select></label>
-          <label className="catalog-field"><span>运镜节奏</span><select value={cameraTempo} onChange={(event) => setCameraTempo(event.target.value as typeof cameraTempo)}><option value="slow">舒缓</option><option value="standard">标准</option><option value="fast">明快</option></select></label>
-          <label className="catalog-field"><span>切镜方式</span><select value={cutMode} onChange={(event) => setCutMode(event.target.value as typeof cutMode)}><option value="explicit_cuts">明确切镜</option><option value="continuous_when_possible">尽量连续</option></select></label>
+          <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
+          <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
+          <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
+          <details className="advanced-settings">
+            <summary><Settings size={16} />高级设置</summary>
+            <div>
+              <label className="catalog-field"><span>动作强度</span><select value={actionIntensity} onChange={(event) => setActionIntensity(event.target.value as typeof actionIntensity)}><option value="low">克制</option><option value="standard">标准</option><option value="high">增强</option></select></label>
+              <label className="catalog-field"><span>运镜节奏</span><select value={cameraTempo} onChange={(event) => setCameraTempo(event.target.value as typeof cameraTempo)}><option value="slow">舒缓</option><option value="standard">标准</option><option value="fast">明快</option></select></label>
+              <label className="catalog-field"><span>切镜方式</span><select value={cutMode} onChange={(event) => setCutMode(event.target.value as typeof cutMode)}><option value="explicit_cuts">明确切镜</option><option value="continuous_when_possible">尽量连续</option></select></label>
+            </div>
+          </details>
         </div>
-        </details>
       </div>
       </div>
     <div className="composer-feedback" aria-live="polite">
@@ -1598,7 +1598,11 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   const visible = tasks.filter((task) => group.test(task) && task.title.toLowerCase().includes(query.trim().toLowerCase()))
   const completed = visible.filter((task) => COMPLETED_PHASES.has(task.phase))
   const listRows = filter === 'done' ? [] : visible.filter((task) => !COMPLETED_PHASES.has(task.phase))
-  const completedResults = completed.flatMap((task) => task.variants.map((variant) => ({ task, variant }))).filter(({ variant }) => variant.downloadArtifactId)
+  const completedResults = completed
+    .flatMap((task) => task.variants.map((variant) => ({ task, variant })))
+    .filter(({ variant }) => variant.downloadArtifactId)
+    .sort((left, right) => Date.parse(right.task.updatedAt) - Date.parse(left.task.updatedAt))
+  const displayedCompletedResults = filter === 'all' ? completedResults.slice(0, 3) : completedResults
   const attentionCount = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED').length
   const activeCount = tasks.filter((task) => ACTIVE_PHASES.has(task.phase)).length
   const doneCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
@@ -1610,8 +1614,8 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
       <button type="button" className={filter === 'done' ? 'is-active' : ''} aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></button>
     </section>
     <div className="filter-tabs">{groups.map((item) => { const count = tasks.filter(item.test).length; return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => setFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
+    {displayedCompletedResults.length ? <section className={`records-completed${filter === 'all' ? ' records-completed--preview' : ''}`} aria-label={filter === 'all' ? '最近完成的视频' : '全部已完成视频'}><SectionHeading title={filter === 'all' ? '最近完成' : '视频结果'} count={displayedCompletedResults.length} action={filter === 'all' ? <button type="button" className="text-button" onClick={() => setFilter('done')}>查看全部已完成<ChevronRight size={15} /></button> : undefined} /><div className="results-grid results-grid--library">{displayedCompletedResults.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} />)}</div></section> : null}
     {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>结果进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''} aria-label={variantDisplayName(variant)} title={variantDisplayName(variant)}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
-    {completedResults.length ? <section className="records-completed"><SectionHeading title={filter === 'all' ? '已完成' : '视频结果'} count={completedResults.length} /><div className="results-grid results-grid--library">{completedResults.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} />)}</div></section> : null}
     {hasMore ? <div className="records-load-more"><button className="secondary-button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? <LoaderCircle className="spin" size={16} /> : null}{loadingMore ? '正在加载' : '加载更早记录'}</button></div> : null}
     {!visible.length ? <EmptyState icon={<ListVideo size={24} />} title={`没有${group.label === '全部' ? '' : group.label}记录`} description="任务状态变化后会自动归入对应分类。" /> : null}
   </div>
