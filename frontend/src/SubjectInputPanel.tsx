@@ -280,7 +280,6 @@ export function SubjectInputPanel({
       <div>
         <span className="subject-input-panel__eyebrow">可选</span>
         <h2 id={`${id}-title`}>一致性主体</h2>
-        <p>上传正面、背面或侧面图，建立视觉参考。</p>
       </div>
       <div className="subject-input-panel__header-actions" role="group" aria-label="主体来源">
         <button
