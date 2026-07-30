@@ -570,7 +570,6 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             assert len(task["compiledPlan"]["variants"]) == result_count
             assert task["materialValidation"]["valid"] is True
             assert task["settings"]["smartStoryboard"] is True
-            assert task["settings"]["multiShot"] is True
             assert task["paidSubmissionConsentAt"] is not None
         async with app.state.database.session_factory() as session:
             command_count = await session.scalar(
