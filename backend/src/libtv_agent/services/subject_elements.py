@@ -128,8 +128,8 @@ async def _run_subject_element_attempt(
                 ),
                 key=lambda asset: asset.order_no,
             )
-            if not 2 <= len(subject_assets) <= 4:
-                raise ValueError("subject element requires 2..4 ordered reference images")
+            if not 1 <= len(subject_assets) <= 4:
+                raise ValueError("subject element requires 1..4 ordered reference images")
             if any(not asset.object_key for asset in subject_assets):
                 raise ValueError("subject element source object is missing")
             object_keys = [str(asset.object_key) for asset in subject_assets]

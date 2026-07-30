@@ -99,8 +99,6 @@ class KlingElementCreateRequest(BaseModel):
     def validate_source(self) -> KlingElementCreateRequest:
         if bool(self.imageReferences) == bool(self.videoReferences):
             raise ValueError("exactly one of imageReferences or videoReferences is required")
-        if self.imageReferences and len(self.imageReferences) < 2:
-            raise ValueError("imageReferences must contain between 2 and 4 references")
         total_reference_characters = sum(
             len(reference) for reference in [*self.imageReferences, *self.videoReferences]
         )

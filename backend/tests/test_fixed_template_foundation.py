@@ -71,13 +71,13 @@ def test_video_task_subject_images_are_optional_ordered_and_exclusive_with_eleme
     without_subject = VideoTaskCreate.model_validate({**common, "subjectImages": []})
     assert without_subject.subject_images == []
 
-    with pytest.raises(ValueError, match="between 2 and 4"):
-        VideoTaskCreate.model_validate(
-            {
-                **common,
-                "subjectImages": [{"uploadId": str(uuid.uuid4()), "order": 1}],
-            }
-        )
+    with_one_subject = VideoTaskCreate.model_validate(
+        {
+            **common,
+            "subjectImages": [{"uploadId": str(uuid.uuid4()), "order": 1}],
+        }
+    )
+    assert len(with_one_subject.subject_images) == 1
     with pytest.raises(ValueError, match="mutually exclusive"):
         VideoTaskCreate.model_validate(
             {
@@ -970,7 +970,6 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
             for key, filename, color in (
                 ("subject-storyboard", "storyboard.png", "#76444a"),
                 ("subject-front", "linen-shirt-front.png", "#335577"),
-                ("subject-back", "linen-shirt-back.png", "#557799"),
             ):
                 response = await client.post(
                     "/api/v1/uploads",
@@ -995,7 +994,6 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
                     "storyboards": [{"uploadId": uploads[0], "order": 1, "required": True}],
                     "subjectImages": [
                         {"uploadId": uploads[1], "order": 1},
-                        {"uploadId": uploads[2], "order": 2},
                     ],
                     "templateId": "garment_detail",
                     "siteProfileId": "teachersgram",
@@ -1025,17 +1023,16 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
     assert [(asset.role, asset.source_type, asset.order_no) for asset in assets] == [
         ("STORYBOARD", "STORYBOARD", 1),
         ("PRODUCT", "SUBJECT_REFERENCE", 101),
-        ("PRODUCT", "SUBJECT_REFERENCE", 102),
     ]
     assert all(asset.used_for_generation for asset in assets)
     assert all(not asset.used_for_analysis for asset in assets)
     assert "@image_1" in variants[0].prompt_text
     assert "@image_2 is the subject frontal reference" in variants[0].prompt_text
-    assert "@image_3 is the subject back reference" in variants[0].prompt_text
     assert len(adapter.created) == 1
     assert adapter.calls == 2
     assert adapter.created[0].element_name.startswith("linen-shirt-")
     assert len(adapter.created[0].refer_images) == 1
+    assert adapter.created[0].refer_images[0] == adapter.created[0].frontal_image
     assert adapter.created[0].external_task_id == f"fixed-video-subject-{task_id.hex}"
     assert subject_job is not None
     assert subject_job.status == "SUBMITTED"

@@ -14,19 +14,19 @@ function image(name: string, type = 'image/jpeg', size = 1024): File {
 }
 
 describe('subject reference files', () => {
-  it('requires a frontal image and two to four total images', () => {
+  it('requires a frontal image and accepts one to four total images', () => {
     const empty = validateSubjectReferenceFiles(createEmptySubjectReferenceFiles())
     expect(empty.isValid).toBe(false)
     expect(empty.fieldErrors.frontalImage).toContain('正面图')
-    expect(empty.errors.join(' ')).toContain('2–4')
+    expect(empty.errors.join(' ')).toContain('1–4')
 
     const frontalImage = image('front.jpg')
     const valid = validateSubjectReferenceFiles({
       frontalImage,
-      backImage: image('back.jpg'),
+      backImage: null,
       detailImages: [],
     })
-    expect(valid).toMatchObject({ isValid: true, fileCount: 2 })
+    expect(valid).toMatchObject({ isValid: true, fileCount: 1 })
   })
 
   it('limits details, file type, file size, total size and duplicate slots', () => {
