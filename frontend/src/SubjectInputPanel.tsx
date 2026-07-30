@@ -1,12 +1,11 @@
 import {
   AlertTriangle,
   History,
-  ImagePlus,
   LoaderCircle,
   PackageOpen,
   X,
 } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import type { ChangeEvent } from 'react'
 
 import {
@@ -51,84 +50,55 @@ function isUsableElement(element: SubjectHistoryElement): boolean {
   return !element.raw?.localJob && isKlingElementAvailable(element.status)
 }
 
-function fileKey(file: File, slot: string): string {
-  return `${slot}-${file.name}-${file.size}-${file.lastModified}`
-}
-
-function FileThumbnail({ file, alt }: { file: File; alt: string }) {
-  const [previewUrl] = useState(() => {
-    try {
-      return URL.createObjectURL(file)
-    } catch {
-      return ''
-    }
-  })
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-    }
-  }, [previewUrl])
-
-  return previewUrl
-    ? <img src={previewUrl} alt={alt} />
-    : <ImagePlus aria-hidden="true" size={22} />
-}
-
 function UploadTile({
   id,
   label,
-  hint,
   required,
   file,
   disabled,
-  describedBy,
   invalid,
   onChange,
+  onDrop,
   onRemove,
 }: {
   id: string
   label: string
-  hint: string
   required?: boolean
   file: File | null
   disabled: boolean
-  describedBy: string
   invalid?: boolean
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
+  onDrop: (files: File[]) => void
   onRemove: () => void
 }) {
   return <div className={`subject-upload-tile${file ? ' is-filled' : ''}${required ? ' is-required' : ''}`}>
-    <div className="subject-upload-tile__heading">
+    <label
+      className="subject-upload-tile__dropzone"
+      htmlFor={id}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault()
+        if (!disabled) onDrop(Array.from(event.dataTransfer.files))
+      }}
+    >
       <strong>{label}</strong>
-      <span>{required ? '必选' : '可选'}</span>
-    </div>
-    <div className="subject-upload-tile__media">
-      {file
-        ? <FileThumbnail key={fileKey(file, id)} file={file} alt={`${label}预览`} />
-        : <ImagePlus aria-hidden="true" size={24} />}
-    </div>
-    <small>{file ? file.name : hint}</small>
-    <div className="subject-upload-tile__actions">
-      <label className="subject-upload-tile__pick" htmlFor={id}>
-        {file ? '更换' : '选择图片'}
-      </label>
-      {file ? <button
+      <span>{file ? '已选择，点击更换' : '拖拽或选择'}</span>
+    </label>
+    {file ? <button
         type="button"
+        className="subject-upload-tile__remove"
         disabled={disabled}
         onClick={onRemove}
         aria-label={`移除${label}“${file.name}”`}
       >
         <X aria-hidden="true" size={15} />
       </button> : null}
-    </div>
     <input
       id={id}
       className="sr-only"
       type="file"
       accept={SUBJECT_IMAGE_ACCEPT}
       disabled={disabled}
-      aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
       onChange={onChange}
     />
@@ -139,44 +109,43 @@ function DetailUploadTile({
   id,
   files,
   disabled,
-  describedBy,
   invalid,
   onChange,
+  onDrop,
   onRemove,
 }: {
   id: string
   files: File[]
   disabled: boolean
-  describedBy: string
   invalid?: boolean
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
+  onDrop: (files: File[]) => void
   onRemove: (index: number) => void
 }) {
   const isFull = files.length >= SUBJECT_MAX_DETAIL_IMAGES
   return <div className={`subject-upload-tile subject-upload-tile--details${files.length ? ' is-filled' : ''}`}>
-    <div className="subject-upload-tile__heading">
-      <strong>侧面/细节</strong>
-      <span>{files.length}/{SUBJECT_MAX_DETAIL_IMAGES}</span>
-    </div>
-    <div className="subject-upload-tile__media subject-upload-tile__media--details">
-      {files.length
-        ? files.map((file, index) => <div className="subject-upload-tile__detail" key={fileKey(file, `detail-${index}`)}>
-            <FileThumbnail file={file} alt={`侧面或细节图 ${index + 1} 预览`} />
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onRemove(index)}
-              aria-label={`移除侧面或细节图“${file.name}”`}
-            >
-              <X aria-hidden="true" size={14} />
-            </button>
-          </div>)
-        : <ImagePlus aria-hidden="true" size={24} />}
-    </div>
-    <small>{files.length ? `${files.length} 张已选择` : '最多 2 张，可选'}</small>
-    {!isFull ? <label className="subject-upload-tile__pick" htmlFor={id}>
-      {files.length ? '继续添加' : '选择图片'}
-    </label> : null}
+    <label
+      className="subject-upload-tile__dropzone"
+      htmlFor={id}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault()
+        if (!disabled && !isFull) onDrop(Array.from(event.dataTransfer.files))
+      }}
+    >
+      <strong>侧面图</strong>
+      <span>{files.length ? `已选择 ${files.length} 张` : '拖拽或选择'}</span>
+    </label>
+    {files.map((file, index) => <button
+      key={`${file.name}-${file.size}-${file.lastModified}`}
+      type="button"
+      className={`subject-upload-tile__remove subject-upload-tile__remove--detail-${index}`}
+      disabled={disabled}
+      onClick={() => onRemove(index)}
+      aria-label={`移除侧面图“${file.name}”`}
+    >
+      <X aria-hidden="true" size={15} />
+    </button>)}
     <input
       id={id}
       className="sr-only"
@@ -184,7 +153,6 @@ function DetailUploadTile({
       multiple
       accept={SUBJECT_IMAGE_ACCEPT}
       disabled={disabled || isFull}
-      aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
       onChange={onChange}
     />
@@ -256,21 +224,16 @@ export function SubjectInputPanel({
     if (mode !== 'none') onModeChange('none')
   }
 
-  const selectSingleImage = (
-    field: 'frontalImage' | 'backImage',
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.currentTarget.files?.[0] ?? null
-    event.currentTarget.value = ''
+  const selectSingleFile = (field: 'frontalImage' | 'backImage', file: File | null) => {
     if (!file) return
+    if (mode !== 'upload') changeMode('upload')
     setSelectionError('')
     onUploadedFilesChange({ ...uploadedFiles, [field]: file })
   }
 
-  const selectDetailImages = (event: ChangeEvent<HTMLInputElement>) => {
-    const chosen = Array.from(event.currentTarget.files ?? [])
-    event.currentTarget.value = ''
+  const selectDetailFiles = (chosen: File[]) => {
     if (!chosen.length) return
+    if (mode !== 'upload') changeMode('upload')
     const availableSlots = SUBJECT_MAX_DETAIL_IMAGES - uploadedFiles.detailImages.length
     if (availableSlots <= 0) {
       setSelectionError(`侧面/细节图最多上传 ${SUBJECT_MAX_DETAIL_IMAGES} 张。`)
@@ -286,13 +249,27 @@ export function SubjectInputPanel({
     })
   }
 
+  const selectSingleImage = (
+    field: 'frontalImage' | 'backImage',
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.currentTarget.files?.[0] ?? null
+    event.currentTarget.value = ''
+    selectSingleFile(field, file)
+  }
+
+  const selectDetailImages = (event: ChangeEvent<HTMLInputElement>) => {
+    const chosen = Array.from(event.currentTarget.files ?? [])
+    event.currentTarget.value = ''
+    selectDetailFiles(chosen)
+  }
+
   const selectHistoryElement = (elementId: string) => {
     setSelectionError('')
     onSelectedElementIdChange(elementId)
   }
 
   const errorId = `${id}-error`
-  const uploadHelpId = `${id}-upload-help`
   return <section
     className={panelClassName}
     aria-labelledby={`${id}-title`}
@@ -303,77 +280,60 @@ export function SubjectInputPanel({
       <div>
         <span className="subject-input-panel__eyebrow">可选</span>
         <h2 id={`${id}-title`}>一致性主体</h2>
-        <p>留空也可直接生成。</p>
+        <p>上传正面、背面或侧面图，建立视觉参考。</p>
       </div>
-      <PackageOpen aria-hidden="true" size={20} />
+      <div className="subject-input-panel__header-actions" role="group" aria-label="主体来源">
+        <button
+          type="button"
+          className={mode === 'history' ? 'is-selected' : ''}
+          disabled={disabled}
+          aria-pressed={mode === 'history'}
+          onClick={() => changeMode(mode === 'history' ? 'none' : 'history')}
+        >
+          <History aria-hidden="true" size={15} />
+          历史主体
+        </button>
+        {mode !== 'none' ? <button
+          type="button"
+          className="subject-input-panel__clear"
+          disabled={disabled}
+          onClick={clearSubject}
+          aria-label="清除主体"
+        >
+          <X aria-hidden="true" size={15} />
+        </button> : null}
+      </div>
     </header>
 
-    <div className="subject-input-panel__quick-actions" role="group" aria-label="选择主体来源">
-      <button
-        type="button"
-        className={mode === 'upload' ? 'is-selected' : ''}
-        disabled={disabled}
-        aria-pressed={mode === 'upload'}
-        onClick={() => changeMode('upload')}
-      >
-        <ImagePlus aria-hidden="true" size={16} />
-        上传新主体
-      </button>
-      <button
-        type="button"
-        className={mode === 'history' ? 'is-selected' : ''}
-        disabled={disabled}
-        aria-pressed={mode === 'history'}
-        onClick={() => changeMode('history')}
-      >
-        <History aria-hidden="true" size={16} />
-        历史主体
-      </button>
-      {mode !== 'none' ? <button
-        type="button"
-        className="subject-input-panel__clear"
-        disabled={disabled}
-        onClick={clearSubject}
-      >
-        <X aria-hidden="true" size={15} />
-        清除主体
-      </button> : null}
-    </div>
-
-    {mode === 'upload' ? <div className="subject-input-panel__upload">
-      <p id={uploadHelpId} className="subject-input-panel__help">
-        正面图必选，共上传 2–4 张 JPG/PNG。
-      </p>
+    {mode !== 'history' ? <div className="subject-input-panel__upload">
       <div className="subject-upload-grid">
         <UploadTile
           id={`${id}-front`}
           label="正面图"
-          hint="清晰、完整"
           required
           file={uploadedFiles.frontalImage}
           disabled={disabled}
-          describedBy={uploadHelpId}
           invalid={Boolean(validation.fieldErrors.frontalImage)}
           onChange={(event) => selectSingleImage('frontalImage', event)}
+          onDrop={(files) => selectSingleFile('frontalImage', files[0] ?? null)}
           onRemove={() => onUploadedFilesChange({ ...uploadedFiles, frontalImage: null })}
         />
         <UploadTile
           id={`${id}-back`}
           label="背面图"
-          hint="补充版型"
           file={uploadedFiles.backImage}
           disabled={disabled}
-          describedBy={uploadHelpId}
           onChange={(event) => selectSingleImage('backImage', event)}
+          onDrop={(files) => selectSingleFile('backImage', files[0] ?? null)}
           onRemove={() => onUploadedFilesChange({ ...uploadedFiles, backImage: null })}
         />
         <DetailUploadTile
           id={`${id}-details`}
           files={uploadedFiles.detailImages}
           disabled={disabled}
-          describedBy={uploadHelpId}
           invalid={Boolean(validation.fieldErrors.detailImages)}
           onChange={selectDetailImages}
+          onDrop={selectDetailFiles}
           onRemove={(index) => onUploadedFilesChange({
             ...uploadedFiles,
             detailImages: uploadedFiles.detailImages.filter((_, fileIndex) => fileIndex !== index),
@@ -381,15 +341,6 @@ export function SubjectInputPanel({
         />
       </div>
 
-      <div
-        className={`subject-input-panel__validation ${validation.isValid ? 'is-valid' : 'is-incomplete'}`}
-        role={validation.isValid ? 'status' : undefined}
-      >
-        <span>{validation.fileCount}/{SUBJECT_MAX_DETAIL_IMAGES + 2} 张</span>
-        <p>{validation.isValid
-          ? '图片齐全，主体信息将自动生成。'
-          : validation.errors[0]}</p>
-      </div>
     </div> : null}
 
     {mode === 'history' ? <div className="subject-input-panel__history">
@@ -440,24 +391,6 @@ export function SubjectInputPanel({
         <span>{elementsError}</span>
       </div> : null}
     </div> : null}
-
-    <footer className="subject-input-panel__footer">
-      <div
-        className={`subject-reference-budget ${budget.isValid ? '' : 'is-over-limit'}`}
-        aria-live="polite"
-      >
-        <span>引用</span>
-        <strong>{budget.used}/{budget.limit}</strong>
-        <small>
-          {budget.storyboardCount} 张分镜
-          {budget.subjectCount
-            ? mode === 'history'
-              ? ' + 1 个主体'
-              : ` + ${budget.subjectCount} 张主体图`
-            : '，未使用主体'}
-        </small>
-      </div>
-    </footer>
 
     {panelErrors.length ? <div id={errorId} className="subject-input-panel__errors" role="alert">
       <AlertTriangle aria-hidden="true" size={16} />

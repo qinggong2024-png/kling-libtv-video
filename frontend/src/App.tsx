@@ -928,7 +928,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
 
   return <section className={`composer${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-labelledby="composer-title" aria-busy={formLocked}>
     <div className="composer-head">
-      <div><span className="section-kicker">固定模板生产</span><h2 id="composer-title">上传分镜，可选绑定一致性主体</h2><p>主体信息自动创建且不需确认；不添加主体也不影响生成。</p></div>
+      <div><span className="section-kicker">固定模板生产</span><h2 id="composer-title">上传分镜，可选绑定一致性主体</h2><p>主体信息会根据上传的参考图自动创建。</p></div>
       <span className="step-pill"><span>1</span> 配置并生成</span>
     </div>
     <div className="composer-inputs" inert={formLocked}>
@@ -957,20 +957,20 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           elementsLoading={elementsLoading}
           elementsError={elementCatalogError}
         />
-      </div>
-      <div className="fixed-workflow-options">
+        <div className="fixed-workflow-options">
         <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
         <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
         <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
       </div>
-      <details className="advanced-settings">
+        <details className="advanced-settings">
         <summary><Settings size={16} />高级设置</summary>
         <div>
           <label className="catalog-field"><span>动作强度</span><select value={actionIntensity} onChange={(event) => setActionIntensity(event.target.value as typeof actionIntensity)}><option value="low">克制</option><option value="standard">标准</option><option value="high">增强</option></select></label>
           <label className="catalog-field"><span>运镜节奏</span><select value={cameraTempo} onChange={(event) => setCameraTempo(event.target.value as typeof cameraTempo)}><option value="slow">舒缓</option><option value="standard">标准</option><option value="fast">明快</option></select></label>
           <label className="catalog-field"><span>切镜方式</span><select value={cutMode} onChange={(event) => setCutMode(event.target.value as typeof cutMode)}><option value="explicit_cuts">明确切镜</option><option value="continuous_when_possible">尽量连续</option></select></label>
         </div>
-      </details>
+        </details>
+      </div>
       </div>
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>

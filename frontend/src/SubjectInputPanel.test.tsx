@@ -14,20 +14,25 @@ const baseProps = {
 }
 
 describe('SubjectInputPanel', () => {
-  it('keeps the optional no-subject state compact and implicit', () => {
+  it('shows the three subject upload areas by default', () => {
     const markup = renderToStaticMarkup(<SubjectInputPanel
       {...baseProps}
       mode="none"
       elements={[]}
     />)
     expect(markup).toContain('一致性主体')
-    expect(markup).toContain('留空也可直接生成')
-    expect(markup).toContain('上传新主体')
+    expect(markup).not.toContain('留空也可直接生成')
+    expect(markup).not.toContain('上传新主体')
     expect(markup).toContain('历史主体')
     expect(markup).not.toContain('>不使用<')
     expect(markup).not.toContain('清除主体')
-    expect(markup).toContain('5/7')
-    expect(markup).toContain('未使用主体')
+    expect(markup).toContain('subject-upload-grid')
+    expect(markup).toContain('正面图')
+    expect(markup).toContain('背面图')
+    expect(markup).toContain('侧面图')
+    expect(markup).toContain('拖拽或选择')
+    expect(markup).not.toContain('5/7')
+    expect(markup).not.toContain('未使用主体')
   })
 
   it('renders three compact upload tiles without exposing provider field names', () => {
@@ -40,10 +45,9 @@ describe('SubjectInputPanel', () => {
     expect(markup.match(/subject-upload-tile/g)?.length).toBeGreaterThanOrEqual(3)
     expect(markup).toContain('正面图')
     expect(markup).toContain('背面图')
-    expect(markup).toContain('侧面/细节')
+    expect(markup).toContain('侧面图')
     expect(markup).not.toContain('frontal_image')
     expect(markup).not.toContain('refer_image')
-    expect(markup).toContain('请上传一张清晰的服装正面图')
     expect(markup).toContain('清除主体')
   })
 
@@ -77,7 +81,7 @@ describe('SubjectInputPanel', () => {
     expect(markup).not.toContain('处理中主体')
     expect(markup).not.toContain('<select')
     expect(markup).toContain('历史主体暂时无法刷新')
-    expect(markup).toContain('6/7')
+    expect(markup).not.toContain('6/7')
   })
 
   it('collapses history after six cards and exposes a more control', () => {
