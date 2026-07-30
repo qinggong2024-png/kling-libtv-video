@@ -11,13 +11,19 @@ const runnerStatusLabels: Record<string, string> = {
 }
 
 const alertCodeLabels: Record<string, string> = {
-  LIBTV_AUTH_REQUIRED: 'LibTV 需要重新登录',
+  LIBTV_AUTH_REQUIRED: '历史任务凭据已失效',
+  KLING_API_KEY_MISSING: '可灵官方 API 缺少密钥',
+  KLING_API_AUTHENTICATION_FAILED: '可灵官方 API 鉴权失败',
+  KLING_API_VERIFICATION_FAILED: '可灵官方 API 验证失败',
+  KLING_API_RATE_LIMITED: '可灵官方 API 请求受限',
   UNKNOWN_THRESHOLD_EXCEEDED: '未知任务比例超过阈值',
   PREPARED_QUEUE_BELOW_LOW_WATERMARK: '待生成队列低于最低水位',
 }
 
 const alertActionLabels: Record<string, string> = {
-  RUN_REFRESH_LIBTV_LOGIN: '请刷新 LibTV 登录状态',
+  RUN_REFRESH_LIBTV_LOGIN: '请检查历史任务认证状态',
+  CONFIGURE_KLING_API_KEY: '请配置或替换可灵 API Key',
+  REFRESH_KLING_API_STATUS: '请重新验证官方 API 状态',
   PAUSE_NEW_PAID_SUBMISSIONS: '请暂停新的付费任务',
   OBSERVE_MATERIALIZATION_CAPACITY: '请检查任务准备能力',
 }
@@ -152,7 +158,7 @@ export function OperationsPanel({ adminId }: { adminId: string | null }) {
     <div className="ops-metrics">
       <div><Gauge size={18} /><span><small>生成槽位利用率</small><strong>{Math.round(snapshot.metrics.generationSlotUtilization * 100)}%</strong></span></div>
       <div><Layers3 size={18} /><span><small>待生成 / 生成中</small><strong>{snapshot.queues.prepared} / {snapshot.queues.running}</strong></span></div>
-      <div><Server size={18} /><span><small>活跃命令主机</small><strong>{snapshot.metrics.runnerActiveCommandHosts}</strong></span></div>
+      <div><Server size={18} /><span><small>活跃工作节点</small><strong>{snapshot.metrics.runnerActiveCommandHosts}</strong></span></div>
       <div><WalletCards size={18} /><span><small>已预留 / 状态不明积分</small><strong>{snapshot.metrics.pointsReserved} / {snapshot.metrics.pointsUncertain}</strong></span></div>
     </div>
     <section className="ops-band ops-pipeline" aria-labelledby="ops-pipeline-title">
@@ -169,9 +175,9 @@ export function OperationsPanel({ adminId }: { adminId: string | null }) {
         })}
       </div>
     </section>
-    <div className="ops-band"><div className="detail-heading"><div><span className="section-kicker">生成容量</span><h3>并发与队列限制</h3></div><span>配置版本 v{snapshot.runtime.version}</span></div><div className="ops-capacity"><span>同一画布 <strong>{config.generationConcurrency.sameProject}</strong></span><span>单个用户 <strong>{config.generationConcurrency.perUser}</strong></span><span>全局并发 <strong>{config.generationConcurrency.global}</strong></span><span>队列水位 <strong>{config.preparedQueue.lowWatermark} / {config.preparedQueue.highWatermark}</strong></span></div></div>
+    <div className="ops-band"><div className="detail-heading"><div><span className="section-kicker">生成容量</span><h3>并发与队列限制</h3></div><span>配置版本 v{snapshot.runtime.version}</span></div><div className="ops-capacity"><span>同一任务 <strong>{config.generationConcurrency.sameProject}</strong></span><span>单个用户 <strong>{config.generationConcurrency.perUser}</strong></span><span>全局并发 <strong>{config.generationConcurrency.global}</strong></span><span>队列水位 <strong>{config.preparedQueue.lowWatermark} / {config.preparedQueue.highWatermark}</strong></span></div></div>
     <div className="ops-columns">
-      <section className="ops-band"><div className="detail-heading"><div><span className="section-kicker">运行器</span><h3>运行器主机</h3></div><span>{snapshot.runners.length}</span></div>{snapshot.runners.length ? snapshot.runners.map((runner) => <div className="ops-row" key={runner.id}><span><strong>{runner.hostname}</strong><small>{runnerStatusLabels[runner.status] ?? runner.status}</small></span><span>磁盘剩余 {runner.freeDiskPercent.toFixed(1)}%</span></div>) : <p className="ops-muted">尚未收到运行器心跳</p>}</section>
+      <section className="ops-band"><div className="detail-heading"><div><span className="section-kicker">工作节点</span><h3>任务执行节点</h3></div><span>{snapshot.runners.length}</span></div>{snapshot.runners.length ? snapshot.runners.map((runner) => <div className="ops-row" key={runner.id}><span><strong>{runner.hostname}</strong><small>{runnerStatusLabels[runner.status] ?? runner.status}</small></span><span>磁盘剩余 {runner.freeDiskPercent.toFixed(1)}%</span></div>) : <p className="ops-muted">尚未收到工作节点心跳</p>}</section>
       <section className="ops-band"><div className="detail-heading"><div><span className="section-kicker">告警</span><h3>安全告警</h3></div><span>{snapshot.alerts.length}</span></div>{snapshot.alerts.length ? snapshot.alerts.map((alert) => <div className="ops-row ops-row--alert" key={alert.code}><AlertTriangle size={16} /><span><strong>{alertCodeLabels[alert.code] ?? alert.code}</strong><small>{alertActionLabels[alert.action] ?? alert.action}</small></span></div>) : <p className="ops-muted">当前没有安全告警</p>}</section>
     </div>
   </section>

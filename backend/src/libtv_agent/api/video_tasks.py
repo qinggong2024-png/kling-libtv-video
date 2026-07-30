@@ -14,6 +14,7 @@ from libtv_agent.services.idempotency import (
     release_idempotency_claim,
     store_idempotent_response,
 )
+from libtv_agent.services.subject_elements import schedule_subject_element_job
 from libtv_agent.services.tasks import task_to_read
 
 router = APIRouter(prefix="/video-tasks", tags=["video-tasks"])
@@ -48,7 +49,13 @@ async def create_video_task(
             detail={"code": code, "message": str(exc)},
         ) from exc
     if cached:
-        return TaskRead.model_validate(cached[1])
+        cached_result = TaskRead.model_validate(cached[1])
+        schedule_subject_element_job(
+            request.app,
+            task_id=cached_result.id,
+            user_id=actor.id,
+        )
+        return cached_result
 
     try:
         task = await create_fixed_video_task(
@@ -96,4 +103,10 @@ async def create_video_task(
         response_body=result.model_dump(mode="json", by_alias=True),
     )
     await session.commit()
+    if payload.subject_images:
+        schedule_subject_element_job(
+            request.app,
+            task_id=task.id,
+            user_id=actor.id,
+        )
     return result

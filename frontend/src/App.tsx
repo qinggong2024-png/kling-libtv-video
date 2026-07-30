@@ -14,7 +14,6 @@ import {
   Download,
   Eye,
   EyeOff,
-  ExternalLink,
   FileImage,
   Film,
   Globe2,
@@ -29,6 +28,7 @@ import {
   LockKeyhole,
   MoreHorizontal,
   Package,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
@@ -73,16 +73,13 @@ import {
   uploadStoryboard,
   getAdminCredentials,
   getAdminUsers,
-  getLibTVAccountStatus,
   getKlingConfig,
   getKlingElements,
   getKlingStatus,
   getOperations,
   getPersonalPromptAutoConfirmation,
-  startLibTVLogin,
   updateAdminCredentials,
   updateKlingConfig,
-  switchLibTVAccount,
   refreshKlingCapabilities,
   resetAdminUserPassword,
   login,
@@ -94,11 +91,20 @@ import {
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, LibTVAccountStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { KlingElementsPanel } from './KlingElementsPanel'
+import { KlingSubjectsLibrary } from './KlingSubjectsLibrary'
 import { OperationsPanel } from './OperationsPanel'
+import { SubjectInputPanel } from './SubjectInputPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
+import {
+  buildSubjectImageReferences,
+  createEmptySubjectReferenceFiles,
+  getSubjectReferenceCount,
+  validateSubjectReferenceFiles,
+} from './subjectFiles'
+import type { SubjectInputMode, SubjectReferenceFiles } from './subjectFiles'
 import { formatRiskFlags } from './riskLabels'
 import {
   formatDurationSeconds,
@@ -122,6 +128,8 @@ import {
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
+  formatKlingApiVersion,
+  klingApiStatusPresentation,
   KLING_BASE_URL_OPTIONS,
   KLING_ASPECT_RATIO_OPTIONS,
   KLING_AUDIO_OPTIONS,
@@ -130,10 +138,10 @@ import {
   validateKlingConfig,
 } from './klingConfig'
 import type { KlingConfigDraft } from './klingConfig'
+import { CatalogEditor } from './CatalogEditor'
 
 type View = 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
-type GenerationProvider = 'libtv' | 'kling'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
 type RemixSeed = { id: string; storyboards: File[]; products: File[]; requirement?: string }
@@ -189,14 +197,6 @@ function validateCompatibleBaseUrl(value: string): string {
   return ''
 }
 const FAILED_PHASES = new Set(['ACTION_REQUIRED'])
-const DEFAULT_ANALYSIS_MODEL = 'gpt-5.6-luna'
-const LEGACY_ANALYSIS_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6-terra'])
-
-function readDefaultAnalysisModel(configuredModel?: string): string {
-  const stored = localStorage.getItem('default-model')?.trim()
-  const configured = configuredModel?.trim() || DEFAULT_ANALYSIS_MODEL
-  return !stored || LEGACY_ANALYSIS_MODELS.has(stored) ? configured : stored
-}
 const ANALYSIS_FAILURE_CODES = new Set([
   'ANALYSIS_TIMEOUT',
   'ANALYSIS_CANCELLED',
@@ -446,7 +446,7 @@ function StatusBadge({ value }: { value: string | null }) {
 
 function ProviderBadge({ provider }: { provider: string }) {
   const meta = providerPresentation(provider)
-  return <span className={`provider-badge ${meta.cssClass}`}>{meta.cliLabel}</span>
+  return <span className={`provider-badge ${meta.cssClass}`}>{meta.displayLabel}</span>
 }
 
 function isAnalysisFailure(task: Task): boolean {
@@ -479,20 +479,6 @@ function taskFailureMessage(task: Task): string {
 function TaskStatusBadge({ task }: { task: Task }) {
   const meta = taskStatus(task)
   return <span className={`status status--${meta.tone}`}><span />{meta.label}</span>
-}
-
-function klingStatusMessage(status: string | undefined, fallback?: string | null) {
-  const messages: Record<string, string> = {
-    KLING_CLI_NOT_INSTALLED: '可灵官方 CLI 未安装',
-    KLING_CLI_NOT_AUTHENTICATED: '可灵账号未登录，请运行 kling login',
-    KLING_CAPABILITY_FETCH_FAILED: '可灵能力发现失败',
-    KLING_CAPABILITY_UNSUPPORTED: '可灵官方 Provider 当前未启用',
-    KLING_CLI_READY: '可灵官方 CLI 已就绪',
-    KLING_API_READY: '可灵官方 API 已就绪',
-    KLING_API_DISABLED: '可灵官方 API 未启用',
-    KLING_API_KEY_MISSING: '未配置可灵 API Key',
-  }
-  return (status && messages[status]) || fallback || '可灵官方 Provider 当前不可用'
 }
 
 function useDismiss(open: boolean, onClose: () => void, containerRef?: React.RefObject<HTMLElement | null>) {
@@ -582,7 +568,7 @@ function TaskThumb({ task, large = false }: { task: Task; large?: boolean }) {
 }
 
 function ProductLogo() {
-  return <span className="brand-lockup"><span className="brand-mark"><Clapperboard size={19} /></span><span><strong>衣影工坊</strong><small>多 Provider 视频生产</small></span></span>
+  return <span className="brand-lockup"><span className="brand-mark"><Clapperboard size={19} /></span><span><strong>衣影工坊</strong><small>可灵官方 API 视频生产</small></span></span>
 }
 
 function loginErrorMessage(cause: unknown): string {
@@ -620,7 +606,7 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void>
       <aside className="login-brand-panel">
         <ProductLogo />
         <div className="login-brand-copy">
-          <span>LIBTV PRODUCTION</span>
+          <span>KLING API PRODUCTION</span>
           <h1>衣影工坊</h1>
           <p>视频生产管理系统</p>
         </div>
@@ -647,7 +633,7 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void>
   </main>
 }
 
-const MATERIAL_DRAG_TYPE = 'application/x-libtv-material'
+const MATERIAL_DRAG_TYPE = 'application/x-kling-api-material'
 
 function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPreview }: {
   material: Material
@@ -715,10 +701,11 @@ function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPreview }
   </article>
 }
 
-function ProductionComposer({ seed, onCreated, system }: {
+function ProductionComposer({ seed, onCreated, system, actorId }: {
   seed: RemixSeed | null
   onCreated: (task: Task, open?: boolean) => void
   system: SystemStatus | null
+  actorId: string | null
 }) {
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: createUuid(), file })) ?? [])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
@@ -726,6 +713,8 @@ function ProductionComposer({ seed, onCreated, system }: {
   const [elements, setElements] = useState<KlingElement[]>([])
   const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
   const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
+  const [subjectMode, setSubjectMode] = useState<SubjectInputMode>('none')
+  const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(createEmptySubjectReferenceFiles)
   const [elementId, setElementId] = useState('')
   const [resultCount, setResultCount] = useState(1)
   const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
@@ -747,7 +736,12 @@ function ProductionComposer({ seed, onCreated, system }: {
   const resetTimerRef = useRef<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
   const providerAvailable = Boolean(system?.kling.available && system.kling.authenticated)
-  const klingInputsSupported = storyboards.length + (elementId ? 1 : 0)
+  const subjectValidation = validateSubjectReferenceFiles(subjectFiles)
+  const subjectReferenceCount = getSubjectReferenceCount(subjectMode, subjectFiles, elementId)
+  const subjectReady = subjectMode === 'none'
+    || (subjectMode === 'upload' && subjectValidation.isValid)
+    || (subjectMode === 'history' && Boolean(elementId))
+  const klingInputsSupported = storyboards.length + subjectReferenceCount
     <= (system?.kling.imageInputLimit ?? 0)
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
   const selectedProfile = profiles.find((item) => item.id === siteProfileId) ?? null
@@ -772,25 +766,34 @@ function ProductionComposer({ seed, onCreated, system }: {
     return () => { active = false }
   }, [])
   useEffect(() => {
-    const actorId = system?.sharedAuthentication ? null : system?.phaseOneAdminId ?? null
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
     }
     const controller = new AbortController()
-    void getKlingElements(actorId, 1, 100, false, controller.signal)
-      .then((page) => {
+    void Promise.allSettled([
+      getKlingElements(actorId, 1, 100, false, controller.signal),
+      getKlingElements(actorId, 1, 100, true, controller.signal),
+    ])
+      .then((results) => {
         if (controller.signal.aborted) return
-        setElements(page.items.filter((element) => ['active', 'succeeded'].includes(element.status.toLowerCase())))
-        setElementCatalogError('')
-      })
-      .catch((cause) => {
-        if (!controller.signal.aborted) setElementCatalogError(cause instanceof ApiError ? cause.message : '主体列表加载失败')
+        const nextElements = new Map<string, KlingElement>()
+        for (const result of results) {
+          if (result.status !== 'fulfilled') continue
+          for (const element of result.value.items) {
+            if (!nextElements.has(element.id)) nextElements.set(element.id, element)
+          }
+        }
+        setElements([...nextElements.values()])
+        const failures = results
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason instanceof ApiError ? result.reason.message : '主体列表加载失败')
+        setElementCatalogError(failures.join('；'))
       })
       .finally(() => {
         if (!controller.signal.aborted) setElementsLoading(false)
       })
     return () => controller.abort()
-  }, [system])
+  }, [actorId, system])
   useEffect(() => () => {
     if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current)
     uploadAbortRef.current?.abort()
@@ -833,7 +836,7 @@ function ProductionComposer({ seed, onCreated, system }: {
     addFiles(Array.from(event.dataTransfer.files))
   }
   const submit = async () => {
-    if (!storyboards.length || !providerAvailable || !klingInputsSupported || !productionReady || !templateAcceptsCount) return
+    if (!storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -845,33 +848,52 @@ function ProductionComposer({ seed, onCreated, system }: {
     try {
       const uploadStartedAt = performance.now()
       let completedUploads = 0
-      const uploads = await mapWithConcurrency(
-        storyboards,
-        UPLOAD_CONCURRENCY,
-        async (material) => {
-          try {
-            const uploaded = await uploadStoryboard(material.file, uploadController.signal)
-            completedUploads += 1
-            setStage(`正在上传分镜 ${completedUploads}/${storyboards.length}`)
-            setProgress(Math.round((completedUploads / storyboards.length) * 52))
-            return uploaded
-          } catch (cause) {
-            if (uploadFailure === undefined) {
-              uploadFailure = cause
-              uploadController.abort(cause)
-            }
-            throw cause
+      const subjectReferences = subjectMode === 'upload' ? buildSubjectImageReferences(subjectFiles) : []
+      const uploadCount = storyboards.length + subjectReferences.length
+      const uploadOne = async (file: File, label: string) => {
+        try {
+          const uploaded = await uploadStoryboard(file, uploadController.signal)
+          completedUploads += 1
+          setStage(`正在上传${label} ${completedUploads}/${uploadCount}`)
+          setProgress(Math.round((completedUploads / uploadCount) * 52))
+          return uploaded
+        } catch (cause) {
+          if (uploadFailure === undefined) {
+            uploadFailure = cause
+            uploadController.abort(cause)
           }
-        },
-      )
-      setStage('正在编译模板并执行可灵预检')
+          throw cause
+        }
+      }
+      const [uploads, subjectUploads] = await Promise.all([
+        mapWithConcurrency(
+          storyboards,
+          UPLOAD_CONCURRENCY,
+          (material) => uploadOne(material.file, '分镜与主体素材'),
+        ),
+        mapWithConcurrency(
+          subjectReferences,
+          UPLOAD_CONCURRENCY,
+          (reference) => uploadOne(reference.file, '分镜与主体素材'),
+        ),
+      ])
+      setStage(subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : '正在编译模板并执行可灵预检')
       setProgress(68)
       const sourceUploadDurationSeconds = (performance.now() - uploadStartedAt) / 1000
       const baseName = storyboards[0].file.name.replace(/\.[^.]+$/, '').trim().slice(0, 80) || '服装广告视频'
       const task = await createVideoTask(
         `${baseName} · ${formatTime(new Date().toISOString())}`,
         uploads,
-        { templateId, siteProfileId, elementIds: elementId ? [elementId] : [], resultCount, actionIntensity, cameraTempo, cutMode },
+        {
+          templateId,
+          siteProfileId,
+          elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
+          subjectUploads,
+          resultCount,
+          actionIntensity,
+          cameraTempo,
+          cutMode,
+        },
         sourceUploadDurationSeconds,
       )
       setProgress(100)
@@ -881,6 +903,9 @@ function ProductionComposer({ seed, onCreated, system }: {
         : `“${task.title}”已进入可灵生成队列，可以继续上传下一组素材`)
       const clearSubmittedMaterials = () => {
         setStoryboards([])
+        setSubjectMode('none')
+        setSubjectFiles(createEmptySubjectReferenceFiles())
+        setElementId('')
         setResetting(false)
         resetTimerRef.current = null
       }
@@ -904,11 +929,11 @@ function ProductionComposer({ seed, onCreated, system }: {
 
   return <section className={`composer${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-labelledby="composer-title" aria-busy={formLocked}>
     <div className="composer-head">
-      <div><span className="section-kicker">固定模板生产</span><h2 id="composer-title">按顺序上传分镜图</h2><p>模板与站点风格将确定性编译为可灵提示词，不经过 GPT 分析或二次确认。</p></div>
+      <div><span className="section-kicker">固定模板生产</span><h2 id="composer-title">上传分镜，可选绑定一致性主体</h2><p>主体信息自动创建且不需确认；不添加主体也不影响生成。</p></div>
       <span className="step-pill"><span>1</span> 配置并生成</span>
     </div>
     <div className="composer-inputs" inert={formLocked}>
-      <div className="upload-panels upload-panels--single">
+      <div className="upload-panels upload-panels--with-subject">
         <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}`} onDragOver={(event) => {
           if (formLocked) return
           event.preventDefault()
@@ -919,11 +944,24 @@ function ProductionComposer({ seed, onCreated, system }: {
           <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '拖拽或点击上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
           {storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表">{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} />)}</div> : null}
         </section>
+        <SubjectInputPanel
+          mode={subjectMode}
+          onModeChange={setSubjectMode}
+          uploadedFiles={subjectFiles}
+          onUploadedFilesChange={setSubjectFiles}
+          elements={elements}
+          selectedElementId={elementId}
+          onSelectedElementIdChange={setElementId}
+          storyboardReferenceCount={storyboards.length}
+          referenceLimit={system?.kling.imageInputLimit || 7}
+          disabled={formLocked}
+          elementsLoading={elementsLoading}
+          elementsError={elementCatalogError}
+        />
       </div>
       <div className="fixed-workflow-options">
         <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
         <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
-        <label className="catalog-field"><span>可灵主体</span><select value={elementId} disabled={formLocked || elementsLoading} onChange={(event) => setElementId(event.target.value)}><option value="">不绑定主体</option>{elements.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</select><small>{elementCatalogError || (elementsLoading ? '正在加载主体' : elementId ? '生成时绑定此主体' : '可选；在管理中心创建')}</small></label>
         <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
       </div>
       <details className="advanced-settings">
@@ -938,8 +976,9 @@ function ProductionComposer({ seed, onCreated, system }: {
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>
         : catalogError ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{catalogError}</span></div>
-          : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{klingStatusMessage(system?.kling.status, system?.kling.reason)}，请让管理员完成安装、登录和能力刷新。</div>
+          : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{klingApiStatusPresentation(system?.kling.status, system?.kling.enabled, system?.kling.reason).message} 请让管理员配置 API Key、启用通道并验证连接。</div>
           : !productionReady && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>当前模板或站点风格为待生产验收状态，验收并激活后才能提交付费生成。</span></div>
+          : !subjectReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。'}</span></div>
           : !klingInputsSupported ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />当前可灵模型最多接收 {system?.kling.imageInputLimit ?? 0} 张图片；系统不会静默丢弃分镜。</div>
             : submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div>
               : notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div>
@@ -950,7 +989,7 @@ function ProductionComposer({ seed, onCreated, system }: {
     <div className="composer-submit-row" aria-live="polite">
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span><LockKeyhole size={14} />点击“开始生成”即确认提交 {resultCount} 个付费可灵生成任务</span>}
-      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !klingInputsSupported || !productionReady || !templateAcceptsCount} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
+      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
       {busy ? <div className="composer-submit-progress progress-track"><span style={{ width: `${progress}%` }} /></div> : null}
     </div>
     {preview ? <ImagePreview file={preview.file} label={preview.label} onClose={() => setPreview(null)} /> : null}
@@ -967,7 +1006,7 @@ function ProcessingRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
   return <button type="button" className="processing-row" onClick={onOpen} aria-label={`查看任务：${task.title}`}>
     <TaskThumb task={task} />
     <span className="processing-main"><span className="processing-main-head"><strong>{task.title}</strong><ProviderBadge provider={task.generationProvider} /><TaskStatusBadge task={task} /></span><span>{progress.label ?? (task.phase === 'GENERATING' ? `正在生成 ${variants.map(variantDisplayName).join('、') || '视频'}` : taskStatus(task).label)}</span></span>
-    <span className="progress-cell"><span className="progress-summary"><span>{progress.cliLabel} 进度</span><strong>{progress.percent}%</strong></span><span className={`progress-track ${progress.cssClass}`} aria-label={`${progress.cliLabel} 任务进度 ${progress.percent}%`}><span style={{ width: `${progress.percent}%` }} /></span></span>
+    <span className="progress-cell"><span className="progress-summary"><span>{progress.displayLabel} 进度</span><strong>{progress.percent}%</strong></span><span className={`progress-track ${progress.cssClass}`} aria-label={`${progress.displayLabel} 任务进度 ${progress.percent}%`}><span style={{ width: `${progress.percent}%` }} /></span></span>
     <span className="elapsed"><Clock3 size={14} /><TaskElapsed task={task} /></span>
     <span className="processing-row-action">查看<ChevronRight size={16} /></span>
   </button>
@@ -1407,7 +1446,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         <div className="drawer-header-main"><span>任务 / {isConfirmation ? '方案确认' : RESULT_PHASES.has(task.phase) ? '视频结果' : analysisFailure ? '分析恢复' : needsRecovery ? '异常处理' : '生产进度'}</span><h1 id="detail-title">{task.title}</h1></div>
         <div className="drawer-header-actions"><ProviderBadge provider={task.generationProvider} /><TaskStatusBadge task={task} /></div>
       </header>
-      <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', '可灵生成', '结果'] : ['素材', '分析', '方案', provider.kind === 'kling' ? '可灵生成' : '画布生成', '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
+      <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', '可灵生成', '结果'] : ['素材', '分析', '方案', provider.kind === 'kling' ? '可灵生成' : '历史任务生成', '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
       <div className="drawer-content">
         <section className="source-summary"><div className="source-assets">{[...task.assets].sort((a, b) => a.order - b.order).map((asset, index) => <figure key={asset.id}><AuthenticatedImage src={asset.thumbnailUrl} alt={asset.originalFilename} /><figcaption>{asset.role === 'PRODUCT' || asset.usedForGeneration === false ? '产品图' : `分镜 ${index + 1}`}</figcaption></figure>)}</div><div className="garment-summary"><span>{isFixedWorkflow ? '固定模板快照' : '服装识别摘要'}</span><strong>{isFixedWorkflow ? `${task.templateId ?? '未知模板'} · ${task.siteProfileId ?? '未知站点'}` : [analysis?.garmentFacts?.category, analysis?.garmentFacts?.mainColor, analysis?.garmentFacts?.fit].filter(Boolean).join(' · ') || '正在整理服装信息'}</strong><p>{isFixedWorkflow ? `动作 ${String(task.settings?.actionIntensity ?? 'standard')} · 运镜 ${String(task.settings?.cameraTempo ?? 'standard')} · ${task.variants.length} 个结果` : analysis?.consistencyObservations?.summary ?? '系统将优先保持服装结构、颜色、印花和文字准确。'}</p></div></section>
         {analysisFailure ? <section className="analysis-recovery" role="alert">
@@ -1416,14 +1455,14 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
           <button className="primary-button" disabled={busy || !task.actionCapabilities.canRetryAnalysis} onClick={() => void retryAnalysis()}>{busy ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}重新分析方案</button>
         </section> : null}
         {isConfirmation ? <>
-          <div className="drawer-section-title"><div><span>步骤 2 / 3</span><h2>确认视频方案</h2></div><p>确认后将保存提示词原文快照，并原样提交给 {provider.cliLabel}。</p></div>
+          <div className="drawer-section-title"><div><span>步骤 2 / 3</span><h2>确认视频方案</h2></div><p>确认后将保存提示词原文快照，并原样提交给 {provider.displayLabel}。</p></div>
           <div className={`plans-grid${task.variants.length === 1 ? ' plans-grid--single' : ''}`}>
             {stable ? <PlanPanel kind="STABLE" plan={analysis?.stablePlan} variant={stable} risks={analysis?.riskFlags ?? []} prompt={promptDrafts.stable} promptDirty={promptDirty.STABLE} disabled={busy} revisionInstruction={revisionInstructions.STABLE} revisionMessage={revisionMessages.STABLE} activeRevisionMode={activeRevision?.kind === 'STABLE' ? activeRevision.mode : null} onPromptChange={(value) => { setPromptDrafts((current) => ({ ...current, stable: value })); setPromptDirty((current) => ({ ...current, STABLE: true })) }} onRevisionInstructionChange={(value) => setRevisionInstructions((current) => ({ ...current, STABLE: value }))} onPromptRevision={(mode) => void revisePrompt('STABLE', mode)} /> : null}
             {dynamic ? <PlanPanel kind="DYNAMIC" plan={analysis?.dynamicPlan} variant={dynamic} risks={analysis?.riskFlags ?? []} prompt={promptDrafts.dynamic} promptDirty={promptDirty.DYNAMIC} disabled={busy} revisionInstruction={revisionInstructions.DYNAMIC} revisionMessage={revisionMessages.DYNAMIC} activeRevisionMode={activeRevision?.kind === 'DYNAMIC' ? activeRevision.mode : null} onPromptChange={(value) => { setPromptDrafts((current) => ({ ...current, dynamic: value })); setPromptDirty((current) => ({ ...current, DYNAMIC: true })) }} onRevisionInstructionChange={(value) => setRevisionInstructions((current) => ({ ...current, DYNAMIC: value }))} onPromptRevision={(mode) => void revisePrompt('DYNAMIC', mode)} /> : null}
           </div>
         </> : null}
         {isGenerating || RESULT_PHASES.has(task.phase) || (task.phase === 'ACTION_REQUIRED' && !analysisFailure) ? <>
-          <div className="drawer-section-title"><div><span>步骤 3 / 3 · {provider.cliLabel}</span><h2>{RESULT_PHASES.has(task.phase) ? '视频结果' : needsRecovery ? `${provider.cliLabel} 任务需要处理` : `${provider.cliLabel} 生成进度`}</h2></div></div>
+          <div className="drawer-section-title"><div><span>步骤 3 / 3 · {provider.displayLabel}</span><h2>{RESULT_PHASES.has(task.phase) ? '视频结果' : needsRecovery ? `${provider.displayLabel} 任务需要处理` : `${provider.displayLabel} 生成进度`}</h2></div></div>
           <TaskTimingTimeline task={task} />
           <div className="variant-status-list">{task.variants.map((variant) => <VariantStatus key={variant.id} task={task} variant={variant} onChanged={onChanged} onPlay={() => onPlay(variant)} />)}</div>
         </> : null}
@@ -1435,7 +1474,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         </> : null}
         {task.phase === 'ANALYZING' ? <AnalysisProgress task={task} /> : null}
         {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} />{error}</div> : null}
-        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成 Provider</dt><dd>{provider.cliLabel}</dd>{provider.kind === 'libtv' ? <><dt>LibTV 画布 UUID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>Kling 调用方式</dt><dd>官方 Provider / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).cliLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入 Provider 执行'}</small>{variant.errorCode ? <small>错误：{variant.errorCode}{variantErrorMessage(variant) ? ` · ${variantErrorMessage(variant)}` : ''}{variantErrorRetryable(variant) === true ? ' · 可以重试' : variantErrorRetryable(variant) === false ? ' · 需要人工处理' : ''}</small> : null}{variantErrorDetails(variant) ? <code>{JSON.stringify(variantErrorDetails(variant))}</code> : null}</span>)}</div></div></details>
+        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成通道</dt><dd>{provider.displayLabel}</dd>{provider.kind === 'legacy' ? <><dt>历史项目 ID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>可灵调用方式</dt><dd>官方 API / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).displayLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入生成通道'}</small>{variant.errorCode ? <small>错误：{variant.errorCode}{variantErrorMessage(variant) ? ` · ${variantErrorMessage(variant)}` : ''}{variantErrorRetryable(variant) === true ? ' · 可以重试' : variantErrorRetryable(variant) === false ? ' · 需要人工处理' : ''}</small> : null}{variantErrorDetails(variant) ? <code>{JSON.stringify(variantErrorDetails(variant))}</code> : null}</span>)}</div></div></details>
       </div>
       {task.actionCapabilities.canRegenerate || task.actionCapabilities.canCancel || isConfirmation ? <footer className={`drawer-footer${canReuse ? ' drawer-footer--reuse' : ''}${isConfirmation ? ' drawer-footer--confirmation' : ''}`}>
         <div className="drawer-footer-actions">
@@ -1490,7 +1529,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
   </div>
 }
 
-function HomeView({ tasks, seed, system, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged }: { tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void }) {
+function HomeView({ tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged }: { tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void }) {
   const actionableTasks = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
@@ -1528,7 +1567,7 @@ function HomeView({ tasks, seed, system, onCreated, onOpen, onView, onPlay, onRe
   return <div className="home-view">
     <div className="home-title"><div><span className="page-eyebrow">Creative Production</span><h1>开始制作</h1><p>上传素材，创建一条服装广告视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
-      <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} />
+      <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} />
     </div>
     {showAttention ? <section className="attention-panel" aria-label="待处理任务">
       <SectionHeading title="需要你操作" count={needsAction.length} action={<div className="attention-panel-actions"><button className="text-button" onClick={() => onView('records')}>查看全部<ChevronRight size={15} /></button><button className="icon-button attention-dismiss" onClick={dismissAttention} aria-label="暂时收起待处理任务" title="暂时收起"><X size={18} /></button></div>} />
@@ -1549,7 +1588,7 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   const [query, setQuery] = useState('')
   const groups: Array<{ value: RecordFilter; label: string; test: (task: Task) => boolean }> = [
     { value: 'all', label: '全部', test: () => true },
-    { value: 'attention', label: '需要确认', test: (task) => task.phase === 'AWAITING_CONFIRMATION' },
+    { value: 'attention', label: '需要处理', test: (task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' },
     { value: 'active', label: '处理中', test: (task) => ACTIVE_PHASES.has(task.phase) },
     { value: 'partial', label: '部分完成', test: (task) => task.phase === 'PARTIALLY_DELIVERABLE' },
     { value: 'done', label: '已完成', test: (task) => COMPLETED_PHASES.has(task.phase) },
@@ -1566,10 +1605,10 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   const doneCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
   return <div className="page-view"><div className="page-title"><div><span>Production Tasks</span><h1>任务</h1><p>查找任务、继续处理，或直接播放和下载已完成视频。</p></div><label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称" aria-label="搜索任务名称" /></label></div>
     <section className="records-overview" aria-label="任务概览">
-      <div><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{tasks.length}</strong></span></div>
-      <div><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></div>
-      <div><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></div>
-      <div><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></div>
+      <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{tasks.length}</strong></span></button>
+      <button type="button" className={filter === 'attention' ? 'is-active' : ''} aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></button>
+      <button type="button" className={filter === 'active' ? 'is-active' : ''} aria-pressed={filter === 'active'} onClick={() => setFilter('active')}><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></button>
+      <button type="button" className={filter === 'done' ? 'is-active' : ''} aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></button>
     </section>
     <div className="filter-tabs">{groups.map((item) => { const count = tasks.filter(item.test).length; return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => setFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
     {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>结果进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''} aria-label={variantDisplayName(variant)} title={variantDisplayName(variant)}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
@@ -1579,7 +1618,7 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   </div>
 }
 
-type ContentLibraryTab = 'actions' | 'styles'
+type ContentLibraryTab = 'actions' | 'styles' | 'subjects'
 type ActionCategoryFilter = MotionActionSummary['category'] | 'all'
 
 const ACTION_CATEGORY_LABELS: Record<MotionActionSummary['category'], string> = {
@@ -1590,7 +1629,11 @@ const ACTION_CATEGORY_LABELS: Record<MotionActionSummary['category'], string> = 
   product: '商品交互',
 }
 
-function ContentLibraryView() {
+function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
+  actorId: string | null
+  canDeleteSubjects: boolean
+  canEditCatalog: boolean
+}) {
   const [tab, setTab] = useState<ContentLibraryTab>('actions')
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
@@ -1601,6 +1644,11 @@ function ContentLibraryView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [copiedActionId, setCopiedActionId] = useState('')
+  const [editor, setEditor] = useState<
+    | { kind: 'action'; item?: MotionActionSummary }
+    | { kind: 'style'; item?: SiteStyleProfileSummary }
+    | null
+  >(null)
 
   useEffect(() => {
     let active = true
@@ -1663,10 +1711,28 @@ function ContentLibraryView() {
     window.setTimeout(() => setCopiedActionId(''), 1800)
   }
 
+  const catalogSaved = (
+    item: MotionActionSummary | SiteStyleProfileSummary,
+    kind: 'action' | 'style',
+  ) => {
+    if (kind === 'action') {
+      const saved = item as MotionActionSummary
+      setActions((current) => current.some((action) => action.id === saved.id)
+        ? current.map((action) => action.id === saved.id ? saved : action)
+        : [...current, saved])
+    } else {
+      const saved = item as SiteStyleProfileSummary
+      setProfiles((current) => current.some((profile) => profile.id === saved.id)
+        ? current.map((profile) => profile.id === saved.id ? saved : profile)
+        : [...current, saved])
+    }
+    setEditor(null)
+  }
+
   return <div className="page-view content-library-view">
     <div className="page-title content-library-title">
-      <div><span>Prompt & Style Catalog</span><h1>提示词与风格库</h1><p>浏览可直接参与固定模板编译的动作原子，以及各站点可追溯的视频表达规则。</p></div>
-      <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索站点、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作提示词' : '搜索站点视频风格'} /></label>
+      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>统一管理动作提示、站点风格与可复用的可灵主体。</p></div>
+      {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索站点、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作提示词' : '搜索站点视频风格'} /></label> : null}
     </div>
 
     <section className="library-overview" aria-label="内容库概览">
@@ -1679,12 +1745,16 @@ function ContentLibraryView() {
       <div className="library-tabs" role="tablist" aria-label="内容库类型">
         <button type="button" role="tab" aria-selected={tab === 'actions'} className={tab === 'actions' ? 'is-active' : ''} onClick={() => setTab('actions')}><Activity size={17} />动作提示词<span>{actions.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === 'styles'} className={tab === 'styles' ? 'is-active' : ''} onClick={() => setTab('styles')}><Clapperboard size={17} />站点视频风格<span>{profiles.length}</span></button>
+        <button type="button" role="tab" aria-selected={tab === 'subjects'} className={tab === 'subjects' ? 'is-active' : ''} onClick={() => setTab('subjects')}><Package size={17} />历史主体</button>
       </div>
-      {tab === 'actions' ? <label className="library-filter"><span>动作分类</span><select value={category} onChange={(event) => setCategory(event.target.value as ActionCategoryFilter)}><option value="all">全部分类</option>{Object.entries(ACTION_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : <span className="library-safety-note"><ShieldCheck size={16} />研究版风格不会自动进入付费生产</span>}
+      <div className="library-toolbar-actions">
+        {tab === 'actions' ? <label className="library-filter"><span>动作分类</span><select value={category} onChange={(event) => setCategory(event.target.value as ActionCategoryFilter)}><option value="all">全部分类</option>{Object.entries(ACTION_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : tab === 'styles' ? <span className="library-safety-note"><ShieldCheck size={16} />研究版风格不会自动进入付费生产</span> : null}
+        {canEditCatalog && tab !== 'subjects' ? <button type="button" className="primary-button library-add-button" onClick={() => setEditor({ kind: tab === 'actions' ? 'action' : 'style' })}><Plus size={16} />新增{tab === 'actions' ? '动作' : '风格'}</button> : null}
+      </div>
     </div>
 
-    {loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
-    {error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
+    {tab !== 'subjects' && loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
+    {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
 
     {!loading && !error && tab === 'actions' ? <section className="action-library-grid" aria-label="动作提示词列表">
       {visibleActions.map((action) => <article className="action-library-card" key={action.id}>
@@ -1692,7 +1762,7 @@ function ContentLibraryView() {
           <span className={`action-category action-category--${action.category}`}>{ACTION_CATEGORY_LABELS[action.category]}</span>
           <span className={action.riskLevel === 'conditional' ? 'library-status library-status--warning' : 'library-status'}>{action.riskLevel === 'conditional' ? '需满足前提' : '低风险'}</span>
         </header>
-        <div className="action-card-title"><div><h2>{action.label}</h2><code>{action.id}</code></div><button type="button" className="icon-button" onClick={() => void copyAction(action)} aria-label={`复制${action.label}提示词`} title="复制提示词">{copiedActionId === action.id ? <Check size={17} /> : <Copy size={17} />}</button></div>
+        <div className="action-card-title"><div><h2>{action.label}</h2><code>{action.id}</code></div><span className="library-card-actions">{canEditCatalog ? <button type="button" className="icon-button" onClick={() => setEditor({ kind: 'action', item: action })} aria-label={`编辑${action.label}`} title="编辑动作"><Pencil size={16} /></button> : null}<button type="button" className="icon-button" onClick={() => void copyAction(action)} aria-label={`复制${action.label}提示词`} title="复制提示词">{copiedActionId === action.id ? <Check size={17} /> : <Copy size={17} />}</button></span></div>
         <p className="action-instruction">{action.instruction}</p>
         <div className="action-purpose"><span>商品目的</span><p>{action.purpose}</p></div>
         <div className="library-chip-group"><span>适用模板</span><div>{action.compatibleTemplates.map((id) => <i key={id}>{templateNames.get(id) ?? id}</i>)}</div></div>
@@ -1704,7 +1774,7 @@ function ContentLibraryView() {
       {visibleProfiles.map((profile) => <article className="style-library-card" key={profile.id}>
         <header>
           <div><span className={profile.evidenceLevel === 'verified_site' ? 'library-status library-status--verified' : 'library-status library-status--warning'}>{profile.evidenceLevel === 'verified_site' ? '站点已验证' : '证据受限'}</span><span className="library-version">{profile.version}</span></div>
-          <a href={profile.siteUrl} target="_blank" rel="noreferrer" aria-label={`打开 ${profile.name} 站点`}>访问站点<ExternalLink size={14} /></a>
+          {canEditCatalog ? <button type="button" className="secondary-button library-edit-button" onClick={() => setEditor({ kind: 'style', item: profile })}><Pencil size={15} />编辑风格</button> : null}
         </header>
         <div className="style-card-title"><div><h2>{profile.name}</h2><p>{profile.tone}</p></div><span className="style-card-mark"><Clapperboard size={20} /></span></div>
         <div className="style-grammar">
@@ -1723,17 +1793,18 @@ function ContentLibraryView() {
       </article>)}
     </section> : null}
 
+    {tab === 'subjects' ? <KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /> : null}
+
     {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={<Search size={24} />} title="没有匹配内容" description="换一个关键词或清除分类筛选后再试。" /> : null}
+    {editor ? <CatalogEditor target={editor} actions={actions} templates={templates} onClose={() => setEditor(null)} onSaved={catalogSaved} /> : null}
   </div>
 }
 
 function ProviderCredentials({ adminId }: { adminId: string | null }) {
   const [status, setStatus] = useState<AdminCredentialsStatus | null>(null)
-  const [libtvKey, setLibtvKey] = useState('')
   const [modelKey, setModelKey] = useState('')
   const [modelBaseUrl, setModelBaseUrl] = useState('')
   const [baseUrlError, setBaseUrlError] = useState('')
-  const [showLibtv, setShowLibtv] = useState(false)
   const [showModel, setShowModel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -1749,15 +1820,14 @@ function ProviderCredentials({ adminId }: { adminId: string | null }) {
 
   const save = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
-    const libtvAccessKey = libtvKey.trim()
     const modelApiKey = modelKey.trim()
     const normalizedBaseUrl = modelBaseUrl.trim()
     const baseUrlChanged = normalizedBaseUrl !== (status?.modelBaseUrl ?? '')
     const nextBaseUrlError = validateCompatibleBaseUrl(normalizedBaseUrl)
     setBaseUrlError(nextBaseUrlError)
     if (nextBaseUrlError) return
-    if (!libtvAccessKey && !modelApiKey && !baseUrlChanged) {
-      setError('请至少更新一个服务配置')
+    if (!modelApiKey && !baseUrlChanged) {
+      setError('请至少更新一项分析服务配置')
       return
     }
     setBusy(true)
@@ -1765,14 +1835,12 @@ function ProviderCredentials({ adminId }: { adminId: string | null }) {
     setSaved(false)
     try {
       const next = await updateAdminCredentials(adminId, {
-        ...(libtvAccessKey ? { libtvAccessKey } : {}),
         ...(modelApiKey ? { modelApiKey } : {}),
         ...(baseUrlChanged && normalizedBaseUrl ? { modelBaseUrl: normalizedBaseUrl } : {}),
         ...(baseUrlChanged && !normalizedBaseUrl ? { clearModelBaseUrl: true } : {}),
       })
       setStatus(next)
       setModelBaseUrl(next.modelBaseUrl ?? '')
-      setLibtvKey('')
       setModelKey('')
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2200)
@@ -1785,22 +1853,16 @@ function ProviderCredentials({ adminId }: { adminId: string | null }) {
     return configured ? '已配置' : '未配置'
   }
   const hasChanges = Boolean(
-    libtvKey.trim()
-    || modelKey.trim()
+    modelKey.trim()
     || modelBaseUrl.trim() !== (status?.modelBaseUrl ?? ''),
   )
 
   return <form className="settings-section credential-section" onSubmit={(event) => void save(event)}>
     <div className="settings-section-heading">
-      <div><span>仅管理员</span><h2>服务凭据</h2><p>Key 只保存在服务端且不会回显；Base URL 会显示当前配置。留空 Key 不会覆盖原值。</p></div>
+      <div><span>仅管理员</span><h2>分析服务凭据</h2><p>此处只管理方案分析服务；可灵 API Key 请在“可灵官方 API”页维护。密钥只保存在服务端且不会回显。</p></div>
       <button className="primary-button" type="submit" disabled={busy || !hasChanges}>{busy ? <LoaderCircle className="spin" size={16} /> : saved ? <Check size={16} /> : <LockKeyhole size={16} />}{busy ? '正在保存' : saved ? '已安全保存' : '保存配置'}</button>
     </div>
     <div className="credential-grid">
-      <div className="credential-field">
-        <label htmlFor="libtv-access-key"><strong>LibTV Access Key</strong><small className={status?.libtvConfigured ? 'is-configured' : ''}>{credentialState(status?.libtvConfigured)}</small></label>
-        <div className="secret-input"><LockKeyhole size={16} /><input id="libtv-access-key" type={showLibtv ? 'text' : 'password'} value={libtvKey} onChange={(event) => setLibtvKey(event.target.value)} placeholder={status?.libtvConfigured ? '输入新 Key 以替换当前配置' : '输入 LibTV Access Key'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} aria-describedby="libtv-key-help" /><button type="button" onClick={() => setShowLibtv((value) => !value)} aria-label={showLibtv ? '隐藏 LibTV Key' : '显示 LibTV Key'} title={showLibtv ? '隐藏' : '显示'}>{showLibtv ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
-        <small id="libtv-key-help">用于管理员账号下的 LibTV 视频生成服务。</small>
-      </div>
       <div className="credential-field">
         <label htmlFor="model-api-key"><strong>大模型 API Key</strong><small className={status?.modelConfigured ? 'is-configured' : ''}>{credentialState(status?.modelConfigured)}</small></label>
         <div className="secret-input"><LockKeyhole size={16} /><input id="model-api-key" type={showModel ? 'text' : 'password'} value={modelKey} onChange={(event) => setModelKey(event.target.value)} placeholder={status?.modelConfigured ? '输入新 Key 以替换当前配置' : '输入大模型 API Key'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} aria-describedby="model-key-help" /><button type="button" onClick={() => setShowModel((value) => !value)} aria-label={showModel ? '隐藏大模型 Key' : '显示大模型 Key'} title={showModel ? '隐藏' : '显示'}>{showModel ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
@@ -1818,163 +1880,6 @@ function ProviderCredentials({ adminId }: { adminId: string | null }) {
       {error ? <div className="inline-alert inline-alert--danger credential-error" role="alert"><AlertTriangle size={16} />{error}</div> : null}
     </div>
   </form>
-}
-
-function LibTVAccountSettings({ adminId }: { adminId: string }) {
-  const [status, setStatus] = useState<LibTVAccountStatus | null>(null)
-  const [selectedAccount, setSelectedAccount] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<'login' | 'switch' | 'refresh' | null>(null)
-  const [polling, setPolling] = useState(false)
-  const [loginUrl, setLoginUrl] = useState('')
-  const [notice, setNotice] = useState('')
-  const [error, setError] = useState('')
-
-  const refresh = useCallback(async (showLoading = false) => {
-    if (showLoading) setBusy('refresh')
-    try {
-      const next = await getLibTVAccountStatus(adminId)
-      setStatus(next)
-      setSelectedAccount(next.activeAccount?.accountId ?? '')
-      setError('')
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '无法读取 LibTV 登录状态')
-    } finally {
-      setLoading(false)
-      if (showLoading) setBusy(null)
-    }
-  }, [adminId])
-
-  useEffect(() => {
-    let active = true
-    const initial = window.setTimeout(() => {
-      if (active) void refresh()
-    }, 0)
-    return () => {
-      active = false
-      window.clearTimeout(initial)
-    }
-  }, [refresh])
-
-  useEffect(() => {
-    if (!polling) return
-    let active = true
-    let timer: number | undefined
-    let attempts = 0
-    const poll = async () => {
-      attempts += 1
-      try {
-        const next = await getLibTVAccountStatus(adminId)
-        if (!active) return
-        setStatus(next)
-        setSelectedAccount(next.activeAccount?.accountId ?? '')
-        if (next.authenticated) {
-          setPolling(false)
-          setLoginUrl('')
-          setNotice('LibTV 登录成功，当前账号信息已刷新。')
-          setError('')
-          return
-        }
-        if (!next.loginInProgress && attempts > 1) {
-          setPolling(false)
-          setError('登录流程已结束，但尚未检测到有效账号。请重新打开登录页。')
-          return
-        }
-      } catch (cause) {
-        if (active && attempts >= 3) {
-          setPolling(false)
-          setError(cause instanceof Error ? cause.message : '登录状态确认失败')
-          return
-        }
-      }
-      if (active && attempts < 120) timer = window.setTimeout(() => void poll(), 1500)
-      else if (active) {
-        setPolling(false)
-        setError('登录等待超时，请重新打开登录页。')
-      }
-    }
-    timer = window.setTimeout(() => void poll(), 800)
-    return () => {
-      active = false
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [adminId, polling])
-
-  const openLogin = async () => {
-    const popup = window.open('about:blank', 'libtv-login', 'popup,width=1100,height=760')
-    if (popup) popup.opener = null
-    setBusy('login')
-    setNotice('')
-    setError('')
-    setLoginUrl('')
-    try {
-      const started = await startLibTVLogin(adminId)
-      if (popup && !popup.closed) popup.location.replace(started.loginUrl)
-      else setLoginUrl(started.loginUrl)
-      setPolling(true)
-      setNotice(started.alreadyRunning ? '已重新打开正在等待的登录页。' : '请在新窗口完成 LibTV 登录。')
-    } catch (cause) {
-      popup?.close()
-      setError(cause instanceof ApiError ? cause.message : '无法启动 LibTV 登录')
-    } finally { setBusy(null) }
-  }
-
-  const switchAccount = async () => {
-    if (!selectedAccount || selectedAccount === status?.activeAccount?.accountId) return
-    setBusy('switch')
-    setNotice('')
-    setError('')
-    try {
-      const switched = await switchLibTVAccount(adminId, selectedAccount)
-      setNotice(switched.alreadyActive ? '该账号已经生效。' : `已切换到 ${switched.accountName}。`)
-      await refresh()
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'LibTV 账号切换失败')
-    } finally { setBusy(null) }
-  }
-
-  const stateLabel = loading
-    ? '正在检查'
-    : status === null
-      ? '状态未知'
-      : !status.available
-        ? '模拟模式'
-        : status.authenticated
-          ? '已登录'
-          : polling || status.loginInProgress
-            ? '等待登录'
-            : '需要登录'
-  const activeAccount = status?.activeAccount
-  return <section className="settings-section libtv-account-section">
-    <div className="settings-section-heading">
-      <div><span>LibTV 账号</span><h2>登录与账号空间</h2><p>登录凭据只由本机官方 CLI 保存。可在这里重新登录，或切换当前用户可访问的个人与团队空间。</p></div>
-      <div className="libtv-account-actions">
-        <button className="secondary-button" type="button" disabled={loading || busy !== null} onClick={() => void refresh(true)}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />刷新</button>
-        <button className="primary-button" type="button" disabled={loading || busy !== null || status?.available === false} onClick={() => void openLogin()}>{busy === 'login' ? <LoaderCircle className="spin" size={16} /> : <LogIn size={16} />}{status?.authenticated ? '重新登录' : '登录 LibTV'}</button>
-      </div>
-    </div>
-    <div className="libtv-account-grid">
-      <div className="libtv-account-card">
-        <div className="libtv-account-card-icon"><UserRound size={20} /></div>
-        <div><small>当前状态</small><strong>{activeAccount?.accountName ?? stateLabel}</strong><span>{activeAccount ? `${activeAccount.accountType}${activeAccount.teamId !== null ? ` · Team ${activeAccount.teamId}` : ''}` : status?.available === false ? '启用 real 适配器后可登录' : '通过浏览器完成官方认证'}</span></div>
-        <span className={`libtv-account-state ${status?.authenticated ? 'is-connected' : ''}`}>{polling ? <LoaderCircle className="spin" size={13} /> : status?.authenticated ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{stateLabel}</span>
-      </div>
-      <div className="libtv-account-switch">
-        <label htmlFor="libtv-account-select"><strong>切换账号空间</strong><small>切换会影响后续 LibTV 项目和画布的默认账号范围。</small></label>
-        <div>
-          <select id="libtv-account-select" value={selectedAccount} disabled={!status?.authenticated || busy !== null || status.accounts.length < 2} onChange={(event) => setSelectedAccount(event.target.value)}>
-            {!status?.accounts.length ? <option value="">暂无可切换账号</option> : status.accounts.map((account) => <option value={account.accountId} key={account.accountId}>{account.accountName}{account.isActive ? '（当前）' : ''}</option>)}
-          </select>
-          <button className="secondary-button" type="button" disabled={!selectedAccount || selectedAccount === activeAccount?.accountId || busy !== null} onClick={() => void switchAccount()}>{busy === 'switch' ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}{busy === 'switch' ? '正在切换' : '切换'}</button>
-        </div>
-      </div>
-    </div>
-    <div className="libtv-account-feedback" aria-live="polite">
-      {loginUrl ? <a href={loginUrl} target="_blank" rel="noreferrer">浏览器拦截了弹窗，点击这里继续登录</a> : null}
-      {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
-      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
-    </div>
-  </section>
 }
 
 function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
@@ -1997,7 +1902,7 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
       setStatus(nextStatus)
       setError('')
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '无法读取可灵 Provider 配置')
+      setError(cause instanceof ApiError ? cause.message : '无法读取可灵官方 API 配置')
     } finally { setBusy(null) }
   }, [adminId])
 
@@ -2018,9 +1923,9 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
     setNotice('')
     try {
       setStatus(await refreshKlingCapabilities(adminId))
-      setNotice('Provider 能力状态已刷新。')
+      setNotice('官方 API 连接与能力状态已刷新。')
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '刷新 Provider 能力失败')
+      setError(cause instanceof ApiError ? cause.message : '验证官方 API 连接失败')
     } finally { setBusy(null) }
   }
 
@@ -2040,26 +1945,17 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
       const next = await updateKlingConfig(adminId, buildKlingConfigPatch(draft))
       setConfig(next)
       setDraft(createKlingConfigDraft(next))
-      setNotice('可灵 Provider 配置已保存；后续提交使用新配置，已提交任务保持原 Provider。')
+      setNotice('可灵官方 API 配置已保存；后续新任务使用新配置，已提交任务不受影响。')
       await onChanged()
       setStatus(await getKlingStatus(adminId))
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '可灵 Provider 配置保存失败')
+      setError(cause instanceof ApiError ? cause.message : '可灵官方 API 配置保存失败')
     } finally { setBusy(null) }
   }
 
   const isReady = Boolean(status?.available && status.authenticated)
-  const stateLabel = isReady
-    ? '已就绪'
-    : status?.status === 'KLING_API_CONFIGURED_UNVERIFIED'
-      ? '待验证'
-      : status?.status === 'KLING_API_AUTHENTICATION_FAILED'
-        ? '鉴权失败'
-        : status?.status === 'KLING_API_VERIFICATION_FAILED'
-          ? '验证失败'
-        : status?.enabled
-          ? '能力不可用'
-          : '未启用'
+  const apiState = klingApiStatusPresentation(status?.status, status?.enabled, status?.reason)
+  const apiVersion = formatKlingApiVersion(status?.cliVersion)
 
   const apiKeyWillExist = Boolean(draft?.apiKey.trim()) || Boolean(config?.apiKeyConfigured && !draft?.clearApiKey)
   const hasChanges = Boolean(config && draft && (
@@ -2080,10 +1976,10 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
   return <form className="settings-section kling-provider-section" onSubmit={(event) => void save(event)}>
     <div className="settings-section-heading">
-      <div><span>可灵官方 API</span><h2>生产生成配置</h2><p>所有新任务固定通过官方 API 提交；历史 CLI 任务仅按其已持久化 Provider 继续查询和下载，不能接收新任务。</p></div>
-      <div className="libtv-account-actions">
-        <button className="secondary-button" type="button" disabled={busy !== null || !status?.enabled} onClick={() => void refreshCapabilities()}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />刷新能力</button>
-        <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 Provider'}</button>
+      <div><span>可灵官方 API</span><h2>生产生成配置</h2><p>所有新任务固定通过官方 API 提交。密钥、区域和生成参数在保存后立即用于后续任务。</p></div>
+      <div className="provider-actions">
+        <button className="secondary-button" type="button" disabled={busy !== null || !status?.enabled} onClick={() => void refreshCapabilities()}><RefreshCw className={busy === 'refresh' ? 'spin' : ''} size={16} />验证 API 状态</button>
+        <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 API 配置'}</button>
       </div>
     </div>
 
@@ -2095,10 +1991,10 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
       </div>
 
       <div className="kling-provider-toolbar">
-        <div className="libtv-account-card">
-          <div className="libtv-account-card-icon"><Clapperboard size={20} /></div>
-          <div><small>当前运行状态</small><strong>{stateLabel}</strong><span>{status ? `${klingStatusMessage(status.status, status.reason)}${status.cliVersion ? ` · ${status.cliVersion}` : ''}` : '等待能力发现'}</span></div>
-          <span className={`libtv-account-state ${isReady ? 'is-connected' : ''}`}>{busy === 'refresh' ? <LoaderCircle className="spin" size={13} /> : isReady ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{stateLabel}</span>
+        <div className="api-status-card">
+          <div className="api-status-card-icon"><Clapperboard size={20} /></div>
+          <div><small>官方 API 状态{apiVersion ? ` · ${apiVersion}` : ''}</small><strong>{apiState.label}</strong><span>{status ? apiState.message : '正在读取官方 API 状态'}</span></div>
+          <span className={`api-status-state is-${apiState.tone}`}>{busy === 'refresh' ? <LoaderCircle className="spin" size={13} /> : isReady ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{apiState.label}</span>
         </div>
         <div className="kling-enabled-control">
           <span><strong>启用官方 API</strong><small>{draft.enabled ? '验证通过后新任务可以提交到官方 API' : '新任务不会提交到可灵'}</small></span>
@@ -2164,19 +2060,23 @@ function BrowserNotificationSetting({
       : active
         ? '页面切到后台时，方案待确认或视频生成完成会弹出系统通知。'
         : '开启后，即使正在查看其他页面，也能及时收到关键进度。'
+  const stateLabel = unavailable ? '不可用' : blocked ? '已阻止' : active ? '已开启' : '已关闭'
   return <section className="settings-section prompt-confirmation-section">
     <div className="settings-section-heading">
       <div><span>消息提醒</span><h2>浏览器通知</h2><p>{description}</p></div>
-      <label className="settings-switch" title={blocked ? '请先在浏览器的网站权限中允许通知' : undefined}>
-        <input
-          type="checkbox"
-          checked={active}
-          disabled={unavailable || blocked}
-          aria-label="浏览器通知"
-          onChange={(event) => event.target.checked ? void onEnable() : onDisable()}
-        />
-        <span aria-hidden="true" />
-      </label>
+      <div className="prompt-confirmation-control">
+        <span className={`prompt-confirmation-state${active ? ' is-active' : ''}`}>{stateLabel}</span>
+        <label className="settings-switch" title={blocked ? '请先在浏览器的网站权限中允许通知' : undefined}>
+          <input
+            type="checkbox"
+            checked={active}
+            disabled={unavailable || blocked}
+            aria-label="浏览器通知"
+            onChange={(event) => event.target.checked ? void onEnable() : onDisable()}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </div>
     </div>
   </section>
 }
@@ -2215,8 +2115,8 @@ function PersonalPromptConfirmationSetting() {
       const preference = await setPersonalPromptAutoConfirmation(enabled)
       setAutomatic(preference.automatic)
       setNotice(preference.automatic
-        ? '已开启，你的普通方案将跳过人工确认并直接生成。'
-        : '已关闭，你的方案将在生成前等待人工确认。')
+        ? '已开启，普通方案分析完成后将自动开始生成。'
+        : '已关闭，后续方案会在生成前等待你确认。')
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : '自动确认设置保存失败')
       await load()
@@ -2227,11 +2127,11 @@ function PersonalPromptConfirmationSetting() {
 
   return <section className="settings-section prompt-confirmation-section">
     <div className="settings-section-heading">
-      <div><span>生成流程</span><h2>自动确认提示词</h2><p>{automatic ? '你的普通方案分析完成后会跳过人工确认，直接进入生成。需要质量复核或被系统拦截的方案仍需人工处理。' : '默认关闭。你的方案分析完成后，需要检查并确认提示词才会开始生成。'}</p></div>
+      <div><span>生成流程</span><h2>分析完成后自动开始生成</h2><p>{automatic ? '普通方案分析完成后会跳过人工确认并直接生成，可能立即消耗生成额度；需要质量复核或被系统拦截的方案仍需人工处理。' : '默认关闭。分析完成后会停在确认步骤，等你检查提示词并主动开始生成。'}</p></div>
       <div className="prompt-confirmation-control">
         <span className={`prompt-confirmation-state${automatic ? ' is-active' : ''}`}>{busy && !ready ? '读取中' : automatic ? '已开启' : '已关闭'}</span>
-        <label className="settings-switch" title="自动确认提示词">
-          <input type="checkbox" checked={automatic} disabled={busy || !ready} aria-label="自动确认提示词" onChange={(event) => void toggle(event.target.checked)} />
+        <label className="settings-switch" title="分析完成后自动开始生成">
+          <input type="checkbox" checked={automatic} disabled={busy || !ready} aria-label="分析完成后自动开始生成" onChange={(event) => void toggle(event.target.checked)} />
           <span aria-hidden="true" />
         </label>
       </div>
@@ -2258,38 +2158,12 @@ function SettingsView({
   onEnableBrowserNotifications: () => Promise<void>
   onDisableBrowserNotifications: () => void
 }) {
-  const [saved, setSaved] = useState(false)
-  const [settings, setSettings] = useState(() => ({
-    model: readDefaultAnalysisModel(system?.openaiModel),
-    provider: (localStorage.getItem('generation-provider') as GenerationProvider | null) ?? 'libtv',
-  }))
-  const save = () => {
-    localStorage.setItem('default-model', settings.model.trim())
-    localStorage.setItem('generation-provider', settings.provider)
+  useEffect(() => {
+    localStorage.setItem('generation-provider', 'kling')
+    localStorage.removeItem('default-model')
     ;['default-output-variants', 'video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'].forEach((key) => localStorage.removeItem(key))
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1800)
-  }
-  const klingReady = Boolean(system?.kling.available && system.kling.authenticated)
-  const klingProviderLabel = system?.kling.backend === 'api' ? 'Kling 官方 API' : 'Kling 官方 CLI'
-  const klingLabel = system?.kling.status === 'KLING_CLI_NOT_INSTALLED'
-    ? 'Kling · CLI 未安装'
-    : system?.kling.status === 'KLING_CLI_NOT_AUTHENTICATED'
-      ? 'Kling · 账号未登录'
-      : system?.kling.enabled
-        ? klingProviderLabel
-        : 'Kling · 未启用'
-  return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>设置</h1><p>配置默认生成偏好，减少每次制作时的重复选择。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}<button className="primary-button" disabled={!settings.model.trim() || (settings.provider === 'kling' && !klingReady)} onClick={save}>{saved ? <Check size={17} /> : null}{saved ? '已保存' : '保存偏好'}</button></div></div>
-    {saved ? <div className="save-toast" role="status" aria-live="polite"><CheckCircle2 size={17} /><span><strong>偏好已保存</strong><small>下次新建任务时自动应用</small></span></div> : null}
-    <section className="settings-section settings-section--featured"><div className="settings-section-heading"><div><span>默认参数</span><h2>生成配置</h2><p>这些设置只影响后续新建任务，不会修改已经进入生产流程的任务。</p></div></div><div className="settings-grid">
-      <label><span>方案分析模型</span><input name="analysis-model" value={settings.model} onChange={(event) => setSettings({ ...settings, model: event.target.value })} list="settings-model-options" maxLength={100} spellCheck={false} autoComplete="off" /><small>可输入管理员已配置 Key 支持的模型 ID</small></label>
-      <label><span>视频生成工具</span><select value={settings.provider} onChange={(event) => setSettings({ ...settings, provider: event.target.value as GenerationProvider })}><option value="libtv">LibTV</option><option value="kling" disabled={!klingReady}>{klingLabel}</option></select><small>{klingReady ? 'Provider 按任务锁定；修改默认值不会切换任何现有任务' : klingStatusMessage(system?.kling.status, system?.kling.reason)}</small></label>
-    </div><datalist id="settings-model-options"><option value={system?.openaiModel ?? DEFAULT_ANALYSIS_MODEL} /></datalist>
-      <div className="generation-contract" aria-label="默认生成参数">
-        <span><strong>9:16</strong><small>固定比例</small></span>
-        <span><strong>10 秒</strong><small>固定时长</small></span>
-      </div>
-    </section>
+  }, [])
+  return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>偏好设置</h1><p>这里只保留会影响你个人工作流的选项；生成模型、API 通道与固定生产规格由管理员统一维护。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}</div></div>
     <PersonalPromptConfirmationSetting />
     <BrowserNotificationSetting
       enabled={browserNotificationsEnabled}
@@ -2474,11 +2348,19 @@ function AdminCenterView({
 }) {
   const isAdmin = actor?.role === 'ADMIN'
   const canOperate = isAdmin || actor?.role === 'OPERATOR'
+  const apiState = klingApiStatusPresentation(system?.kling.status, system?.kling.enabled, system?.kling.reason)
+  const environmentLabel = system?.environment === 'production'
+    ? '正式生产'
+    : system?.environment === 'staging'
+      ? '预发布'
+      : system?.environment === 'test'
+        ? '测试环境'
+        : '开发环境'
   const sections: Array<{ value: AdminSection; label: string; description: string; icon: React.ReactNode }> = [
     { value: 'overview', label: '运行总览', description: '生产开关、队列与告警', icon: <Activity size={17} /> },
     ...(isAdmin ? [{ value: 'accounts' as const, label: '成员账号', description: '创建、重置与停用', icon: <UserRound size={17} /> }] : []),
-    { value: 'providers', label: 'Provider 与账号', description: '生成通道和登录空间', icon: <Clapperboard size={17} /> },
-    { value: 'security', label: '流程与凭据', description: '确认策略和服务密钥', icon: <KeyRound size={17} /> },
+    { value: 'providers', label: '可灵官方 API', description: '密钥、端点与能力验证', icon: <Clapperboard size={17} /> },
+    { value: 'security', label: '流程与分析', description: '确认策略和分析服务', icon: <KeyRound size={17} /> },
   ]
   if (!canOperate) return <div className="page-view"><EmptyState icon={<ShieldCheck size={24} />} title="没有管理中心权限" description="请联系管理员为当前账号分配运营或管理员角色。" /></div>
   return <div className="page-view admin-view">
@@ -2494,9 +2376,9 @@ function AdminCenterView({
     <div className="admin-section-content" key={section}>
       {section === 'overview' ? <>
         <section className="admin-summary-grid" aria-label="系统摘要">
-          <div><span className="summary-icon summary-icon--blue"><LayoutDashboard size={19} /></span><span><small>运行环境</small><strong>{system?.libtvAdapter === 'live' ? '正式生产' : '测试环境'}</strong></span></div>
-          <div><span className="summary-icon summary-icon--green"><Activity size={19} /></span><span><small>LibTV 服务</small><strong>{system?.libtvAdapter === 'live' ? '已连接' : '模拟适配器'}</strong></span></div>
-          <div><span className={`summary-icon ${system?.kling.available && system?.kling.authenticated ? 'summary-icon--green' : 'summary-icon--amber'}`}><Clapperboard size={19} /></span><span><small>Kling Provider</small><strong>{system?.kling.available && system?.kling.authenticated ? '已就绪' : '需要检查'}</strong></span></div>
+          <div><span className="summary-icon summary-icon--blue"><LayoutDashboard size={19} /></span><span><small>运行环境</small><strong>{environmentLabel}</strong></span></div>
+          <div><span className={`summary-icon ${system?.kling.available && system?.kling.authenticated ? 'summary-icon--green' : 'summary-icon--amber'}`}><Activity size={19} /></span><span><small>可灵官方 API</small><strong>{apiState.label}</strong></span></div>
+          <div><span className="summary-icon summary-icon--green"><Clapperboard size={19} /></span><span><small>生成模型</small><strong>{system?.kling.models[0] ?? '待验证'}</strong></span></div>
         </section>
         <section className="settings-section admin-operations-card"><OperationsPanel adminId={actor?.userId ?? null} /></section>
       </> : null}
@@ -2504,8 +2386,7 @@ function AdminCenterView({
       {section === 'providers' ? isAdmin ? <>
         <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
         <KlingElementsPanel adminId={actor!.userId} />
-        <LibTVAccountSettings adminId={actor!.userId} />
-      </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="Provider 登录和账号空间仅允许管理员修改。" /> : null}
+      </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="可灵官方 API 密钥、端点与能力验证仅允许管理员修改。" /> : null}
       {section === 'security' ? <>
         <PromptConfirmationSetting adminId={actor!.userId} />
         {isAdmin ? <ProviderCredentials adminId={actor!.userId} /> : <EmptyState icon={<KeyRound size={24} />} title="凭据由管理员维护" description="你仍可管理生产确认流程，但不能查看或修改服务凭据。" />}
@@ -3067,10 +2948,14 @@ function App() {
         <button className="secondary-button" type="button" onClick={() => void enableBrowserNotifications()}>开启通知</button>
         <button className="icon-button" type="button" aria-label="暂不开启通知" title="暂不开启" onClick={() => setNotificationPromptDismissed(true)}><X size={17} /></button>
       </div> : null}
-      {view === 'make' && !selectedTask ? <HomeView tasks={tasks} seed={seed} system={system} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
+      {view === 'make' && !selectedTask ? <HomeView tasks={tasks} seed={seed} system={system} actorId={system?.sharedAuthentication ? null : actor?.userId ?? null} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
       {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
-      {view === 'library' ? <ContentLibraryView /> : null}
+      {view === 'library' ? <ContentLibraryView
+        actorId={system?.sharedAuthentication ? null : actor?.userId ?? null}
+        canDeleteSubjects={actor?.role === 'ADMIN'}
+        canEditCatalog={canOperate}
+      /> : null}
       {view === 'admin' ? <AdminCenterView system={system} actor={actor} section={adminSection} onSectionChange={(section) => navigate('admin', null, false, section)} onKlingChanged={refresh} /> : null}
       {view === 'settings' ? <SettingsView
         system={system}

@@ -79,6 +79,27 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CatalogEntry(Base):
+    __tablename__ = "catalog_entry"
+    __table_args__ = (
+        UniqueConstraint("entry_type", "entry_id", name="uq_catalog_entry_type_id"),
+        Index("ix_catalog_entry_type_updated", "entry_type", "updated_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entry_type: Mapped[str] = mapped_column(String(32))
+    entry_id: Mapped[str] = mapped_column(String(80))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    updated_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ParentTask(Base):
     __tablename__ = "parent_task"
     __table_args__ = (
@@ -618,6 +639,38 @@ class OutboxEvent(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SubjectElementJob(Base):
+    """Durable creation state for a reusable Kling subject element."""
+
+    __tablename__ = "subject_element_job"
+    __table_args__ = (
+        UniqueConstraint("parent_task_id", name="uq_subject_element_job_task"),
+        UniqueConstraint("external_task_id", name="uq_subject_element_job_external"),
+        Index("ix_subject_element_job_recovery", "status", "next_attempt_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    parent_task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("parent_task.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    external_task_id: Mapped[str] = mapped_column(String(160))
+    provider_task_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    element_id: Mapped[str | None] = mapped_column(String(160), index=True)
+    name: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(24), default="PENDING", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class VisualFactCache(Base):

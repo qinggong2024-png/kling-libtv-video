@@ -3,6 +3,7 @@ import io
 import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -328,10 +329,28 @@ async def test_visual_fact_cache_reuses_content_and_remaps_asset_ids(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_task_list_cursor_paginates_without_overlap(tmp_path: Path) -> None:
-    async with running_app(tmp_path) as (client, _):
-        for index in range(3):
+async def test_task_list_is_sorted_by_latest_update_and_cursor_paginates_without_overlap(
+    tmp_path: Path,
+) -> None:
+    async with running_app(tmp_path) as (client, app):
+        tasks = [
             await create_draft_task(client, f"cursor-{index}")
+            for index in range(3)
+        ]
+        base_time = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
+        async with app.state.database.session_factory() as session:
+            for index, task in enumerate(tasks):
+                stored = await session.get(ParentTask, uuid.UUID(task["id"]))
+                assert stored is not None
+                stored.updated_at = base_time + timedelta(minutes=index)
+            await session.commit()
+
+        # An older task that changes most recently must move to the top.
+        async with app.state.database.session_factory() as session:
+            stored = await session.get(ParentTask, uuid.UUID(tasks[0]["id"]))
+            assert stored is not None
+            stored.updated_at = base_time + timedelta(minutes=3)
+            await session.commit()
 
         first_page = await client.get(
             "/api/v1/tasks",
@@ -340,6 +359,10 @@ async def test_task_list_cursor_paginates_without_overlap(tmp_path: Path) -> Non
         )
         assert first_page.status_code == 200, first_page.text
         assert len(first_page.json()) == 2
+        assert [task["id"] for task in first_page.json()] == [
+            tasks[0]["id"],
+            tasks[2]["id"],
+        ]
         cursor = first_page.headers.get("x-next-cursor")
         assert cursor
 
@@ -350,6 +373,7 @@ async def test_task_list_cursor_paginates_without_overlap(tmp_path: Path) -> Non
         )
         assert second_page.status_code == 200, second_page.text
         assert len(second_page.json()) == 1
+        assert second_page.json()[0]["id"] == tasks[1]["id"]
         assert {task["id"] for task in first_page.json()}.isdisjoint(
             {task["id"] for task in second_page.json()}
         )

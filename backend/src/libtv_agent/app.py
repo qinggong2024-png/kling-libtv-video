@@ -28,6 +28,7 @@ from libtv_agent.services.kling_config import (
 )
 from libtv_agent.services.libtv_login import LibTVLoginManager
 from libtv_agent.services.materialization_lifecycle import recover_stale_materializations
+from libtv_agent.services.subject_elements import recover_subject_element_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,28 @@ async def _shutdown_confirmation_jobs(app: FastAPI) -> None:
                 job.exception()
 
 
+async def _shutdown_subject_element_jobs(app: FastAPI) -> None:
+    jobs = set(app.state.subject_element_jobs)
+    if not jobs:
+        return
+    grace = app.state.settings.analysis_shutdown_grace_seconds
+    done, pending = await asyncio.wait(jobs, timeout=grace)
+    for job in pending:
+        job.cancel()
+    if pending:
+        cancelled, still_pending = await asyncio.wait(pending, timeout=grace)
+        done |= cancelled
+        if still_pending:
+            logger.error(
+                "subject element jobs ignored cancellation during shutdown",
+                extra={"pending_subject_element_jobs": len(still_pending)},
+            )
+    for job in done:
+        if not job.cancelled():
+            with suppress(Exception):
+                job.exception()
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.validate_shared_environment()
@@ -126,6 +149,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database = Database(app_settings.database_url)
         await _recover_stale_analyses(app)
         await _recover_stale_materialization_tasks(app)
+        try:
+            recovered_subject_jobs = await recover_subject_element_jobs(app)
+            if recovered_subject_jobs:
+                logger.warning(
+                    "recovered reusable Kling subject jobs",
+                    extra={"recovered_subject_jobs": recovered_subject_jobs},
+                )
+        except Exception:
+            # Database readiness remains the health endpoint's responsibility.
+            logger.exception("reusable Kling subject job recovery failed")
         if app_settings.kling_enabled:
             try:
                 availability = await app.state.kling_adapter.check_availability()
@@ -142,6 +175,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await _shutdown_analysis_jobs(app)
             await _shutdown_confirmation_jobs(app)
+            await _shutdown_subject_element_jobs(app)
             recovery_task.cancel()
             try:
                 await recovery_task
@@ -163,6 +197,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.kling_config_signature = kling_admin_config_signature(app_settings)
     app.state.analysis_jobs = set()
     app.state.confirmation_jobs = set()
+    app.state.subject_element_jobs = set()
+    app.state.subject_element_job_keys = set()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.app_public_origins,

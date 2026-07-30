@@ -6,9 +6,27 @@ param(
 $ErrorActionPreference = 'Continue'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $results = [ordered]@{}
+. (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 
-function Test-Endpoint([string]$Name, [string]$Uri) {
+function Test-Endpoint([string]$Name, [string]$Uri, [int]$Port) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
+    $identity = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $projectRoot
+    if (-not $identity.Listening -or -not $identity.OwnedByWorkspace) {
+        $script:results[$Name] = [ordered]@{
+            status = 'FAIL'
+            httpStatus = $null
+            durationMs = $watch.ElapsedMilliseconds
+            uri = $Uri
+            error = if ($identity.Listening) {
+                "Port $Port belongs to PID $($identity.ProcessId) outside this workspace."
+            }
+            else {
+                "Port $Port is not listening."
+            }
+        }
+        $watch.Stop()
+        return
+    }
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec $TimeoutSeconds
         $script:results[$Name] = [ordered]@{
@@ -32,18 +50,18 @@ function Test-Endpoint([string]$Name, [string]$Uri) {
 }
 
 function Get-PortStatus([int]$Port) {
-    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $listener) {
+    $identity = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $projectRoot
+    if (-not $identity.Listening) {
         return [ordered]@{ status = 'FAIL'; port = $Port; listening = $false }
     }
-    $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
     return [ordered]@{
-        status = 'PASS'
+        status = if ($identity.OwnedByWorkspace) { 'PASS' } else { 'FAIL' }
         port = $Port
         listening = $true
-        pid = $listener.OwningProcess
-        process = if ($process) { $process.ProcessName } else { $null }
+        workspaceOwned = $identity.OwnedByWorkspace
+        pid = $identity.ProcessId
+        process = $identity.ProcessName
+        executablePath = $identity.ExecutablePath
     }
 }
 
@@ -51,12 +69,12 @@ Push-Location $projectRoot
 try {
     $results.apiPort = Get-PortStatus 8000
     $results.frontendPort = Get-PortStatus 5173
-    Test-Endpoint 'apiLiveness' 'http://127.0.0.1:8000/api/v1/health/live'
-    Test-Endpoint 'apiReadiness' 'http://127.0.0.1:8000/api/v1/health/ready'
-    Test-Endpoint 'apiSystemStatus' 'http://127.0.0.1:8000/api/v1/system/status'
+    Test-Endpoint 'apiLiveness' 'http://127.0.0.1:8000/api/v1/health/live' 8000
+    Test-Endpoint 'apiReadiness' 'http://127.0.0.1:8000/api/v1/health/ready' 8000
+    Test-Endpoint 'apiSystemStatus' 'http://127.0.0.1:8000/api/v1/system/status' 8000
     if ($RequireFrontend -or $results.frontendPort.listening) {
-        Test-Endpoint 'frontend' 'http://127.0.0.1:5173/'
-        Test-Endpoint 'frontendApiProxy' 'http://127.0.0.1:5173/api/v1/health/ready'
+        Test-Endpoint 'frontend' 'http://127.0.0.1:5173/' 5173
+        Test-Endpoint 'frontendApiProxy' 'http://127.0.0.1:5173/api/v1/health/ready' 5173
     }
 
     $migrationOutput = & cmd.exe /d /c "uv run alembic -c backend/alembic.ini current 2>&1"

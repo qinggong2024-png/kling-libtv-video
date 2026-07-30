@@ -172,7 +172,7 @@ export function KlingElementsPanel({ adminId }: { adminId: string }) {
     {notice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={16} />{notice}</div> : null}
 
     <div className="kling-element-list">
-      <div className="detail-heading"><div><span className="section-kicker">已创建主体</span><h3>当前账号主体</h3></div><span>{total}</span></div>
+      <div className="detail-heading"><div><span className="section-kicker">已创建主体</span><h3>当前 API 凭据下的主体</h3></div><span>{total}</span></div>
       {loading && !elements.length ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取主体…</div>
         : elements.length ? elements.map((element) => <article key={element.id} className="kling-element-row">
           <span className="kling-element-row-icon">{element.videoUrl ? <Video size={18} /> : <UsersRound size={18} />}</span>

@@ -12,17 +12,17 @@ describe('provider presentation', () => {
     expect(generationProviderKind('kling')).toBe('kling')
     expect(generationProviderKind('kling_official_cli')).toBe('kling')
     expect(generationProviderKind('kling_official_api')).toBe('kling')
-    expect(generationProviderKind('libtv')).toBe('libtv')
+    expect(generationProviderKind('libtv')).toBe('legacy')
   })
 
   it('uses provider-specific queue and generation copy', () => {
-    expect(providerProgress('QUEUED', 'kling').label).toContain('可灵官方 Provider')
-    expect(providerProgress('QUEUED', 'kling_official_api').label).toContain('Kling API')
-    expect(providerProgress('QUEUED', 'libtv').label).toContain('LibTV CLI')
+    expect(providerProgress('QUEUED', 'kling').label).toContain('可灵官方 API')
+    expect(providerProgress('QUEUED', 'kling_official_api').label).toContain('可灵官方 API')
+    expect(providerProgress('QUEUED', 'libtv').label).toContain('历史生成通道')
     expect(providerTimingStageLabel('MATERIALIZATION', 'kling')).toBe(
-      '可灵官方 Provider 素材准备',
+      '可灵官方 API 素材准备',
     )
-    expect(providerTimingStageLabel('MATERIALIZATION', 'libtv')).toBe('LibTV CLI 画布准备')
+    expect(providerTimingStageLabel('MATERIALIZATION', 'libtv')).toBe('历史任务素材准备')
   })
 
   it('shows distinct uncertain-state recovery boundaries', () => {
@@ -34,9 +34,9 @@ describe('provider presentation', () => {
     }
     expect(variantExecutionMessage({ ...base, provider: 'kling_official_cli' })).toContain('任务 ID')
     expect(variantExecutionMessage({ ...base, provider: 'kling_official_api' })).toContain(
-      'Kling API',
+      '可灵官方 API',
     )
-    expect(variantExecutionMessage({ ...base, provider: 'libtv' })).toContain('--run')
+    expect(variantExecutionMessage({ ...base, provider: 'libtv' })).toContain('历史任务')
   })
 
   it('shows actionable provider failure details', () => {
@@ -48,6 +48,6 @@ describe('provider presentation', () => {
       providerErrorMessage: 'Too many requests',
       providerErrorRetryable: true,
       provider: 'kling_official_api',
-    })).toBe('Kling API：KLING_API_RATE_LIMITED · Too many requests · 可以重试')
+    })).toBe('可灵官方 API：KLING_API_RATE_LIMITED · Too many requests · 可以重试')
   })
 })

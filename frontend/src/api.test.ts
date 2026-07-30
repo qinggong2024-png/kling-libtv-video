@@ -146,7 +146,7 @@ describe('API request identity and CSRF contracts', () => {
     expect(body.variants).toEqual(['DYNAMIC'])
   })
 
-  it('binds selected Kling elements when creating a fixed video task', async () => {
+  it('maps historical elements and newly uploaded subject images for a fixed video task', async () => {
     const task = { id: 'task-fixed' } as Task
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(task, 201))
 
@@ -156,7 +156,11 @@ describe('API request identity and CSRF contracts', () => {
       {
         templateId: 'template-1',
         siteProfileId: 'site-1',
-        elementIds: ['element-1'],
+        elementIds: [],
+        subjectUploads: [
+          { id: 'subject-front' } as UploadResult,
+          { id: 'subject-back' } as UploadResult,
+        ],
         resultCount: 1,
         actionIntensity: 'standard',
         cameraTempo: 'standard',
@@ -165,7 +169,11 @@ describe('API request identity and CSRF contracts', () => {
     )
 
     expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toMatchObject({
-      elementIds: ['element-1'],
+      elementIds: [],
+      subjectImages: [
+        { uploadId: 'subject-front', order: 1 },
+        { uploadId: 'subject-back', order: 2 },
+      ],
     })
   })
 
@@ -289,7 +297,7 @@ describe('API request identity and CSRF contracts', () => {
 
   it('reads and updates the administrator Kling provider configuration', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ backend: 'cli', apiKeyConfigured: false }))
+      .mockResolvedValueOnce(jsonResponse({ backend: 'api', apiKeyConfigured: false }))
       .mockResolvedValueOnce(jsonResponse({ backend: 'api', apiKeyConfigured: true }))
 
     await getKlingConfig(ADMIN_ID)

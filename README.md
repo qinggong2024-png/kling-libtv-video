@@ -101,16 +101,16 @@ API 默认是 `http://127.0.0.1:8000`，前端默认是 `http://127.0.0.1:5173`�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-local-services.ps1 -RequireFrontend
 ```
 
-## 可灵官方 Provider 接入
+## 可灵官方 API 接入
 
-程序现在同时支持 `LibTV` 和 `Kling` 两个视频生成 provider。已有 LibTV 任务和命令路径保持
-不变；provider 会写入每个任务和生成尝试，不会在任务执行期间自动切换。
+所有新生产任务固定使用可灵官方 API。旧 LibTV / 可灵 CLI 任务仍可按已持久化的生成通道
+查询和下载，但只在历史记录中显示为历史任务，不再出现在管理中心和个人设置的可选项中。
 
 Kling 的新生产任务统一使用官方 API 2.0。现有官方 CLI 只用于查询和下载已经提交的历史
 attempt，不再作为可选的新任务后端。API 使用单个服务端 API Key，不使用旧版 Access Key /
 Secret Key JWT：
 
-管理员可在“管理中心 → Provider 与账号”中启停 API、替换或清除 API Key，并调整 API
+管理员可在“管理中心 → 可灵官方 API”中启停 API、替换或清除 API Key，并调整 API
 模型、时长、画幅、分辨率、音频、多镜头及提交/查询并发。Windows 下密钥使用
 DPAPI 与受限 ACL 保存，页面和状态接口只返回“是否已配置”，不会回显密钥。API 进程立即应用
 新配置，独立 Runner 在下一调度周期检测并加载；已提交任务继续使用其持久化 Provider。
@@ -239,7 +239,8 @@ uv run python scripts/create_user.py lan-admin --role ADMIN
 普通用户、重置密码或停用账号。局域网模式仍启用 Argon2 密码哈希、服务端 Session、CSRF、
 角色权限和审计；只有 Cookie 的 HTTPS 限制被显式关闭。
 
-管理员在设置页保存的 LibTV/OpenAI Key 不会回显。Windows 上的凭据文件使用机器级 DPAPI
+管理员在“可灵官方 API”页保存的可灵 API Key，以及“流程与分析”页保存的分析服务 Key，
+均不会回显。Windows 上的凭据文件使用机器级 DPAPI
 加密，并把 NTFS ACL 限制为当前服务账号、SYSTEM 和 Runner 服务账号；共享环境如果无法应用
 Runner ACL，会拒绝保存凭据。
 

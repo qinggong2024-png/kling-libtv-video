@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.enums import UserRole
+from libtv_agent.domain.models import SubjectElementJob
 from libtv_agent.services.kling_callbacks import (
     KlingCallbackError,
     KlingCallbackObservation,
@@ -18,6 +19,7 @@ from libtv_agent.services.kling_elements import (
     list_elements,
 )
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
 
 router = APIRouter(tags=["kling"])
 
@@ -202,12 +204,12 @@ async def create_kling_element(
 )
 async def list_kling_elements(
     actor: Actor,
+    session: Session,
     request: Request,
     page_num: Annotated[int, Query(alias="pageNum", ge=1, le=1000)] = 1,
     page_size: Annotated[int, Query(alias="pageSize", ge=1, le=500)] = 30,
     official: bool = False,
 ) -> KlingElementListResponse:
-    _require_admin(actor)
     try:
         result = await list_elements(
             request.app.state.kling_adapter,
@@ -217,6 +219,38 @@ async def list_kling_elements(
         )
     except KlingElementError as exc:
         raise _operation_error(exc) from exc
+    if not official:
+        local_jobs = list(
+            await session.scalars(
+                select(SubjectElementJob)
+                .where(
+                    SubjectElementJob.user_id == actor.id,
+                    SubjectElementJob.status.in_(("PENDING", "PROCESSING", "FAILED")),
+                )
+                .order_by(SubjectElementJob.created_at.desc())
+            )
+        )
+        local_items = [
+            {
+                "id": f"local-job:{job.id}",
+                "name": job.name,
+                "description": job.description,
+                "status": job.status.lower(),
+                "imageUrls": [],
+                "createdAt": job.created_at.isoformat() if job.created_at else None,
+                "updatedAt": job.updated_at.isoformat() if job.updated_at else None,
+                "raw": {
+                    "localJob": True,
+                    "taskId": str(job.parent_task_id),
+                    "attemptCount": job.attempt_count,
+                    "errorCode": job.last_error_code,
+                    "errorMessage": job.last_error_message,
+                },
+            }
+            for job in local_jobs
+        ]
+        result["items"] = [*local_items, *result["items"]]
+        result["total"] = int(result["total"]) + len(local_items)
     return KlingElementListResponse.model_validate(result)
 
 
@@ -230,7 +264,7 @@ async def read_kling_element(
     actor: Actor,
     request: Request,
 ) -> KlingElementRead:
-    _require_admin(actor)
+    del actor
     try:
         result = await get_element(request.app.state.kling_adapter, element_id)
     except KlingElementError as exc:

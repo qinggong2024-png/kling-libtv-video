@@ -178,6 +178,10 @@ export interface MotionActionSummary {
   riskLevel: 'low' | 'conditional'
 }
 
+export type MotionActionWrite = MotionActionSummary
+
+export type SiteStyleProfileWrite = Omit<SiteStyleProfileSummary, 'version'>
+
 export interface PromptAssistantResponse {
   task: Task
   advice: string
@@ -224,6 +228,7 @@ export interface FixedVideoTaskOptions {
   templateId: string
   siteProfileId: string
   elementIds: string[]
+  subjectUploads?: UploadResult[]
   resultCount: number
   actionIntensity: 'low' | 'standard' | 'high'
   cameraTempo: 'slow' | 'standard' | 'fast'
@@ -240,6 +245,11 @@ export interface KlingElement {
   voiceId: string | null
   createdAt: string | null
   updatedAt: string | null
+  raw?: {
+    localJob?: boolean
+    errorMessage?: string | null
+    [key: string]: unknown
+  }
 }
 
 export interface KlingElementList {
@@ -278,7 +288,7 @@ export interface SystemStatus {
   csrfCookieName: string
   kling: {
     enabled: boolean
-    backend: 'cli' | 'api'
+    backend: 'api'
     provider: string
     status: string
     available: boolean
@@ -294,7 +304,7 @@ export interface SystemStatus {
 
 export interface KlingStatus {
   enabled: boolean
-  backend: 'cli' | 'api'
+  backend: 'api'
   provider: string
   status: string
   available: boolean
@@ -310,10 +320,12 @@ export interface KlingStatus {
   supportsTailImage: boolean
   supportsMultipleImages: boolean
   supportsWatermarkFreeOutput: boolean
+  verificationMode: string
+  verificationMayGenerateOrCharge: boolean
 }
 
 export interface KlingConfig {
-  backend: 'cli' | 'api'
+  backend: 'api'
   apiKeyConfigured: boolean
   baseUrl: string
   callbackUrl: string | null
@@ -327,10 +339,11 @@ export interface KlingConfig {
   maxPollConcurrency: number
   enabled: boolean
   provider: string
+  updatedAt?: string | null
 }
 
 export interface KlingConfigPatch {
-  backend?: 'cli' | 'api'
+  backend?: 'api'
   apiKey?: string
   clearApiKey?: boolean
   baseUrl?: string

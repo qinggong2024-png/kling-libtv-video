@@ -34,7 +34,7 @@ async def system_status(request: Request) -> dict[str, object]:
         "aiAdapter": settings.ai_adapter_mode,
         "kling": {
             "enabled": settings.kling_enabled,
-            "backend": settings.kling_provider_backend,
+            "backend": "api",
             "provider": request.app.state.kling_adapter.get_provider_name(),
             "status": kling_availability.status,
             "available": kling_availability.available,

@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -226,6 +226,34 @@ export function getMotionActions(): Promise<MotionActionSummary[]> {
   return request('/api/v1/motion-actions')
 }
 
+export function createMotionAction(payload: MotionActionWrite): Promise<MotionActionSummary> {
+  return request('/api/v1/motion-actions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateMotionAction(id: string, payload: MotionActionWrite): Promise<MotionActionSummary> {
+  return request(`/api/v1/motion-actions/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createSiteStyleProfile(payload: SiteStyleProfileWrite): Promise<SiteStyleProfileSummary> {
+  return request('/api/v1/site-style-profiles', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateSiteStyleProfile(id: string, payload: SiteStyleProfileWrite): Promise<SiteStyleProfileSummary> {
+  return request(`/api/v1/site-style-profiles/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createTask(
   title: string,
   requirement: string,
@@ -265,6 +293,10 @@ export function createVideoTask(
       clientTaskId: createUuid(),
       title,
       storyboards: uploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1, required: true })),
+      subjectImages: (options.subjectUploads ?? []).map((upload, index) => ({
+        uploadId: upload.id,
+        order: index + 1,
+      })),
       templateId: options.templateId,
       siteProfileId: options.siteProfileId,
       elementIds: options.elementIds,
@@ -485,7 +517,7 @@ export function createKlingElement(adminId: string, values: KlingElementCreate):
   }, { actorId: adminId, timeoutMs: LONG_RUNNING_TIMEOUT_MS })
 }
 
-export function deleteKlingElement(adminId: string, elementId: string): Promise<void> {
+export function deleteKlingElement(adminId: string | null, elementId: string): Promise<void> {
   return request(`/api/v1/admin/kling/elements/${encodeURIComponent(elementId)}`, {
     method: 'DELETE',
   }, { actorId: adminId, timeoutMs: LONG_RUNNING_TIMEOUT_MS })

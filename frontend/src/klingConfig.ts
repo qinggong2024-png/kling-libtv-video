@@ -19,6 +19,70 @@ export const KLING_AUDIO_OPTIONS = [
   { value: 'original', label: '保留参考视频原声' },
 ] as const
 
+export type KlingApiStatusPresentation = {
+  label: string
+  message: string
+  tone: 'success' | 'warning' | 'danger' | 'neutral'
+}
+
+const KLING_API_STATUS_PRESENTATIONS: Record<string, KlingApiStatusPresentation> = {
+  KLING_API_READY: {
+    label: '已就绪',
+    message: '官方 API 鉴权与只读能力验证均已通过。',
+    tone: 'success',
+  },
+  KLING_API_CONFIGURED_UNVERIFIED: {
+    label: '待验证',
+    message: 'API Key 已保存，等待执行只读任务查询验证。',
+    tone: 'warning',
+  },
+  KLING_API_AUTHENTICATION_FAILED: {
+    label: '鉴权失败',
+    message: 'API Key 无效或已失效，请更新密钥后重新验证。',
+    tone: 'danger',
+  },
+  KLING_API_VERIFICATION_FAILED: {
+    label: '验证失败',
+    message: '官方 API 暂时无法完成只读验证，请检查网络、区域与服务状态。',
+    tone: 'danger',
+  },
+  KLING_API_KEY_MISSING: {
+    label: '缺少密钥',
+    message: '尚未配置可灵官方 API Key。',
+    tone: 'warning',
+  },
+  KLING_API_DISABLED: {
+    label: '未启用',
+    message: '官方 API 通道已关闭，新任务不会提交到可灵。',
+    tone: 'neutral',
+  },
+}
+
+export function klingApiStatusPresentation(
+  status: string | undefined,
+  enabled = false,
+  reason?: string | null,
+): KlingApiStatusPresentation {
+  if (status && KLING_API_STATUS_PRESENTATIONS[status]) {
+    return KLING_API_STATUS_PRESENTATIONS[status]
+  }
+  return enabled
+    ? {
+        label: '能力不可用',
+        message: reason || '官方 API 当前不可用，请刷新验证状态。',
+        tone: 'danger',
+      }
+    : KLING_API_STATUS_PRESENTATIONS.KLING_API_DISABLED
+}
+
+export function formatKlingApiVersion(value?: string | null): string {
+  if (!value) return ''
+  const normalized = value.trim()
+  return normalized.toLowerCase().startsWith('api-')
+    ? `API ${normalized.slice(4)}`
+    : normalized
+}
+
 export function createKlingConfigDraft(config: KlingConfig): KlingConfigDraft {
   return {
     backend: 'api',

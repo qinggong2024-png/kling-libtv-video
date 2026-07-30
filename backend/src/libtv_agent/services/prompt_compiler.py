@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
-from libtv_agent.templates.motion_actions import ActionContext, render_action_ids
+from libtv_agent.templates.motion_actions import ActionContext, MotionAction, render_action_ids
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import (
     ActionIntensity,
@@ -22,6 +23,7 @@ class PromptCompileInput:
     variant_index: int
     site_profile: SiteStyleProfile | None = None
     action_context: ActionContext | None = None
+    action_library: Mapping[str, MotionAction] | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,7 @@ def _style_instruction(
     profile: SiteStyleProfile | None,
     template_id: str,
     action_context: ActionContext | None,
+    action_library: Mapping[str, MotionAction] | None,
 ) -> str:
     if profile is None:
         return "不额外套用站点风格，优先执行视频模板和输入分镜"
@@ -105,6 +108,7 @@ def _style_instruction(
         template_id,
         profile.preferred_actions,
         context=action_context,
+        library=action_library,
     )
     return "；".join(
         (
@@ -158,7 +162,12 @@ def compile_video_plan(
         )
     )
     cut_instruction = _cut_instruction(value.cut_mode)
-    style_instruction = _style_instruction(value.site_profile, template.id, value.action_context)
+    style_instruction = _style_instruction(
+        value.site_profile,
+        template.id,
+        value.action_context,
+        value.action_library,
+    )
     duration = float(template.duration_seconds)
     shot_duration = duration / value.storyboard_count
     shots = tuple(

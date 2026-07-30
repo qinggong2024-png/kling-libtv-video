@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
+  formatKlingApiVersion,
+  klingApiStatusPresentation,
   KLING_AUDIO_OPTIONS,
   validateKlingConfig,
 } from './klingConfig'
@@ -38,15 +40,6 @@ describe('Kling provider configuration', () => {
 
     expect(draft.apiKey).toBe('')
     expect(draft.clearApiKey).toBe(false)
-  })
-
-  it('migrates a legacy CLI snapshot to the production API channel', () => {
-    const draft = createKlingConfigDraft({ ...config, backend: 'cli' })
-
-    expect(draft.backend).toBe('api')
-    expect(buildKlingConfigPatch({ ...draft, backend: 'cli' })).toMatchObject({
-      backend: 'api',
-    })
   })
 
   it('blocks an enabled API provider until a key is available', () => {
@@ -104,5 +97,22 @@ describe('Kling provider configuration', () => {
       clearCallbackUrl: true,
     })
     expect(buildKlingConfigPatch({ ...draft, callbackUrl: ' ' })).not.toHaveProperty('callbackUrl')
+  })
+
+  it('presents official API lifecycle states without CLI guidance', () => {
+    expect(klingApiStatusPresentation('KLING_API_READY', true)).toMatchObject({
+      label: '已就绪',
+      tone: 'success',
+    })
+    expect(klingApiStatusPresentation('KLING_API_CONFIGURED_UNVERIFIED', true).message).toContain('只读')
+    expect(klingApiStatusPresentation('KLING_API_AUTHENTICATION_FAILED', true).message).toContain('API Key')
+    expect(klingApiStatusPresentation('KLING_API_VERIFICATION_FAILED', true).message).toContain('区域')
+    expect(klingApiStatusPresentation('KLING_API_KEY_MISSING', false).label).toBe('缺少密钥')
+    expect(klingApiStatusPresentation('KLING_API_DISABLED', false).message).toContain('官方 API')
+  })
+
+  it('formats the compatibility version field as an API version', () => {
+    expect(formatKlingApiVersion('api-2.0')).toBe('API 2.0')
+    expect(formatKlingApiVersion(null)).toBe('')
   })
 })
