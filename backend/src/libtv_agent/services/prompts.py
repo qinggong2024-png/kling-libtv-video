@@ -5,7 +5,7 @@ from typing import Any
 
 from libtv_agent.domain.enums import VariantKind
 
-PROMPT_TEMPLATE_VERSION = "1.3.0"
+PROMPT_TEMPLATE_VERSION = "1.4.0"
 PROMPT_EXTENDED_MAX = 1600
 
 _MOTION_REPLACEMENTS: tuple[tuple[str, str], ...] = (
@@ -67,7 +67,9 @@ class TimelineShot:
     start: float
     end: float
     reference_asset_ids: tuple[str, ...]
+    entry_state: str
     action: str
+    exit_state: str
     camera: str
     product_display: str
     shot_function: str
@@ -95,7 +97,18 @@ def calculate_timeline(
                 start=cursor,
                 end=end,
                 reference_asset_ids=tuple(shot.get("referenceAssetIds", [])),
+                entry_state=str(
+                    shot.get(
+                        "entryState",
+                        (
+                            "从参考图中的起始姿势开始"
+                            if index == 0
+                            else "承接上一段结束时的人物位置和姿势"
+                        ),
+                    )
+                ),
                 action=str(shot.get("action", "presents the product naturally")),
+                exit_state=str(shot.get("exitState", "动作自然落定并保持商品区域清晰")),
                 camera=str(shot.get("camera", "remains steady")),
                 product_display=str(shot.get("productDisplay", "the garment details")),
                 shot_function=str(shot.get("shotFunction", "product display")),
@@ -151,7 +164,7 @@ def normalize_analysis_motion(payload: dict[str, Any]) -> dict[str, Any]:
         for shot in plan.get("shots", []):
             if not isinstance(shot, dict):
                 continue
-            for field in ("action", "camera", "shotFunction"):
+            for field in ("entryState", "action", "exitState", "camera", "shotFunction"):
                 value = shot.get(field)
                 if isinstance(value, str):
                     shot[field] = normalize_motion_language(value)
@@ -165,6 +178,14 @@ def select_mode_type(storyboard_count: int, schema: dict[str, Any]) -> str:
     if preferred not in schema.get("modeTypes", ["singleImage2video", "mixed2video"]):
         raise ValueError(f"modeType {preferred} is not supported")
     return preferred
+
+
+def select_prompt_max_chars(generation_provider: str, provider_max_chars: int) -> int:
+    if provider_max_chars <= 0:
+        raise ValueError("provider prompt length must be positive")
+    if generation_provider == "kling":
+        return min(provider_max_chars, PROMPT_EXTENDED_MAX)
+    return provider_max_chars
 
 
 def compress_prompt(text: str, max_chars: int) -> str:
@@ -243,9 +264,9 @@ def _shot_scene_guidance(
     if _contains_any(combined, _SEATED_KEYWORDS):
         guidance.append("保持坐姿，用姿态、身体朝向、手臂位置和景别变化区分版本")
     elif _contains_any(garment_category, _DRESS_KEYWORDS):
-        guidance.append("裙装保持原地或最多缓慢移动半步，用姿态和景别切镜形成变化")
+        guidance.append("裙装保持原地或最多缓慢移动半步，用姿态和构图变化形成层次")
     elif _contains_any(combined, _OUTDOOR_KEYWORDS):
-        guidance.append("室外或空旷场景允许更大的自然移动范围和景别切镜，但全程匀速")
+        guidance.append("室外或空旷场景允许更大的自然移动范围和构图变化，但全程匀速")
     elif _contains_any(combined, _ROOM_KEYWORDS):
         guidance.append("室内动作限制在可见地面范围内，最多使用一至两步自然位移")
     else:
@@ -289,15 +310,27 @@ def _allocate_field_limits(values: list[str], budget: int) -> list[int]:
 
 def _render_bounded_shot(
     index: int,
+    shot_count: int,
     shot: TimelineShot,
     scene_guidance: str,
+    duration_guidance: str,
     max_chars: int,
 ) -> str:
-    prefix = f"镜头 {index}（{shot.start:.1f}-{shot.end:.1f} 秒）："
-    labels = ("功能", "；模特", "；镜头", "；展示", "；")
+    if shot_count == 1:
+        phase = "完整段落"
+    elif index == 1:
+        phase = "开场"
+    elif index == shot_count:
+        phase = "收束"
+    else:
+        phase = "承接"
+    prefix = f"第 {index} 段（{phase}，{duration_guidance}）："
+    labels = ("功能", "；进入状态", "；动作", "；退出状态", "；镜头", "；展示", "；")
     values = [
         shot.shot_function,
+        shot.entry_state,
         shot.action,
+        shot.exit_state,
         shot.camera,
         shot.product_display,
         scene_guidance,
@@ -312,6 +345,16 @@ def _render_bounded_shot(
         for label, value, limit in zip(labels, values, limits, strict=True)
     )
     return _truncate_clean(rendered, max_chars)
+
+
+def _duration_guidance(shot: TimelineShot, total_seconds: float, shot_count: int) -> str:
+    share = (shot.end - shot.start) / total_seconds
+    average_share = 1 / shot_count
+    if share < average_share * 0.85:
+        return "短暂承接"
+    if share > average_share * 1.15:
+        return "充分展开"
+    return "适中展开"
 
 
 def render_prompt(
@@ -335,7 +378,8 @@ def render_prompt(
         "生成一条 10 秒、9:16 竖版 UGC 视频，采用真实 iPhone 后置摄像头的曝光、"
         "透视和克制的手持运动。",
         f"使用 {references} 作为场景、模特和服装身份的完整有序分镜参考。",
-        "严格遵循上传参考图的顺序，不跳过、合并或重排镜头。",
+        "按上传顺序理解参考图，把它们组织成同一条连续事件；可以将相邻且兼容的参考图"
+        "合并到同一动作段，但不得跳过或重排参考内容。",
         "全程保持同一模特、服装、颜色、印花、文字、场景身份、版型和面料结构。",
         "将服装印花、文字和缝线视为锁定在布料表面的固定纹理；逐帧保持位置、尺度和形状连续，"
         "不得爬行、漂移、闪烁、抖动或局部伸缩，时序一致性优先于夸张布料模拟。",
@@ -346,11 +390,12 @@ def render_prompt(
         "动作完成后保留清晰稳定的商品展示。"
         if kind == VariantKind.STABLE
         else "动态版与稳定版保持接近的自然速度，通过明显不同的人物动作、身体朝向、"
-        "可行移动轨迹和景别切镜形成差异，不通过快速移动或快速跟拍增强节奏。"
+        "可行移动轨迹和构图调度形成差异，不通过快速移动或快速跟拍增强节奏。"
     )
     closing_lines = [
         motion_instruction,
-        "相邻镜头仅在景别、方向和姿势连续时自然衔接，否则使用干净硬切，不做变形过渡。",
+        "相邻段必须从上一段的退出状态继续：人物位置、身体朝向、手部、道具和运动方向"
+        "保持可追踪的连续关系；仅在参考图确有场景断裂时使用一次干净硬切。",
         "保持背景和光线一致，只使用服装原有印花、标识和文字，不添加字幕或贴纸。",
         "避免身份、肢体、手部、服装细节和背景变形，以及突然变焦和明显 AI 瑕疵。",
     ]
@@ -363,8 +408,9 @@ def render_prompt(
         )
         closing_lines.append(f"同类场景反馈优化：{_truncate_clean(safe_guidance, 240)}")
     closing_lines.append(
-        "硬约束：全片人物与镜头保持自然匀速；版本差异必须来自人物动作，"
-        "并服从每张参考图的实际空间、姿势、服装和道具边界。"
+        "硬约束：开启智能分镜并根据动作复杂度、姿势变化距离和商品展示重要性分配各段时长；"
+        "全片人物与镜头保持自然匀速，版本差异必须来自人物动作，并服从每张参考图的"
+        "实际空间、姿势、服装和道具边界。"
     )
     fixed_lines = [*intro_lines, *closing_lines]
     separator_count = len(fixed_lines) + len(timeline) - 1
@@ -374,7 +420,8 @@ def render_prompt(
             [
                 *intro_lines,
                 *(
-                    f"镜头 {index}：{shot.shot_function}；模特{shot.action}；"
+                    f"第 {index} 段：{shot.shot_function}；进入状态{shot.entry_state}；"
+                    f"动作{shot.action}；退出状态{shot.exit_state}；"
                     f"镜头{shot.camera}；展示{shot.product_display}。"
                     for index, shot in enumerate(timeline, start=1)
                 ),
@@ -386,8 +433,10 @@ def render_prompt(
     shot_lines = [
         _render_bounded_shot(
             index,
+            len(timeline),
             shot,
             _shot_scene_guidance(shot.reference_asset_ids, facts_by_asset, garment_category),
+            _duration_guidance(shot, timeline[-1].end, len(timeline)),
             base_shot_budget + (1 if index <= remainder else 0),
         )
         for index, shot in enumerate(timeline, start=1)

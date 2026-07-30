@@ -1,12 +1,11 @@
 import uuid
 from pathlib import Path
 
-from libtv_agent.adapters.kling_official_cli import (
-    KlingCliError,
-    KlingOfficialCliAdapter,
-)
+from libtv_agent.adapters.kling_official_cli import KlingCliError
+from libtv_agent.adapters.kling_provider import create_kling_adapter_for_provider
 from libtv_agent.adapters.libtv import LibTVAdapter, LibTVError
 from libtv_agent.adapters.object_store import ObjectStore
+from libtv_agent.adapters.video_provider import VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import (
     AttemptStatus,
@@ -42,7 +41,7 @@ async def restore_remote_output(
     task: ParentTask,
     kind: VariantKind,
     actor_id: uuid.UUID,
-    kling_adapter: KlingOfficialCliAdapter | None = None,
+    kling_adapter: VideoProviderAdapter | None = None,
 ) -> DownloadArtifact:
     variant = await session.scalar(
         select(GenerationVariant).where(
@@ -75,15 +74,21 @@ async def restore_remote_output(
         or 0
     )
     if attempt.provider != "libtv":
-        if kling_adapter is None or not attempt.task_id:
+        if not attempt.task_id:
             raise KlingCliError("KLING_REMOTE_STATUS_UNKNOWN", "Kling remote task is unavailable")
-        kling_result = await kling_adapter.query(attempt.task_id)
+        selected_kling_adapter = (
+            kling_adapter
+            if kling_adapter is not None
+            and kling_adapter.get_provider_name() == attempt.provider
+            else create_kling_adapter_for_provider(settings, attempt.provider)
+        )
+        kling_result = await selected_kling_adapter.query(attempt.task_id)
         if kling_result.status not in {"succeeded", "partial"} or not kling_result.outputs:
             raise KlingCliError(
                 "KLING_OUTPUT_URL_MISSING", "Kling remote output is no longer available"
             )
         output_url = kling_result.outputs[0].url
-        download_adapter: object = kling_adapter
+        download_adapter: object = selected_kling_adapter
     else:
         result = await adapter.query_node_result(
             project_uuid=attempt.project_uuid or "", node_key=attempt.video_node_key or ""

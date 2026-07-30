@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from libtv_agent.adapters.kling_official_cli import (
-    KlingCliError,
-    KlingOfficialCliAdapter,
-    retry_kling_call,
+from libtv_agent.adapters.kling_official_cli import KlingCliError, retry_kling_call
+from libtv_agent.adapters.kling_provider import (
+    create_kling_adapter,
+    create_kling_adapter_for_provider,
 )
 from libtv_agent.adapters.libtv import GenerationResult, LibTVAdapter, LibTVError
 from libtv_agent.adapters.object_store import ObjectStore
-from libtv_agent.adapters.video_provider import VideoGenerationRequest
+from libtv_agent.adapters.video_provider import VideoGenerationRequest, VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import delivery_filename
 from libtv_agent.domain.enums import (
@@ -42,6 +42,7 @@ from libtv_agent.services.generation_safety import (
 )
 from libtv_agent.services.media import download_with_retries, technical_validate
 from libtv_agent.services.points import business_date, settle_points
+from libtv_agent.services.provider_routing import ProviderKind, provider_kind
 from libtv_agent.services.runtime_control import (
     provider_claims_allowed,
     set_libtv_auth_required,
@@ -97,13 +98,16 @@ class RunnerSupervisor:
         settings: Settings,
         owner: str = "phase-one-runner",
         command_host_manager: CommandHostManager | None = None,
-        kling_adapter: KlingOfficialCliAdapter | None = None,
+        kling_adapter: VideoProviderAdapter | None = None,
     ) -> None:
         self.adapter = adapter
         self.object_store = object_store
         self.settings = settings
         self.owner = owner
-        self.kling_adapter = kling_adapter or KlingOfficialCliAdapter(settings)
+        self.kling_adapter = kling_adapter or create_kling_adapter(settings)
+        self._kling_adapters: dict[str, VideoProviderAdapter] = {
+            self.kling_adapter.get_provider_name().strip().lower(): self.kling_adapter
+        }
         self.command_host_manager = command_host_manager or CommandHostManager(
             settings.runner_root / "command-hosts",
             Path(__file__).resolve().parents[4],
@@ -114,6 +118,14 @@ class RunnerSupervisor:
             app_env=settings.app_env,
             libtv_config_dir=settings.libtv_config_dir,
         )
+
+    def _kling_adapter_for(self, provider: str) -> VideoProviderAdapter:
+        normalized = provider.strip().lower()
+        adapter = self._kling_adapters.get(normalized)
+        if adapter is None:
+            adapter = create_kling_adapter_for_provider(self.settings, provider)
+            self._kling_adapters[normalized] = adapter
+        return adapter
 
     async def _release_capacity_if_charge_classified(
         self,
@@ -131,12 +143,31 @@ class RunnerSupervisor:
         processed += await self.resume_incomplete_downloads(session)
         await self.observe_command_hosts(session)
         processed += await self.poll_kling_tasks(session)
+        # LibTV and Kling have different command semantics and paid-operation
+        # recovery rules. Claim each provider queue independently so a blocked
+        # provider can never head-of-line block the other.
+        processed += await self._run_ready_provider(session, "libtv")
+        processed += await self._run_ready_provider(session, "kling")
+        return processed
+
+    async def _run_ready_provider(
+        self, session: AsyncSession, expected_provider: ProviderKind
+    ) -> int:
+        processed = 0
+        provider_names = (
+            ("libtv",)
+            if expected_provider == "libtv"
+            else self.settings.kling_provider_names
+        )
         while True:
             commands = list(
                 await session.scalars(
                     select(GenerationCommand)
                     .join(GenerationAttempt, GenerationAttempt.id == GenerationCommand.attempt_id)
-                    .where(GenerationCommand.status == CommandStatus.READY)
+                    .where(
+                        GenerationCommand.status == CommandStatus.READY,
+                        GenerationAttempt.provider.in_(provider_names),
+                    )
                     .order_by(GenerationCommand.created_at)
                     .with_for_update(skip_locked=True)
                     .limit(20)
@@ -145,8 +176,27 @@ class RunnerSupervisor:
             command = None
             for candidate in commands:
                 candidate_attempt = await session.get(GenerationAttempt, candidate.attempt_id)
-                if candidate_attempt and await provider_claims_allowed(
-                    session, self.settings, candidate_attempt.provider
+                candidate_variant = (
+                    await session.get(GenerationVariant, candidate_attempt.variant_id)
+                    if candidate_attempt
+                    else None
+                )
+                candidate_task = (
+                    await session.get(ParentTask, candidate_variant.parent_task_id)
+                    if candidate_variant
+                    else None
+                )
+                if (
+                    candidate_attempt
+                    and candidate_task
+                    and provider_kind(candidate_attempt.provider, self.settings)
+                    == expected_provider
+                    and await provider_claims_allowed(
+                        session,
+                        self.settings,
+                        candidate_attempt.provider,
+                        user_id=candidate_task.user_id,
+                    )
                 ):
                     command = candidate
                     break
@@ -169,7 +219,7 @@ class RunnerSupervisor:
             attempt.state_version += 1
             await session.commit()
             terminal = await self._execute(session, command.id)
-            if attempt.provider != "libtv":
+            if expected_provider == "kling":
                 await release_capacity(session, command.id)
                 await session.commit()
             elif terminal:
@@ -221,7 +271,11 @@ class RunnerSupervisor:
                 command,
                 attempt,
                 GenerationResult(status="SUCCEEDED", payload=payload),
-                download_adapter=self.kling_adapter if attempt.provider != "libtv" else None,
+                download_adapter=(
+                    self._kling_adapter_for(attempt.provider)
+                    if attempt.provider != "libtv"
+                    else None
+                ),
                 generation_status=(
                     variant.generation_status
                     if variant.generation_status
@@ -247,7 +301,10 @@ class RunnerSupervisor:
         if attempt.provider != "libtv":
             if not attempt.task_id:
                 raise ValueError("Kling generationId is missing")
-            provider_result = await self.kling_adapter.query(attempt.task_id)
+            kling_adapter = self._kling_adapter_for(attempt.provider)
+            provider_result = await kling_adapter.query(attempt.task_id)
+            if provider_result.credits_consumed is not None:
+                attempt.credits_consumed = provider_result.credits_consumed
             result = GenerationResult(
                 status=provider_result.status.upper(),
                 payload={
@@ -395,17 +452,18 @@ class RunnerSupervisor:
             return True
         assets = list(
             await session.scalars(
-                select(Asset)
-                .where(
-                    Asset.parent_task_id == task.id,
-                    Asset.used_for_generation.is_(True),
-                )
-                .order_by(Asset.order_no)
+                select(Asset).where(Asset.parent_task_id == task.id).order_by(Asset.order_no)
             )
         )
-        paths: list[Path] = []
+        storyboard_assets = [
+            asset for asset in assets if asset.used_for_generation and asset.role != "PRODUCT"
+        ]
+        product_reference_assets = [asset for asset in assets if asset.role == "PRODUCT"]
+        storyboard_paths: list[Path] = []
+        product_reference_paths: list[Path] = []
+        kling_adapter = self._kling_adapter_for(attempt.provider)
         try:
-            for asset in assets:
+            for index, asset in enumerate(storyboard_assets, start=1):
                 if not asset.object_key:
                     raise KlingCliError(
                         "KLING_INVALID_INPUT",
@@ -414,39 +472,75 @@ class RunnerSupervisor:
                 suffix = Path(asset.original_filename).suffix.lower()
                 if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
                     suffix = ".jpg"
-                paths.append(
+                storyboard_paths.append(
                     await self.object_store.localize(
                         asset.object_key,
                         self.settings.runner_root
                         / "kling"
                         / "inputs"
                         / str(task.id)
-                        / f"asset-{asset.order_no}{suffix}",
+                        / f"storyboard-{index}{suffix}",
+                    )
+                )
+            for index, asset in enumerate(product_reference_assets, start=1):
+                if not asset.object_key:
+                    raise KlingCliError(
+                        "KLING_INVALID_INPUT",
+                        f"Product reference asset {asset.id} has no source object",
+                    )
+                suffix = Path(asset.original_filename).suffix.lower()
+                if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+                    suffix = ".jpg"
+                product_reference_paths.append(
+                    await self.object_store.localize(
+                        asset.object_key,
+                        self.settings.runner_root
+                        / "kling"
+                        / "inputs"
+                        / str(task.id)
+                        / f"product-reference-{index}{suffix}",
                     )
                 )
             request = VideoGenerationRequest(
                 prompt=variant.prompt_text,
-                model=attempt.provider_model or self.settings.kling_cli_default_model,
-                image_paths=tuple(paths),
+                model=attempt.provider_model or self.settings.active_kling_model,
+                image_paths=tuple(storyboard_paths),
                 duration=int(
                     variant.generation_config_json.get("duration")
-                    or self.settings.kling_cli_default_duration
+                    or variant.generation_config_json.get("durationSeconds")
+                    or self.settings.active_kling_duration
                 ),
                 aspect_ratio=str(
                     variant.generation_config_json.get("aspectRatio")
-                    or self.settings.kling_cli_default_aspect_ratio
+                    or self.settings.active_kling_aspect_ratio
                 ),
+                product_reference_paths=tuple(product_reference_paths),
                 fallback_mode=str(
                     variant.generation_config_json.get("storyboardFallbackMode")
                     or self.settings.kling_storyboard_fallback_mode
                 ),
                 task_trace_id=task.id.hex,
+                resolution=str(
+                    variant.generation_config_json.get("resolution")
+                    or self.settings.kling_api_resolution
+                ),
+                audio=str(
+                    variant.generation_config_json.get("audio")
+                    or self.settings.kling_api_audio
+                ),
+                multi_shot=bool(
+                    variant.generation_config_json.get(
+                        "multiShot", self.settings.kling_api_multi_shot
+                    )
+                ),
+                external_task_id=attempt.intent_hash,
+                callback_url=self.settings.kling_api_callback_url,
             )
             command.status = CommandStatus.LAUNCH_STARTED
             command.launch_started_at = datetime.now(UTC)
             attempt.launch_started_at = command.launch_started_at
             await session.commit()
-            submission = await self.kling_adapter.submit(request)
+            submission = await kling_adapter.submit(request)
         except KlingCliError as exc:
             await self._handle_error(session, command, attempt, exc)
             return True
@@ -469,7 +563,11 @@ class RunnerSupervisor:
         )
         if submission.credits_consumed is not None:
             attempt.billing_source = BillingSource.TASK_BILLING
-        attempt.runner_execution_backend = "KLING_OFFICIAL_CLI"
+        attempt.runner_execution_backend = (
+            "KLING_OFFICIAL_API"
+            if attempt.provider == self.settings.kling_api_provider_name
+            else "KLING_OFFICIAL_CLI"
+        )
         attempt.runner_execution_ref = submission.provider_task_id
         command.status = CommandStatus.PROCESS_STARTED
         command.process_started_at = now
@@ -481,30 +579,66 @@ class RunnerSupervisor:
         return False
 
     async def poll_kling_tasks(self, session: AsyncSession) -> int:
-        if not self.settings.kling_cli_enabled:
+        if not (self.settings.kling_cli_enabled or self.settings.kling_api_enabled):
             return 0
         now = datetime.now(UTC)
         attempts = list(
             await session.scalars(
                 select(GenerationAttempt)
                 .where(
-                    GenerationAttempt.provider == self.settings.kling_cli_provider_name,
+                    GenerationAttempt.provider.in_(self.settings.kling_provider_names),
                     GenerationAttempt.status == AttemptStatus.RUNNING,
                 )
                 .order_by(GenerationAttempt.last_polled_at, GenerationAttempt.created_at)
-                .limit(self.settings.kling_cli_max_query_concurrency * 4)
+                .limit(
+                    max(
+                        self.settings.kling_cli_max_query_concurrency,
+                        self.settings.kling_api_max_poll_concurrency,
+                    )
+                    * 4
+                )
             )
         )
         processed = 0
         for attempt in attempts:
+            submitted_at = attempt.submitted_at
+            if submitted_at is not None:
+                if submitted_at.tzinfo is None:
+                    submitted_at = submitted_at.replace(tzinfo=UTC)
+                if (
+                    attempt.provider == self.settings.kling_api_provider_name
+                    and (now - submitted_at).total_seconds()
+                    >= self.settings.kling_api_task_timeout_seconds
+                ):
+                    command = await session.scalar(
+                        select(GenerationCommand).where(
+                            GenerationCommand.attempt_id == attempt.id
+                        )
+                    )
+                    attempt.status = AttemptStatus.UNKNOWN_AFTER_SUBMIT
+                    attempt.provider_status = "unknown"
+                    attempt.last_error_code = "KLING_API_TASK_TIMEOUT"
+                    attempt.error_message = (
+                        "Kling API task exceeded the configured wait time; "
+                        "the remote task was not resubmitted"
+                    )
+                    if command is not None:
+                        command.status = CommandStatus.UNCERTAIN
+                    variant = await session.get(GenerationVariant, attempt.variant_id)
+                    if variant is not None:
+                        variant.generation_status = GenerationStatus.UNKNOWN
+                    await session.commit()
+                    if variant is not None:
+                        await self._aggregate_task(session, variant.id)
+                    processed += 1
+                    continue
             last_polled = attempt.last_polled_at
             if last_polled is not None:
                 if last_polled.tzinfo is None:
                     last_polled = last_polled.replace(tzinfo=UTC)
-                poll_interval = (
-                    self.settings.kling_cli_max_poll_interval_seconds
-                    if attempt.provider_status == "unknown"
-                    else self.settings.kling_cli_poll_interval_seconds
+                poll_interval = self.settings.kling_poll_interval_for_provider(
+                    attempt.provider,
+                    unknown=attempt.provider_status == "unknown",
                 )
                 if (now - last_polled).total_seconds() < poll_interval:
                     continue
@@ -513,10 +647,19 @@ class RunnerSupervisor:
             )
             if command is None or not attempt.task_id:
                 continue
+            if not self.settings.kling_provider_enabled(attempt.provider):
+                continue
+            kling_adapter = self._kling_adapter_for(attempt.provider)
             try:
                 result = await retry_kling_call(
-                    lambda attempt=attempt: self.kling_adapter.query(attempt.task_id or ""),
-                    attempts=3,
+                    lambda attempt=attempt, adapter=kling_adapter: adapter.query(
+                        attempt.task_id or ""
+                    ),
+                    attempts=(
+                        self.settings.kling_api_max_retries
+                        if attempt.provider == self.settings.kling_api_provider_name
+                        else 3
+                    ),
                 )
             except KlingCliError as exc:
                 attempt.last_polled_at = datetime.now(UTC)
@@ -538,6 +681,8 @@ class RunnerSupervisor:
             attempt.provider_status = result.status
             attempt.provider_raw_status = result.raw_status
             attempt.raw_response_json = result.raw_response
+            if result.credits_consumed is not None:
+                attempt.credits_consumed = result.credits_consumed
             variant = await session.get(GenerationVariant, attempt.variant_id)
             if result.status in {"queued", "running"}:
                 if variant:
@@ -591,7 +736,7 @@ class RunnerSupervisor:
                             "billingSource": "TASK_BILLING",
                         },
                     ),
-                    download_adapter=self.kling_adapter,
+                    download_adapter=kling_adapter,
                     generation_status=(
                         GenerationStatus.PARTIAL
                         if result.status == "partial"
@@ -817,7 +962,7 @@ class RunnerSupervisor:
             business_date().isoformat(),
             str(task.user_id),
             str(task.id),
-            variant.variant_type.value,
+            variant.variant_key or variant.variant_type.value,
             variant.revision,
         )
         destination = self.settings.runner_root / "downloads" / str(task.id) / filename
@@ -835,13 +980,37 @@ class RunnerSupervisor:
             await session.commit()
             await self._aggregate_task(session, variant.id)
             return
+        expected_duration = float(
+            variant.generation_config_json.get("duration")
+            or variant.generation_config_json.get("durationSeconds")
+            or 10
+        )
+        expected_ratio = {
+            "16:9": 16 / 9,
+            "9:16": 9 / 16,
+            "1:1": 1.0,
+        }.get(str(variant.generation_config_json.get("aspectRatio") or "9:16"), 9 / 16)
+        allow_audio = (
+            str(
+                variant.generation_config_json.get("audio")
+                or variant.generation_config_json.get("sound")
+                or "off"
+            ).lower()
+            in {"native", "on", "true"}
+        )
         try:
             await download_with_retries(
                 download_adapter or self.adapter,
                 url=str(result.payload["videoUrl"]),
                 destination=destination,
             )
-            validation = await technical_validate(destination)
+            validation = await technical_validate(
+                destination,
+                duration_min=max(0.1, expected_duration - 1),
+                duration_max=expected_duration + 1,
+                target_ratio=expected_ratio,
+                allow_audio=allow_audio,
+            )
         except Exception:
             variant.download_status = DownloadStatus.FAILED
             variant.validation_status = ValidationStatus.FAILED

@@ -57,7 +57,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\refresh-libtv-
 
 在生成前失败且没有任务 ID时，记录 `FAILED_BEFORE_SUBMIT`；仍不自动重试付费命令。
 只要 stderr/stdout 出现任务 ID、进程在 LAUNCH_STARTED 后失联，或无法确认服务端是否接收，
-统一标记 `UNKNOWN_AFTER_SUBMIT`，冻结新的付费提交并使用 `read_node` 只读对账。
+统一标记 `UNKNOWN_AFTER_SUBMIT`，隔离原 attempt 并使用 provider 的只读查询能力对账，原意图
+不得自动重投。
+
+UNKNOWN 不再直接写入全局 `paidSubmissionsPaused`。动态熔断按 provider 和用户隔离：
+
+- 单条 UNKNOWN 不阻塞其他任务；同一父任务的 STABLE/DYNAMIC 异常只按一个任务计数。
+- 同一用户、同一 provider 在 30 分钟内至少 2 个不同任务 UNKNOWN，暂停该用户在该 provider
+  上的新提交。
+- 同一 provider 在 10 分钟内至少 5 个不同任务 UNKNOWN、覆盖至少 3 个用户，同时至少有 6 条
+  有效样本且 UNKNOWN 比例达到 50%，才暂停该 provider；其他 provider 和用户不受影响。
+- 时间窗口过期或对账收敛后动态熔断自动关闭。管理员手动暂停、磁盘保护和登录失效仍使用独立
+  控制面，不由 UNKNOWN 自动解除。
 
 LibTV CLI 1.1.1 当前不提供余额或准确扣点字段。成功终态能证明生成已完成，但实际积分数需从
 LibTV 账单侧人工核对；不能因为余额不可见而再次提交。

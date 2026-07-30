@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from libtv_agent.services.prompts import (
     normalize_motion_language,
     render_prompt,
     select_mode_type,
+    select_prompt_max_chars,
     validate_ab_action_difference,
     validate_required_coverage,
 )
@@ -144,9 +146,49 @@ def test_stable_and_dynamic_plans_differ_and_prompts_are_bounded() -> None:
     assert count_ab_differences(stable, dynamic) >= 2
     prompt = render_prompt(VariantKind.DYNAMIC, dynamic, ["IMG-1", "IMG-2"], "突出袖口")
     assert '{{Node "IMG-1"}}' in prompt
-    assert "严格遵循上传参考图的顺序" in prompt
+    assert "按上传顺序理解参考图" in prompt
     assert "真实 iPhone 后置摄像头" in prompt
+    assert "进入状态" in prompt
+    assert "退出状态" in prompt
+    assert "0.0-" not in prompt
+    assert " 秒）" not in prompt
     assert len(compress_prompt(prompt * 10, 300)) <= 300
+
+
+def test_prompt_uses_relative_duration_guidance_without_exact_time_slices() -> None:
+    timeline = calculate_timeline(
+        [
+            {
+                "referenceAssetIds": ["A1"],
+                "durationWeight": 3,
+                "entryState": "站立持书",
+                "action": "自然下蹲取书",
+                "exitState": "下蹲并稳定持书",
+            },
+            {
+                "referenceAssetIds": ["A2"],
+                "durationWeight": 1,
+                "entryState": "承接下蹲持书姿势",
+                "action": "抬眼看向镜头",
+                "exitState": "保持下蹲并看向镜头",
+            },
+        ]
+    )
+
+    prompt = render_prompt(VariantKind.STABLE, timeline, ["IMG-1", "IMG-2"], "")
+
+    assert "充分展开" in prompt
+    assert "短暂承接" in prompt
+    assert "进入状态站立持书；动作自然下蹲取书；退出状态下蹲并稳定持书" in prompt
+    assert re.search(r"\d+\.\d+-\d+\.\d+\s*秒", prompt) is None
+
+
+def test_kling_prompt_uses_compact_soft_limit() -> None:
+    assert select_prompt_max_chars("kling", 2000) == 1600
+    assert select_prompt_max_chars("kling", 1200) == 1200
+    assert select_prompt_max_chars("libtv", 2000) == 2000
+    with pytest.raises(ValueError, match="positive"):
+        select_prompt_max_chars("kling", 0)
 
 
 def test_dynamic_requires_a_different_person_action() -> None:
@@ -176,7 +218,9 @@ def test_rapid_motion_language_is_normalized_before_rendering() -> None:
         "stablePlan": {
             "shots": [
                 {
+                    "entryState": "快速进入站姿",
                     "action": "快速向前走一步",
+                    "exitState": "突然停在镜头前",
                     "camera": "快速跟拍并突然变焦",
                     "shotFunction": "迅速建立产品",
                 }
@@ -318,8 +362,9 @@ def test_bounded_prompt_preserves_every_shot_and_final_motion_guardrail() -> Non
 
     assert len(prompt) <= 1600
     for index in range(1, 5):
-        assert f"镜头 {index}" in prompt
-    assert "硬约束：全片人物与镜头保持自然匀速" in prompt
+        assert f"第 {index} 段" in prompt
+    assert "硬约束：开启智能分镜" in prompt
+    assert "全片人物与镜头保持自然匀速" in prompt
 
 
 def test_mode_type_and_schema_compatibility() -> None:
@@ -360,4 +405,4 @@ def test_committed_ai_json_schema_matches_offline_model() -> None:
     )
     payload = fake_analysis(["A1", "A2"]).model_dump(mode="json", by_alias=True)
     assert contract["properties"]["schemaVersion"]["const"] == payload["schemaVersion"]
-    assert AnalysisResult.model_validate(payload).model_version == "fake-2.1"
+    assert AnalysisResult.model_validate(payload).model_version == "fake-2.2"

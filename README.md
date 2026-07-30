@@ -106,6 +106,37 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-local-se
 程序现在同时支持 `LibTV` 和 `Kling` 两个视频生成 provider。已有 LibTV 任务和命令路径保持
 不变；provider 会写入每个任务和生成尝试，不会在任务执行期间自动切换。
 
+Kling 可在官方 API 2.0 与现有官方 CLI 间切换。新 API 使用单个服务端 API Key，不使用旧版
+Access Key / Secret Key JWT：
+
+```dotenv
+KLING_PROVIDER_BACKEND=api
+KLING_API_ENABLED=true
+KLING_API_KEY=<从可灵开发者后台配置到部署环境>
+KLING_API_BASE_URL=https://api-singapore.klingai.com
+KLING_API_MODEL=kling-3.0-omni
+KLING_API_DURATION=10
+KLING_API_ASPECT_RATIO=9:16
+KLING_API_RESOLUTION=1080p
+KLING_API_AUDIO=off
+KLING_API_MULTI_SHOT=true
+KLING_API_MAX_SUBMIT_CONCURRENCY=1
+KLING_API_MAX_POLL_CONCURRENCY=4
+KLING_API_ENABLE_PAID_INTEGRATION_TEST=false
+```
+
+API 默认关闭，不会自动产生付费请求。无密钥 Dry Run：
+
+```powershell
+uv run python scripts/kling_api_dry_run.py --storyboard-dir C:\path\to\storyboards `
+  --prompt-file C:\path\to\prompt.txt
+```
+
+完整接口核验、配置、测试和回滚说明见
+[`KLING_API_INTEGRATION_REPORT.md`](KLING_API_INTEGRATION_REPORT.md)。
+
+以下 CLI 路径继续保留作为回滚后端。
+
 官方 Skill 已安装到 `.agents/skills/kling-cli`。安装 CLI 前必须先确认账号区域，不能混装：
 
 ```powershell
@@ -139,9 +170,21 @@ KLING_ENABLE_PAID_INTEGRATION_TEST=false
 
 默认 `KLING_CLI_ENABLED=false`，测试也不会发起付费生成。多分镜超过实时能力时默认明确报错，不会
 静默丢弃图片；只有业务明确接受首尾帧语义时才可设置
-`KLING_STORYBOARD_FALLBACK_MODE=first_last_frame`。提交成功后保存 CLI 返回的
+`KLING_STORYBOARD_FALLBACK_MODE=first_last_frame`。Kling 任务会按“分镜图在前、产品参考图
+在后”的固定顺序上传，并在 prompt 中明确：分镜图只控制场景、构图、动作和镜头顺序，产品图只
+约束服装款式、面料、颜色、印花、Logo 和文字细节。两类图片合计受实时 `imageInputLimit`
+限制；系统不会静默丢图。提交成功后保存 CLI 返回的
 `generationId`，Runner 使用 `query_tasks` 轮询并从 `works[].url` 原子下载结果；进程重启会
 继续查询原任务，不会重复提交。
+
+UNKNOWN 风险使用短时、分层熔断，不再修改全局 `paidSubmissionsPaused`：
+
+- 单条 UNKNOWN 只隔离原 attempt，禁止原意图自动重投，不影响其他任务。
+- 同一用户在同一 provider 的 30 分钟窗口内出现至少 2 个不同任务的 UNKNOWN，只暂停该用户
+  在该 provider 上的新提交。
+- 同一 provider 在 10 分钟内至少 5 个不同任务、覆盖至少 3 个用户、至少 6 条有效样本且
+  UNKNOWN 比例达到 50%，才打开 provider 级熔断；其他 provider 继续运行。
+- 动态熔断随时间窗口或人工对账结果自动收敛；管理员手动设置的全局/付费暂停仍独立生效。
 
 常见恢复方式：
 

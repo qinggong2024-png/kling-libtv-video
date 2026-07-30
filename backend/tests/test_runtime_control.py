@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -29,10 +30,13 @@ from libtv_agent.services.capacity import acquire_capacity, release_capacity
 from libtv_agent.services.credentials import load_admin_credentials
 from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
+    assess_unknown_submission_risk,
     default_runtime_config,
     ensure_paid_submission_allowed,
+    ensure_provider_submission_allowed,
     generation_claims_allowed,
     get_runtime_config,
+    provider_claims_allowed,
     set_libtv_auth_required,
     validate_runtime_config,
 )
@@ -41,6 +45,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
 USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 OPERATOR_ID = uuid.UUID("00000000-0000-0000-0000-000000000088")
+OTHER_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+THIRD_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000003")
 
 
 def test_runtime_config_allows_pass_only_auto_confirmation() -> None:
@@ -144,6 +150,314 @@ async def test_real_paid_submission_is_closed_by_default(tmp_path: Path) -> None
     await engine.dispose()
 
 
+def _risk_attempt(
+    index: int,
+    *,
+    user_id: uuid.UUID,
+    provider: str,
+    status: AttemptStatus,
+    event_at: datetime,
+) -> GenerationAttempt:
+    task = ParentTask(
+        user_id=user_id,
+        client_task_id=f"risk-{provider}-{index}",
+        title=f"Risk {provider} {index}",
+        asset_count=1,
+        consistency_level=ConsistencyLevel.PASS,
+    )
+    variant = GenerationVariant(
+        parent_task=task,
+        variant_type=VariantKind.STABLE,
+        generation_config_json={},
+    )
+    return GenerationAttempt(
+        variant=variant,
+        intent_hash=f"{index:064d}",
+        status=status,
+        provider=provider,
+        launch_started_at=event_at,
+        updated_at=event_at,
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_unknown_does_not_pause_other_tasks_or_mutate_global_config(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'risk-one.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        kling_cli_enabled=True,
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    now = datetime.now(UTC)
+    async with factory() as session:
+        session.add_all(
+            [
+                _risk_attempt(
+                    100,
+                    user_id=USER_ID,
+                    provider=settings.kling_cli_provider_name,
+                    status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+                    event_at=now - timedelta(minutes=5),
+                ),
+                _risk_attempt(
+                    99,
+                    user_id=USER_ID,
+                    provider=settings.kling_cli_provider_name,
+                    status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+                    event_at=now - timedelta(hours=2),
+                ),
+            ]
+        )
+        await session.commit()
+
+        await ensure_provider_submission_allowed(
+            session,
+            settings,
+            "kling",
+            user_id=OTHER_USER_ID,
+        )
+        await ensure_provider_submission_allowed(
+            session,
+            settings,
+            "kling",
+            user_id=USER_ID,
+        )
+        assert await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_cli_provider_name,
+            user_id=OTHER_USER_ID,
+        )
+        current = await get_runtime_config(session, settings)
+        assert current is not None
+        assert current.version == 1
+        assert current.config_json["paidSubmissionsPaused"] is False
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_two_unknown_variants_of_one_parent_count_as_one_task(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'risk-parent.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        kling_cli_enabled=True,
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    now = datetime.now(UTC)
+    task = ParentTask(
+        user_id=USER_ID,
+        client_task_id="risk-shared-parent",
+        title="Risk shared parent",
+        asset_count=1,
+        consistency_level=ConsistencyLevel.PASS,
+    )
+    for index, kind in enumerate((VariantKind.STABLE, VariantKind.DYNAMIC), start=1):
+        variant = GenerationVariant(
+            parent_task=task,
+            variant_type=kind,
+            generation_config_json={},
+        )
+        GenerationAttempt(
+            variant=variant,
+            intent_hash=f"{300 + index:064d}",
+            status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+            provider=settings.kling_cli_provider_name,
+            launch_started_at=now - timedelta(minutes=index),
+            updated_at=now - timedelta(minutes=index),
+        )
+    async with factory() as session:
+        session.add(task)
+        await session.commit()
+
+        risk = await assess_unknown_submission_risk(
+            session,
+            settings,
+            "kling",
+            user_id=USER_ID,
+            now=now,
+        )
+        assert risk.user_unknown_task_count == 1
+        assert risk.provider_unknown_task_count == 1
+        assert not risk.block_user
+        assert not risk.block_provider
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_user_unknown_circuit_isolated_by_provider_and_user(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'risk-user.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        kling_cli_enabled=True,
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    now = datetime.now(UTC)
+    async with factory() as session:
+        session.add_all(
+            [
+                _risk_attempt(
+                    index,
+                    user_id=USER_ID,
+                    provider=settings.kling_cli_provider_name,
+                    status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+                    event_at=now - timedelta(minutes=offset),
+                )
+                for offset, index in enumerate((101, 102), start=1)
+            ]
+        )
+        await session.commit()
+
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_provider_submission_allowed(
+                session,
+                settings,
+                "kling",
+                user_id=USER_ID,
+            )
+        assert captured.value.code == "USER_PROVIDER_UNKNOWN_CIRCUIT_OPEN"
+        assert not await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_cli_provider_name,
+            user_id=USER_ID,
+        )
+        assert await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_cli_provider_name,
+            user_id=OTHER_USER_ID,
+        )
+        await ensure_provider_submission_allowed(
+            session,
+            settings,
+            "kling",
+            user_id=OTHER_USER_ID,
+        )
+        libtv_risk = await assess_unknown_submission_risk(
+            session,
+            settings,
+            "libtv",
+            user_id=USER_ID,
+            now=now,
+        )
+        assert not libtv_risk.block_user
+        assert not libtv_risk.block_provider
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sample(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{(tmp_path / 'risk-provider.db').as_posix()}"
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        kling_cli_enabled=True,
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    now = datetime.now(UTC)
+    users = [USER_ID, OTHER_USER_ID, THIRD_USER_ID, USER_ID, OTHER_USER_ID]
+    async with factory() as session:
+        session.add_all(
+            [
+                _risk_attempt(
+                    200 + index,
+                    user_id=user_id,
+                    provider=settings.kling_cli_provider_name,
+                    status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+                    event_at=now - timedelta(seconds=index),
+                )
+                for index, user_id in enumerate(users)
+            ]
+            + [
+                _risk_attempt(
+                    299,
+                    user_id=THIRD_USER_ID,
+                    provider=settings.kling_cli_provider_name,
+                    status=AttemptStatus.SUCCEEDED,
+                    event_at=now,
+                )
+            ]
+        )
+        await session.commit()
+
+        risk = await assess_unknown_submission_risk(
+            session,
+            settings,
+            "kling",
+            user_id=uuid.uuid4(),
+            now=now,
+        )
+        assert risk.block_provider
+        assert risk.provider_attempt_count == 6
+        assert risk.provider_unknown_task_count == 5
+        assert risk.provider_unknown_user_count == 3
+        assert not await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_cli_provider_name,
+            user_id=uuid.uuid4(),
+        )
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_paid_pause_blocks_confirmation_but_not_already_queued_claims(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'manual-pause.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        kling_cli_enabled=True,
+        paid_submissions_paused=True,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    async with factory() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_provider_submission_allowed(
+                session,
+                settings,
+                "kling",
+                user_id=USER_ID,
+            )
+        assert captured.value.code == "PAID_SUBMISSIONS_PAUSED"
+        assert await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_cli_provider_name,
+            user_id=USER_ID,
+        )
+
+    await engine.dispose()
+
+
 def _command_graph(
     index: int,
 ) -> tuple[ParentTask, GenerationVariant, GenerationAttempt, GenerationCommand]:
@@ -212,6 +526,30 @@ async def test_kling_capacity_uses_parent_task_when_canvas_is_absent(tmp_path: P
         assert lease is not None
         assert len(lease.slot_ids) == 3
         assert task.id is not None
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_libtv_and_kling_use_independent_capacity_scopes(tmp_path: Path) -> None:
+    database_url = f"sqlite+aiosqlite:///{(tmp_path / 'provider-slots.db').as_posix()}"
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(object_store_mode="local", _env_file=None)
+    async with factory() as session:
+        session.add(User(id=USER_ID, username="provider-capacity-user", password_hash="disabled"))
+        libtv_command = _command_graph(4)[-1]
+        _task, _variant, kling_attempt, kling_command = _command_graph(5)
+        kling_attempt.provider = settings.kling_cli_provider_name
+        kling_attempt.project_uuid = None
+        second_libtv_command = _command_graph(6)[-1]
+        session.add_all([libtv_command, kling_command, second_libtv_command])
+        await session.commit()
+
+        assert await acquire_capacity(session, settings, libtv_command) is not None
+        assert await acquire_capacity(session, settings, kling_command) is not None
+        assert await acquire_capacity(session, settings, second_libtv_command) is None
     await engine.dispose()
 
 

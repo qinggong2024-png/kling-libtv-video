@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SystemStatus, Task, UploadResult, VariantKind } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -144,6 +144,18 @@ export async function uploadStoryboard(file: File): Promise<UploadResult> {
   return request('/api/v1/uploads', { method: 'POST', body, headers: { 'Idempotency-Key': key() } }, { timeoutMs: UPLOAD_TIMEOUT_MS })
 }
 
+export function getVideoTemplates(): Promise<VideoTemplateSummary[]> {
+  return request('/api/v1/video-templates')
+}
+
+export function getSiteStyleProfiles(): Promise<SiteStyleProfileSummary[]> {
+  return request('/api/v1/site-style-profiles')
+}
+
+export function getMotionActions(): Promise<MotionActionSummary[]> {
+  return request('/api/v1/motion-actions')
+}
+
 export function createTask(
   title: string,
   requirement: string,
@@ -166,6 +178,31 @@ export function createTask(
       variants: preferences.variants,
       storyboards: uploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1, required: true })),
       productImages: productUploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1 })),
+    }),
+  })
+}
+
+export function createVideoTask(
+  title: string,
+  uploads: UploadResult[],
+  options: FixedVideoTaskOptions,
+  sourceUploadDurationSeconds = 0,
+) {
+  return request<Task>('/api/v1/video-tasks', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': key() },
+    body: JSON.stringify({
+      clientTaskId: createUuid(),
+      title,
+      storyboards: uploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1, required: true })),
+      templateId: options.templateId,
+      siteProfileId: options.siteProfileId,
+      resultCount: options.resultCount,
+      actionIntensity: options.actionIntensity,
+      cameraTempo: options.cameraTempo,
+      cutMode: options.cutMode,
+      paidSubmissionConsent: true,
+      sourceUploadDurationSeconds,
     }),
   })
 }

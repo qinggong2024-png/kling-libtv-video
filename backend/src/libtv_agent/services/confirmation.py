@@ -2,12 +2,10 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from libtv_agent.adapters.kling_official_cli import (
-    KlingCliError,
-    KlingOfficialCliAdapter,
-)
+from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.libtv import LibTVAdapter, LibTVError
 from libtv_agent.adapters.object_store import ObjectStore
+from libtv_agent.adapters.video_provider import VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import (
     AttemptStatus,
@@ -54,7 +52,7 @@ async def confirm_task(
     actor_id: uuid.UUID,
     settings: Settings,
     *,
-    kling_adapter: KlingOfficialCliAdapter | None = None,
+    kling_adapter: VideoProviderAdapter | None = None,
     accept_risk: bool,
     expected_state_version: int,
     selected_variant_kinds: list[VariantKind] | None = None,
@@ -93,12 +91,17 @@ async def confirm_task(
     real_mode = not is_kling and settings.libtv_adapter_mode == "real"
     prepared_dispatch = real_mode and task.phase == ParentTaskPhase.WAITING_FOR_SEAL
     if is_kling:
-        await ensure_provider_submission_allowed(session, settings, provider)
+        await ensure_provider_submission_allowed(
+            session,
+            settings,
+            provider,
+            user_id=task.user_id,
+        )
         if kling_adapter is None:
-            raise KlingCliError("KLING_CAPABILITY_FETCH_FAILED", "Kling CLI adapter is unavailable")
+            raise KlingCliError("KLING_CAPABILITY_FETCH_FAILED", "Kling adapter is unavailable")
     elif real_mode:
         if settings.libtv_execution_mode == "live":
-            await ensure_paid_submission_allowed(session, settings)
+            await ensure_paid_submission_allowed(session, settings, user_id=task.user_id)
         elif settings.libtv_execution_mode == "dry-run":
             raise RuntimeControlBlockedError(
                 "DRY_RUN_ACTIVE",
@@ -109,7 +112,7 @@ async def confirm_task(
                 "PREPARE_ONLY_ACTIVE", "prepared tasks require explicitly authorized live mode"
             )
     else:
-        await ensure_paid_submission_allowed(session, settings)
+        await ensure_paid_submission_allowed(session, settings, user_id=task.user_id)
     recovering = (
         allow_materialization_recovery
         and task.phase == ParentTaskPhase.ACTION_REQUIRED
@@ -181,31 +184,50 @@ async def confirm_task(
         if variant is None:
             raise RuntimeControlBlockedError("VARIANT_MISSING", "prepared variant is unavailable")
         if is_kling:
-            previews.append(
-                {
-                    "paidBoundary": "kling image_to_video",
-                    "argvContract": [
-                        settings.kling_cli_executable,
-                        "image_to_video",
-                        "--model",
-                        attempt.provider_model or "<runtime-model>",
-                        "--image",
-                        "<local-storyboard>",
-                        "<prompt>",
-                    ],
-                    "parameterSummary": {
-                        "provider": settings.kling_cli_provider_name,
-                        "model": attempt.provider_model,
-                        "duration": settings.kling_cli_default_duration,
-                        "aspectRatio": settings.kling_cli_default_aspect_ratio,
-                        "storyboardFallbackMode": settings.kling_storyboard_fallback_mode,
-                    },
-                    "promptHash": variant.prompt_hash,
-                    "estimatedGenerationCount": 1,
-                    "authorized": settings.kling_cli_enabled,
-                    "costRisk": "Executing this command consumes Kling credits.",
+            parameter_summary = {
+                "provider": attempt.provider,
+                "model": attempt.provider_model,
+                "duration": variant.generation_config_json.get(
+                    "duration", settings.active_kling_duration
+                ),
+                "aspectRatio": variant.generation_config_json.get(
+                    "aspectRatio", settings.active_kling_aspect_ratio
+                ),
+                "storyboardFallbackMode": settings.kling_storyboard_fallback_mode,
+                "resolution": settings.kling_api_resolution,
+                "audio": settings.kling_api_audio,
+                "multiShot": settings.kling_api_multi_shot,
+            }
+            preview: dict[str, object] = {
+                "paidBoundary": (
+                    "POST /omni-video/kling-3.0-omni"
+                    if settings.kling_provider_backend == "api"
+                    else "kling image_to_video"
+                ),
+                "parameterSummary": parameter_summary,
+                "promptHash": variant.prompt_hash,
+                "estimatedGenerationCount": 1,
+                "authorized": settings.kling_enabled,
+                "costRisk": "Submitting this request consumes Kling credits.",
+            }
+            if settings.kling_provider_backend == "api":
+                preview["httpContract"] = {
+                    "method": "POST",
+                    "baseUrl": settings.kling_api_base_url,
+                    "path": "/omni-video/kling-3.0-omni",
+                    "authentication": "Bearer <redacted>",
                 }
-            )
+            else:
+                preview["argvContract"] = [
+                    settings.kling_cli_executable,
+                    "image_to_video",
+                    "--model",
+                    attempt.provider_model or "<runtime-model>",
+                    "--image",
+                    "<local-storyboard>",
+                    "<prompt>",
+                ]
+            previews.append(preview)
         else:
             previews.append(
                 build_generation_preview(
@@ -357,7 +379,7 @@ async def auto_confirm_pass_tasks(
     object_store: ObjectStore,
     settings: Settings,
     *,
-    kling_adapter: KlingOfficialCliAdapter | None = None,
+    kling_adapter: VideoProviderAdapter | None = None,
     limit: int,
 ) -> int:
     runtime = await get_runtime_config(session, settings)
@@ -385,11 +407,7 @@ async def auto_confirm_pass_tasks(
         query = query.join(User, User.id == ParentTask.user_id).where(
             User.auto_confirm_prompts.is_(True)
         )
-    tasks = list(
-        (
-            await session.scalars(query)
-        ).unique()
-    )
+    tasks = list((await session.scalars(query)).unique())
     confirmed = 0
     for task in tasks:
         try:

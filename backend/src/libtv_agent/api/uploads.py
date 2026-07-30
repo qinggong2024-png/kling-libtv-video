@@ -93,6 +93,7 @@ async def upload_storyboard(
             original_filename=file.filename or "storyboard",
             sha256=processed.sha256,
             mime_type=processed.mime_type,
+            size_bytes=processed.normalized_path.stat().st_size,
             width=processed.width,
             height=processed.height,
             object_key=object_key,
@@ -106,6 +107,7 @@ async def upload_storyboard(
             width=upload.width,
             height=upload.height,
             mime_type=upload.mime_type,
+            size_bytes=upload.size_bytes,
             thumbnail_url=f"/api/v1/uploads/{upload.id}/thumbnail",
         )
         await store_idempotent_response(

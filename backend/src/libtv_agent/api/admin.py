@@ -79,8 +79,11 @@ class LibTVAccountUseRequest(BaseModel):
 def _kling_status_payload(request: Request) -> dict[str, object]:
     availability = request.app.state.kling_adapter.availability_snapshot()
     capabilities = request.app.state.kling_adapter.capabilities_snapshot()
+    settings = request.app.state.settings
     return {
-        "enabled": request.app.state.settings.kling_cli_enabled,
+        "enabled": settings.kling_enabled,
+        "backend": settings.kling_provider_backend,
+        "provider": request.app.state.kling_adapter.get_provider_name(),
         "status": availability.status,
         "available": availability.available,
         "authenticated": availability.authenticated,
@@ -106,7 +109,7 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
 async def read_kling_status(actor: Actor, request: Request) -> dict[str, object]:
     require_admin(actor.role)
     availability = await request.app.state.kling_adapter.check_availability()
-    if availability.status == "KLING_CLI_READY":
+    if availability.available:
         try:
             await request.app.state.kling_adapter.refresh_capabilities()
         except KlingCliError:
@@ -131,7 +134,7 @@ async def refresh_kling_capabilities(
             actor_id=actor.id,
             action="KLING_CAPABILITIES_REFRESHED",
             entity_type="provider",
-            entity_id=request.app.state.settings.kling_cli_provider_name,
+            entity_id=request.app.state.kling_adapter.get_provider_name(),
             reason="manual administrator refresh",
             correlation_id=str(uuid.uuid4()),
             evidence_refs_json=[],
@@ -154,7 +157,7 @@ async def _record_kling_auth_event(
             actor_id=actor.id,
             action=action,
             entity_type="provider",
-            entity_id=request.app.state.settings.kling_cli_provider_name,
+            entity_id=request.app.state.kling_adapter.get_provider_name(),
             reason=reason,
             correlation_id=str(uuid.uuid4()),
             evidence_refs_json=[],
@@ -180,7 +183,7 @@ async def login_kling_account(
         session=session,
         request=request,
         action="KLING_ACCOUNT_LOGGED_IN",
-        reason="administrator completed Kling CLI OAuth login",
+        reason="administrator completed Kling Provider authentication",
     )
     return _kling_status_payload(request)
 
@@ -202,7 +205,7 @@ async def logout_kling_account(
         session=session,
         request=request,
         action="KLING_ACCOUNT_LOGGED_OUT",
-        reason="administrator logged out the local Kling CLI account",
+        reason="administrator logged out the Kling Provider account",
     )
     return _kling_status_payload(request)
 

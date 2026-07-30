@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import AttemptStatus
-from libtv_agent.domain.models import AuditEvent, GenerationAttempt, RuntimeConfigVersion
+from libtv_agent.domain.models import (
+    AuditEvent,
+    GenerationAttempt,
+    GenerationVariant,
+    ParentTask,
+    RuntimeConfigVersion,
+)
 from libtv_agent.services.generation_safety import paid_generation_authorized
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +24,138 @@ class RuntimeControlBlockedError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True)
+class UnknownSubmissionRisk:
+    block_provider: bool
+    block_user: bool
+    provider_attempt_count: int
+    provider_unknown_task_count: int
+    provider_unknown_user_count: int
+    user_unknown_task_count: int
+
+
+_RISK_ASSESSED_STATUSES = {
+    AttemptStatus.LAUNCHING,
+    AttemptStatus.RUNNING,
+    AttemptStatus.SUCCEEDED,
+    AttemptStatus.FAILED_TERMINAL,
+    AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+}
+
+
+def _provider_names(provider: str, settings: Settings) -> tuple[str, ...]:
+    normalized = provider.strip().lower()
+    if normalized == "libtv":
+        return ("libtv",)
+    if normalized in {
+        name.strip().lower() for name in settings.kling_provider_names
+    }:
+        return settings.kling_provider_names
+    return (provider,)
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+async def assess_unknown_submission_risk(
+    session: AsyncSession,
+    settings: Settings,
+    provider: str,
+    *,
+    user_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> UnknownSubmissionRisk:
+    """Evaluate recent UNKNOWN bursts without mutating global runtime state.
+
+    A user circuit is isolated to one provider and requires UNKNOWN outcomes
+    from multiple parent tasks. The provider circuit additionally requires a
+    multi-user burst and a minimum sample size, so one user's stale UNKNOWN
+    cannot stop unrelated work.
+    """
+
+    evaluated_at = now or datetime.now(UTC)
+    provider_cutoff = evaluated_at - timedelta(seconds=settings.unknown_provider_window_seconds)
+    user_cutoff = evaluated_at - timedelta(seconds=settings.unknown_user_window_seconds)
+    earliest_cutoff = min(provider_cutoff, user_cutoff)
+    event_at = func.coalesce(
+        GenerationAttempt.submitted_at,
+        GenerationAttempt.launch_started_at,
+        GenerationAttempt.updated_at,
+        GenerationAttempt.created_at,
+    )
+    rows = list(
+        await session.execute(
+            select(
+                GenerationAttempt.status,
+                ParentTask.id,
+                ParentTask.user_id,
+                event_at.label("event_at"),
+            )
+            .join(GenerationVariant, GenerationVariant.id == GenerationAttempt.variant_id)
+            .join(ParentTask, ParentTask.id == GenerationVariant.parent_task_id)
+            .where(
+                GenerationAttempt.provider.in_(_provider_names(provider, settings)),
+                GenerationAttempt.status.in_(_RISK_ASSESSED_STATUSES),
+                event_at >= earliest_cutoff,
+            )
+        )
+    )
+
+    provider_rows = [row for row in rows if _as_utc(row.event_at) >= provider_cutoff]
+    provider_unknown_rows = [
+        row for row in provider_rows if row.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
+    ]
+    provider_unknown_tasks = {row.id for row in provider_unknown_rows}
+    provider_unknown_users = {row.user_id for row in provider_unknown_rows}
+    provider_attempt_count = len(provider_rows)
+    provider_unknown_rate = (
+        len(provider_unknown_rows) / provider_attempt_count if provider_attempt_count else 0.0
+    )
+    block_provider = (
+        provider_attempt_count >= settings.unknown_provider_min_attempts
+        and len(provider_unknown_tasks) >= settings.unknown_provider_distinct_task_threshold
+        and len(provider_unknown_users) >= settings.unknown_provider_distinct_user_threshold
+        and provider_unknown_rate >= settings.unknown_provider_rate_threshold
+    )
+
+    user_unknown_tasks: set[uuid.UUID] = set()
+    if user_id is not None:
+        user_unknown_tasks = {
+            row.id
+            for row in rows
+            if row.user_id == user_id
+            and _as_utc(row.event_at) >= user_cutoff
+            and row.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
+        }
+    block_user = (
+        user_id is not None
+        and len(user_unknown_tasks) >= settings.unknown_user_distinct_task_threshold
+    )
+    return UnknownSubmissionRisk(
+        block_provider=block_provider,
+        block_user=block_user,
+        provider_attempt_count=provider_attempt_count,
+        provider_unknown_task_count=len(provider_unknown_tasks),
+        provider_unknown_user_count=len(provider_unknown_users),
+        user_unknown_task_count=len(user_unknown_tasks),
+    )
+
+
+def _raise_for_unknown_risk(risk: UnknownSubmissionRisk) -> None:
+    if risk.block_provider:
+        raise RuntimeControlBlockedError(
+            "PROVIDER_UNKNOWN_CIRCUIT_OPEN",
+            "recent UNKNOWN outcomes indicate a provider-wide incident; "
+            "only this provider is paused",
+        )
+    if risk.block_user:
+        raise RuntimeControlBlockedError(
+            "USER_PROVIDER_UNKNOWN_CIRCUIT_OPEN",
+            "recent UNKNOWN outcomes for this user and provider require reconciliation",
+        )
 
 
 def default_runtime_config(settings: Settings) -> dict[str, Any]:
@@ -188,7 +328,12 @@ async def set_libtv_auth_required(
     )
 
 
-async def ensure_paid_submission_allowed(session: AsyncSession, settings: Settings) -> None:
+async def ensure_paid_submission_allowed(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> None:
     if settings.libtv_adapter_mode != "real":
         return
     if not paid_generation_authorized(settings):
@@ -199,43 +344,6 @@ async def ensure_paid_submission_allowed(session: AsyncSession, settings: Settin
     current = await get_runtime_config(session, settings)
     if current is None:
         raise RuntimeControlBlockedError("RUNTIME_CONFIG_MISSING", "runtime config is unavailable")
-    unknown = await session.scalar(
-        select(func.count())
-        .select_from(GenerationAttempt)
-        .where(GenerationAttempt.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT)
-    )
-    active = await session.scalar(
-        select(func.count())
-        .select_from(GenerationAttempt)
-        .where(
-            GenerationAttempt.status.in_(
-                [
-                    AttemptStatus.DISPATCH_PENDING,
-                    AttemptStatus.LAUNCHING,
-                    AttemptStatus.RUNNING,
-                    AttemptStatus.UNKNOWN_AFTER_SUBMIT,
-                ]
-            )
-        )
-    )
-    unknown_count = int(unknown or 0)
-    active_count = int(active or 0)
-    if unknown_count >= 2 or (active_count and unknown_count / active_count > 0.10):
-        config = deepcopy(current.config_json)
-        if not config["paidSubmissionsPaused"]:
-            config["paidSubmissionsPaused"] = True
-            await update_runtime_config(
-                session,
-                settings,
-                config=config,
-                actor_id=None,
-                reason="automatic P0 freeze: UNKNOWN threshold exceeded",
-                expected_version=current.version,
-            )
-            await session.commit()
-        raise RuntimeControlBlockedError(
-            "P0_UNKNOWN_THRESHOLD", "new paid submissions are frozen until UNKNOWN converges"
-        )
     if current.config_json["globalPaused"]:
         raise RuntimeControlBlockedError("GLOBAL_PAUSED", "global generation pause is active")
     if current.config_json.get("libtvAuthRequired", False):
@@ -244,21 +352,33 @@ async def ensure_paid_submission_allowed(session: AsyncSession, settings: Settin
         )
     if current.config_json["paidSubmissionsPaused"]:
         raise RuntimeControlBlockedError("PAID_SUBMISSIONS_PAUSED", "paid confirmations are paused")
+    _raise_for_unknown_risk(
+        await assess_unknown_submission_risk(
+            session,
+            settings,
+            "libtv",
+            user_id=user_id,
+        )
+    )
 
 
 async def ensure_provider_submission_allowed(
-    session: AsyncSession, settings: Settings, provider: str
+    session: AsyncSession,
+    settings: Settings,
+    provider: str,
+    *,
+    user_id: uuid.UUID | None = None,
 ) -> None:
     if provider == "libtv":
-        await ensure_paid_submission_allowed(session, settings)
+        await ensure_paid_submission_allowed(session, settings, user_id=user_id)
         return
-    if provider not in {"kling", settings.kling_cli_provider_name}:
+    if provider not in settings.kling_provider_names:
         raise RuntimeControlBlockedError(
             "PROVIDER_UNSUPPORTED", f"unsupported generation provider: {provider}"
         )
-    if not settings.kling_cli_enabled:
+    if not settings.kling_provider_enabled(provider):
         raise RuntimeControlBlockedError(
-            "KLING_CAPABILITY_UNSUPPORTED", "Kling CLI Provider is disabled"
+            "KLING_CAPABILITY_UNSUPPORTED", "The selected Kling Provider is disabled"
         )
     current = await get_runtime_config(session, settings)
     if current is None:
@@ -267,6 +387,14 @@ async def ensure_provider_submission_allowed(
         raise RuntimeControlBlockedError("GLOBAL_PAUSED", "global generation pause is active")
     if current.config_json["paidSubmissionsPaused"]:
         raise RuntimeControlBlockedError("PAID_SUBMISSIONS_PAUSED", "paid confirmations are paused")
+    _raise_for_unknown_risk(
+        await assess_unknown_submission_risk(
+            session,
+            settings,
+            provider,
+            user_id=user_id,
+        )
+    )
 
 
 async def generation_claims_allowed(session: AsyncSession, settings: Settings) -> bool:
@@ -280,14 +408,34 @@ async def generation_claims_allowed(session: AsyncSession, settings: Settings) -
     )
 
 
-async def provider_claims_allowed(session: AsyncSession, settings: Settings, provider: str) -> bool:
+async def provider_claims_allowed(
+    session: AsyncSession,
+    settings: Settings,
+    provider: str,
+    *,
+    user_id: uuid.UUID | None = None,
+) -> bool:
     current = await get_runtime_config(session, settings)
     if current is None or current.config_json["globalPaused"]:
         return False
     if provider == "libtv":
-        return await generation_claims_allowed(session, settings)
-    return bool(
-        provider in {"kling", settings.kling_cli_provider_name}
-        and settings.kling_cli_enabled
-        and not current.config_json["paidSubmissionsPaused"]
+        if not await generation_claims_allowed(session, settings):
+            return False
+        risk = await assess_unknown_submission_risk(
+            session,
+            settings,
+            provider,
+            user_id=user_id,
+        )
+        return not risk.block_provider and not risk.block_user
+    if provider not in settings.kling_provider_names or not settings.kling_provider_enabled(
+        provider
+    ):
+        return False
+    risk = await assess_unknown_submission_risk(
+        session,
+        settings,
+        provider,
+        user_id=user_id,
     )
+    return not risk.block_provider and not risk.block_user

@@ -124,7 +124,7 @@ async def create_analyzed_task(
     client: AsyncClient,
     colors: list[str] | None = None,
     client_task_id: str = "client-1",
-    analysis_model: str = "gpt-5.6-terra",
+    analysis_model: str = "gpt-5.6-luna",
     user_requirement: str = "突出服装细节",
     variants: list[str] | None = None,
 ) -> dict:
@@ -183,7 +183,7 @@ async def create_draft_task(
             "title": f"Task {client_task_id}",
             "storyboards": [{"uploadId": upload.json()["id"], "order": 1, "required": True}],
             "userRequirement": "突出服装细节",
-            "analysisModel": "gpt-5.6-terra",
+            "analysisModel": "gpt-5.6-luna",
             "generationProvider": "libtv",
         },
     )
@@ -378,17 +378,21 @@ async def test_analysis_provider_failure_is_persisted(
 
 
 @pytest.mark.asyncio
-async def test_analysis_falls_back_to_sol_when_terra_result_fails_validation(
+async def test_analysis_falls_back_to_terra_when_luna_result_fails_validation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    requested_models: list[str] = []
+    requested_models: list[tuple[str, str, int]] = []
 
     async def analyze(adapter: object, _prompt: str, images: list[object]) -> object:
         model = str(adapter.settings.openai_model)  # type: ignore[attr-defined]
-        requested_models.append(model)
+        effort = str(adapter.settings.openai_reasoning_effort)  # type: ignore[attr-defined]
+        max_output_tokens = int(  # type: ignore[attr-defined]
+            adapter.settings.openai_analysis_max_output_tokens
+        )
+        requested_models.append((model, effort, max_output_tokens))
         asset_ids = [str(image.asset_id) for image in images]
         result = fake_analysis(asset_ids)
-        if model == "gpt-5.6-terra":
+        if model == "gpt-5.6-luna":
             result.dynamic_plan = result.stable_plan.model_copy(deep=True)
         return result
 
@@ -399,7 +403,10 @@ async def test_analysis_falls_back_to_sol_when_terra_result_fails_validation(
         task = await create_analyzed_task(client, client_task_id="analysis-fallback")
 
         assert task["phase"] == "AWAITING_CONFIRMATION"
-        assert requested_models == ["gpt-5.6-terra", "gpt-5.6-sol"]
+        assert requested_models == [
+            ("gpt-5.6-luna", "none", 4000),
+            ("gpt-5.6-terra", "low", 6000),
+        ]
         async with app.state.database.session_factory() as session:
             fallback_events = list(
                 await session.scalars(
@@ -409,8 +416,8 @@ async def test_analysis_falls_back_to_sol_when_terra_result_fails_validation(
                 )
             )
         assert len(fallback_events) == 1
-        assert "primaryModel:gpt-5.6-terra" in fallback_events[0].evidence_refs_json
-        assert "fallbackModel:gpt-5.6-sol" in fallback_events[0].evidence_refs_json
+        assert "primaryModel:gpt-5.6-luna" in fallback_events[0].evidence_refs_json
+        assert "fallbackModel:gpt-5.6-terra" in fallback_events[0].evidence_refs_json
 
 
 @pytest.mark.asyncio
@@ -439,7 +446,7 @@ async def test_analysis_timeout_is_persisted(
         current = await wait_for_task_phase(client, task["id"], "ACTION_REQUIRED")
         assert current["phaseReasonCode"] == "ANALYSIS_TIMEOUT"
         assert current["actionCapabilities"]["canRetryAnalysis"] is True
-        assert requested_models == ["gpt-5.6-terra"]
+        assert requested_models == ["gpt-5.6-luna"]
 
         async def succeed(_adapter: object, _prompt: str, images: list[object]) -> object:
             asset_ids = [str(image.asset_id) for image in images]
@@ -870,6 +877,44 @@ async def test_product_reference_is_analyzed_but_not_uploaded_to_libtv(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_kling_task_marks_product_reference_for_role_bound_generation(
+    tmp_path: Path,
+) -> None:
+    async with running_app(tmp_path) as (client, _):
+        uploads = []
+        for index, (name, color) in enumerate(
+            (("storyboard.png", "#217a58"), ("product.png", "#d6a32d")), start=1
+        ):
+            response = await client.post(
+                "/api/v1/uploads",
+                headers=user_headers(f"kling-split-upload-{index}"),
+                files={"file": (name, png_bytes(color), "image/png")},
+            )
+            assert response.status_code == 201, response.text
+            uploads.append(response.json())
+
+        response = await client.post(
+            "/api/v1/tasks",
+            headers=user_headers("kling-split-create"),
+            json={
+                "clientTaskId": "kling-split-inputs",
+                "title": "Kling split inputs",
+                "generationProvider": "kling",
+                "storyboards": [{"uploadId": uploads[0]["id"], "order": 1}],
+                "productImages": [{"uploadId": uploads[1]["id"], "order": 1}],
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert [
+            (asset["role"], asset["usedForGeneration"]) for asset in response.json()["assets"]
+        ] == [
+            ("STORYBOARD", True),
+            ("PRODUCT", True),
+        ]
+
+
+@pytest.mark.asyncio
 async def test_cross_user_isolation_and_duplicate_submit_protection(tmp_path: Path) -> None:
     async with running_app(tmp_path) as (client, app):
         task = await create_analyzed_task(client)
@@ -1262,7 +1307,7 @@ async def test_complete_synthetic_replay_flow_is_deliverable(tmp_path: Path) -> 
     async with running_app(tmp_path, libtv_mode="replay", ai_mode="replay") as (client, _):
         task = await create_analyzed_task(client, ["#356c52"], "synthetic-replay")
         assert task["phase"] == "AWAITING_CONFIRMATION"
-        assert task["analysisResult"]["modelVersion"] == "synthetic-replay-2.1"
+        assert task["analysisResult"]["modelVersion"] == "synthetic-replay-2.2"
         assert task["analysisResult"]["stablePlan"]["shots"][0]["action"] == "做小幅自然动作"
         response = await client.post(
             f"/api/v1/tasks/{task['id']}/confirm",

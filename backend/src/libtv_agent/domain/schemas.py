@@ -32,6 +32,7 @@ class UploadRead(ApiModel):
     width: int
     height: int
     mime_type: str
+    size_bytes: int
     thumbnail_url: str
 
 
@@ -54,7 +55,7 @@ class TaskCreate(ApiModel):
     user_requirement: str = Field(default="", max_length=4000)
     generation_preset: str = "DEFAULT_10S_9X16"
     analysis_model: str = Field(
-        default="gpt-5.6-terra",
+        default="gpt-5.6-luna",
         min_length=1,
         max_length=100,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -90,6 +91,30 @@ class TaskCreate(ApiModel):
         return self
 
 
+class VideoTaskCreate(ApiModel):
+    client_task_id: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    storyboards: list[StoryboardInput] = Field(min_length=1, max_length=7)
+    template_id: str = Field(min_length=1, max_length=80)
+    site_profile_id: str = Field(min_length=1, max_length=80)
+    result_count: int = Field(default=1, ge=1, le=4)
+    action_intensity: Literal["low", "standard", "high"] = "standard"
+    camera_tempo: Literal["slow", "standard", "fast"] = "standard"
+    cut_mode: Literal["explicit_cuts", "continuous_when_possible"] = "explicit_cuts"
+    paid_submission_consent: bool
+    source_upload_duration_seconds: float = Field(default=0, ge=0, le=86_400)
+
+    @model_validator(mode="after")
+    def validate_storyboards(self) -> "VideoTaskCreate":
+        orders = [item.order for item in self.storyboards]
+        if sorted(orders) != list(range(1, len(orders) + 1)):
+            raise ValueError("storyboard order must be contiguous and start at 1")
+        upload_ids = [item.upload_id for item in self.storyboards]
+        if len(set(upload_ids)) != len(upload_ids):
+            raise ValueError("storyboard uploads must be unique")
+        return self
+
+
 class TaskReuseRequest(ApiModel):
     client_task_id: str = Field(min_length=1, max_length=160)
     title: str = Field(min_length=1, max_length=160)
@@ -118,6 +143,7 @@ class AssetRead(ApiModel):
     sha256: str
     width: int
     height: int
+    size_bytes: int = 0
     thumbnail_url: str
     role: str = "STORYBOARD"
     used_for_analysis: bool = True
@@ -135,6 +161,13 @@ class VariantRead(ApiModel):
     validation_status: ValidationStatus
     download_artifact_id: uuid.UUID | None = None
     error_code: str | None = None
+    provider: str
+    provider_task_id: str | None = None
+    provider_status: str | None = None
+    execution_backend: str | None = None
+    variant_index: int | None = None
+    variant_key: str | None = None
+    variant_seed: dict[str, Any] = Field(default_factory=dict)
     feedback: FeedbackValue | None = None
     feedback_reasons: list[FeedbackReason] = Field(default_factory=list)
     feedback_comment: str | None = None
@@ -234,6 +267,15 @@ class TaskRead(ApiModel):
     points_quota: PointsQuotaRead
     action_capabilities: ActionCapabilities
     timing: TaskTimingRead = Field(default_factory=TaskTimingRead)
+    workflow_kind: str = "LEGACY_ANALYSIS"
+    template_id: str | None = None
+    template_version: str | None = None
+    site_profile_id: str | None = None
+    site_profile_version: str | None = None
+    settings: dict[str, Any] = Field(default_factory=dict)
+    compiled_plan: dict[str, Any] | None = None
+    material_validation: dict[str, Any] | None = None
+    paid_submission_consent_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -242,6 +284,7 @@ class TaskRead(ApiModel):
         "updated_at",
         "analysis_started_at",
         "analysis_heartbeat_at",
+        "paid_submission_consent_at",
     )
     @classmethod
     def normalize_task_timestamp(cls, value: datetime | None) -> datetime | None:

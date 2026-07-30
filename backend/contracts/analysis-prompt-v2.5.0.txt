@@ -1,0 +1,76 @@
+ANALYSIS_PROMPT_VERSION: analysis-v2.5.0
+OUTPUT_SCHEMA_VERSION: 2.1
+
+Analyze the labeled images for a fixed 10-second, 9:16 garment video.
+The manifest is authoritative. STORYBOARD rows are ordered video references.
+PRODUCT_REFERENCE rows only verify garment details. Never invent, rename, merge,
+reclassify, or reorder asset IDs.
+
+ASSET_MANIFEST:
+{{ASSET_MANIFEST}}
+
+USER_REQUIREMENT:
+{{USER_REQUIREMENT}}
+
+Required analysis:
+1. Extract garment category, colors, print, logo, text, fit, and proven front/back
+   selling points.
+2. Emit exactly one storyboardFacts item per STORYBOARD row, with its exact assetId
+   and order. Compactly describe scene and movement space, framing, pose, free
+   limbs, feasible actions, visible props, product visibility, and shot function.
+   Never emit storyboardFacts for PRODUCT_REFERENCE rows.
+3. Record observable conflicts in identity, garment, branding, text, scene, or
+   product details. evidenceAssetIds may contain only manifest IDs.
+4. Normalize the user requirement without adding unstated requirements.
+
+Plan rules:
+- Produce Stable and Dynamic plans with 1-4 shots each and explicit cuts.
+- Cover every STORYBOARD asset at least once in both plans. With more than four,
+  group adjacent compatible asset IDs in one shot. Use only STORYBOARD IDs in
+  referenceAssetIds; never use PRODUCT_REFERENCE IDs. Weights must be positive.
+- Ground each shot in the space, pose, free limbs, props, and product areas visible
+  in its own references.
+- Dynamic must not mean faster. It must use a clearly different person action, body
+  orientation, or feasible path from Stable; a camera-only difference is invalid.
+- Preserve the same observable person, garment, branding, text, and scene identity.
+- Use short factual Chinese phrases. Keep continuityStrategy to one short sentence.
+  Do not repeat evidence or general consistency constraints in every field.
+
+Motion and scene rules:
+- Use natural even-speed body motion and smooth restrained camera motion. Never use
+  fast, quick, rapid, brisk, or sudden movement, speed ramps, whip pans, rapid
+  push-ins, sudden zooms, or fast tracking.
+- Stable is restrained but not frozen. Dynamic may move one controlled level farther
+  only when space permits. Prefer framing cuts over higher speed. End on a settled,
+  unobstructed product view.
+- Mirror selfie or mirror recording: stay inside the visible mirror and preserve phone, arm, reflection,
+  and body relationships; never invent an outside tracking camera.
+- Small room: stay inside visible floor space; use at most one or two natural steps.
+  Outdoor/open scene may use a larger but unhurried path. Seated subjects remain
+  seated unless another referenced storyboard proves standing.
+- Use only props visible in the referenced storyboard.
+
+Garment rules:
+- T-shirt/short sleeve: use controlled weight shifts, a small step, shoulder turn,
+  arm opening, or brief side-hem interaction while keeping print visible.
+- Sports jersey: may use clearer stance and step changes; keep numbers, logos, and
+  text readable. Use sports props only when visible.
+- Dress or skirt: keep motion small and mainly in place; allow at most one slow
+  half-step. Never use continuous walking, cross-steps, spinning, swishing, yanking,
+  or dramatic skirt pulling.
+- Treat prints, text, logos, and seams as surface-locked textures. Keep position,
+  scale, and shape stable without crawling, drifting, flicker, jitter, or stretching.
+  Prefer texture stability over exaggerated fabric motion.
+- For other garments, scale motion to structure, loose fabric, text/logo risk, and
+  visible space. Never invent an unproven back view.
+
+Output rules:
+- All human-readable string values in garmentFacts, storyboardFacts,
+  consistencyObservations, both plans, and userRequirementNormalized must be concise
+  Simplified Chinese. Keep schema identifiers, enum values, asset IDs, and
+  modelVersion in their required form.
+- Return only AnalysisResult schema 2.1. Do not infer unreadable text, hidden details,
+  identity, props, space, or continuity; record uncertainty in unknownFields and
+  riskFlags.
+- Do not issue PASS, WARNING, QUALITY_REVIEW, or SYSTEM_BLOCK. Never include URLs,
+  credentials, object keys, extra prose, or unknown asset IDs.

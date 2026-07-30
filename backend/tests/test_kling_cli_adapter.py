@@ -263,6 +263,98 @@ async def test_numbered_multi_image_model_passes_every_storyboard(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_product_references_follow_storyboards_and_receive_role_guard(
+    tmp_path: Path,
+) -> None:
+    identity = _identity(tail=False)
+    model = identity["availableModels"]["image_to_video"]["models"][0]
+    model["inputs"] = [{"name": f"image_{index}", "required": index == 1} for index in range(1, 4)]
+    storyboard_paths = (tmp_path / "storyboard-1.png", tmp_path / "storyboard-2.png")
+    product_path = tmp_path / "product-reference-1.png"
+    for path in (*storyboard_paths, product_path):
+        path.write_bytes(b"image")
+    calls: list[list[str]] = []
+    adapter = KlingOfficialCliAdapter(
+        _settings(tmp_path), process_runner=_runner(calls, identity=identity)
+    )
+
+    await adapter.submit(
+        VideoGenerationRequest(
+            prompt="模特自然转身展示服装",
+            model=None,
+            image_paths=storyboard_paths,
+            product_reference_paths=(product_path,),
+            duration=10,
+            aspect_ratio="9:16",
+        )
+    )
+
+    submission = next(call for call in calls if "image_to_video" in call)
+    image_values = [
+        submission[index + 1] for index, value in enumerate(submission[:-1]) if value == "--image"
+    ]
+    assert image_values == [*(str(path) for path in storyboard_paths), str(product_path)]
+    prompt = submission[-1]
+    assert "图片1至图片2是分镜图" in prompt
+    assert "图片3是产品参考图" in prompt
+    assert "只用于还原服装款式、版型、颜色、面料、印花、Logo与文字细节" in prompt
+    assert "不得采用产品参考图的背景、构图、摆放方式或拍摄姿势" in prompt
+    assert prompt.endswith("模特自然转身展示服装")
+
+
+@pytest.mark.asyncio
+async def test_product_reference_requires_numbered_multi_image_model(tmp_path: Path) -> None:
+    storyboard = tmp_path / "storyboard.png"
+    product = tmp_path / "product.png"
+    storyboard.write_bytes(b"storyboard")
+    product.write_bytes(b"product")
+    adapter = KlingOfficialCliAdapter(
+        _settings(tmp_path), process_runner=_runner([], identity=_identity(tail=True))
+    )
+
+    with pytest.raises(KlingCliError) as captured:
+        await adapter.validate_request(
+            VideoGenerationRequest(
+                prompt="animate",
+                model=None,
+                image_paths=(storyboard,),
+                product_reference_paths=(product,),
+                duration=10,
+                aspect_ratio="9:16",
+            )
+        )
+
+    assert captured.value.code == "KLING_PRODUCT_REFERENCE_UNSUPPORTED"
+
+
+@pytest.mark.asyncio
+async def test_storyboards_and_product_references_share_model_image_limit(tmp_path: Path) -> None:
+    identity = _identity(tail=False)
+    model = identity["availableModels"]["image_to_video"]["models"][0]
+    model["inputs"] = [{"name": f"image_{index}", "required": index == 1} for index in range(1, 4)]
+    paths = tuple(tmp_path / f"{index}.png" for index in range(4))
+    for path in paths:
+        path.write_bytes(b"image")
+    adapter = KlingOfficialCliAdapter(
+        _settings(tmp_path), process_runner=_runner([], identity=identity)
+    )
+
+    with pytest.raises(KlingCliError) as captured:
+        await adapter.validate_request(
+            VideoGenerationRequest(
+                prompt="animate",
+                model=None,
+                image_paths=paths[:2],
+                product_reference_paths=paths[2:],
+                duration=10,
+                aspect_ratio="9:16",
+            )
+        )
+
+    assert captured.value.code == "KLING_IMAGE_INPUT_LIMIT_EXCEEDED"
+
+
+@pytest.mark.asyncio
 async def test_query_requires_output_url_on_success(tmp_path: Path) -> None:
     adapter = KlingOfficialCliAdapter(
         _settings(tmp_path),

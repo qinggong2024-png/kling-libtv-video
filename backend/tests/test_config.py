@@ -5,9 +5,13 @@ from libtv_agent.config import Settings
 def test_contract_defaults() -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.openai_model == "gpt-5.6-terra"
-    assert settings.openai_analysis_fallback_model == "gpt-5.6-sol"
-    assert settings.openai_reasoning_effort == "low"
+    assert settings.openai_model == "gpt-5.6-luna"
+    assert settings.openai_analysis_fallback_model == "gpt-5.6-terra"
+    assert settings.openai_reasoning_effort == "none"
+    assert settings.openai_analysis_fallback_reasoning_effort == "low"
+    assert settings.openai_analysis_verbosity == "low"
+    assert settings.openai_analysis_max_output_tokens == 4000
+    assert settings.openai_analysis_fallback_max_output_tokens == 6000
     assert settings.analysis_timeout_for_image_count(4) == 180
     assert settings.analysis_timeout_for_image_count(8) == 360
     assert settings.analysis_timeout_for_image_count(20) == 600
@@ -18,6 +22,38 @@ def test_contract_defaults() -> None:
     assert settings.download_concurrency == 4
     assert settings.technical_validation_concurrency == 2
     assert settings.output_retention_days == 7
+    assert settings.kling_provider_backend == "cli"
+    assert settings.kling_api_base_url == "https://api-singapore.klingai.com"
+    assert settings.kling_api_model == "kling-3.0-omni"
+    assert settings.kling_api_duration == 10
+    assert settings.kling_api_aspect_ratio == "9:16"
+    assert settings.kling_api_enabled is False
+
+
+def test_kling_api_configuration_selects_independent_provider() -> None:
+    settings = Settings(
+        kling_provider_backend="api",
+        kling_api_enabled=True,
+        kling_api_key="fake-test-key",
+        kling_api_base_url="https://api-singapore.klingai.com/",
+        _env_file=None,
+    )
+
+    assert settings.kling_enabled is True
+    assert settings.active_kling_provider_name == "kling_official_api"
+    assert settings.active_kling_model == "kling-3.0-omni"
+    assert settings.kling_api_base_url == "https://api-singapore.klingai.com"
+    assert settings.kling_provider_enabled("kling_official_api") is True
+    assert settings.kling_provider_enabled("kling_official_cli") is False
+
+
+def test_test_environment_cannot_enable_paid_kling_api_test() -> None:
+    with pytest.raises(ValueError, match="cannot enable paid"):
+        Settings(
+            app_env="test",
+            kling_api_enable_paid_integration_test=True,
+            _env_file=None,
+        )
 
 
 def test_analysis_stale_threshold_covers_maximum_timeout() -> None:

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 
-from libtv_agent.adapters.kling_official_cli import KlingOfficialCliAdapter
+from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import LibTVAdapter, LibTVError, create_libtv_adapter
 from libtv_agent.adapters.object_store import create_object_store
 from libtv_agent.config import Settings
@@ -103,7 +103,7 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     settings.validate_shared_environment()
     database = Database(settings.database_url)
     adapter = create_libtv_adapter(settings)
-    kling_adapter = KlingOfficialCliAdapter(settings)
+    kling_adapter = create_kling_adapter(settings)
     object_store = create_object_store(settings)
     manager = CommandHostManager(
         settings.runner_root / "command-hosts",

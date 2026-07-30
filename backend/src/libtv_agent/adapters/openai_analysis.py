@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from libtv_agent.config import Settings
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,63 +13,65 @@ class ContractModel(BaseModel):
 
 
 class GarmentFacts(ContractModel):
-    category: str = ""
-    main_color: str = ""
-    secondary_color: str = ""
-    print: str = ""
-    logo: str = ""
-    text: str = ""
-    fit: str = ""
-    front_selling_points: list[str] = Field(default_factory=list)
-    back_selling_points: list[str] = Field(default_factory=list)
-    unknown_fields: list[str] = Field(default_factory=list)
+    category: str = Field(default="", max_length=40)
+    main_color: str = Field(default="", max_length=40)
+    secondary_color: str = Field(default="", max_length=40)
+    print: str = Field(default="", max_length=80)
+    logo: str = Field(default="", max_length=80)
+    text: str = Field(default="", max_length=80)
+    fit: str = Field(default="", max_length=60)
+    front_selling_points: list[str] = Field(default_factory=list, max_length=4)
+    back_selling_points: list[str] = Field(default_factory=list, max_length=4)
+    unknown_fields: list[str] = Field(default_factory=list, max_length=8)
 
 
 class StoryboardFact(ContractModel):
     asset_id: str
     order: int = Field(ge=1, le=7)
-    scene: str = ""
-    framing: str = ""
-    pose: str = ""
-    action_candidates: list[str] = Field(default_factory=list)
-    interaction_objects: list[str] = Field(default_factory=list)
-    product_visibility: str = "front_clear"
-    shot_function: str = "product_opening"
+    scene: str = Field(default="", max_length=80)
+    framing: str = Field(default="", max_length=60)
+    pose: str = Field(default="", max_length=80)
+    action_candidates: list[str] = Field(default_factory=list, max_length=3)
+    interaction_objects: list[str] = Field(default_factory=list, max_length=3)
+    product_visibility: str = Field(default="front_clear", max_length=80)
+    shot_function: str = Field(default="product_opening", max_length=80)
 
 
 class ConsistencyObservations(ContractModel):
-    reason_codes: list[str] = Field(default_factory=list)
-    summary: str = ""
-    unknown_fields: list[str] = Field(default_factory=list)
-    evidence_asset_ids: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list, max_length=8)
+    summary: str = Field(default="", max_length=240)
+    unknown_fields: list[str] = Field(default_factory=list, max_length=8)
+    evidence_asset_ids: list[str] = Field(default_factory=list, max_length=7)
 
 
 class ShotPlan(ContractModel):
-    reference_asset_ids: list[str] = Field(min_length=1)
+    reference_asset_ids: list[str] = Field(min_length=1, max_length=7)
     duration_weight: float = Field(gt=0)
-    action: str
-    camera: str
-    product_display: str
-    shot_function: str
+    entry_state: str = Field(max_length=120)
+    action: str = Field(max_length=120)
+    exit_state: str = Field(max_length=120)
+    camera: str = Field(max_length=100)
+    product_display: str = Field(max_length=100)
+    shot_function: str = Field(max_length=100)
 
 
 class VariantPlan(ContractModel):
-    continuity_strategy: str = "explicit_cuts"
-    shots: list[ShotPlan] = Field(min_length=1, max_length=7)
+    continuity_strategy: Literal["state_continuity"] = "state_continuity"
+    shots: list[ShotPlan] = Field(min_length=1, max_length=4)
 
 
 class AnalysisResult(ContractModel):
-    schema_version: str = "2.1"
+    schema_version: Literal["2.2"] = "2.2"
     garment_facts: GarmentFacts
     storyboard_facts: list[StoryboardFact] = Field(min_length=1, max_length=7)
     consistency_observations: ConsistencyObservations = Field(
         default_factory=ConsistencyObservations
     )
-    risk_flags: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list, max_length=8)
     stable_plan: VariantPlan
     dynamic_plan: VariantPlan
-    user_requirement_normalized: str = ""
-    model_version: str
+    user_requirement_normalized: str = Field(default="", max_length=240)
+    model_version: str = Field(max_length=80)
 
 
 class AnalysisAdapter(Protocol):
@@ -93,13 +95,35 @@ def fake_analysis(asset_ids: list[str], user_requirement: str = "") -> AnalysisR
         StoryboardFact(asset_id=asset_id, order=index + 1)
         for index, asset_id in enumerate(asset_ids)
     ]
-    stable_groups = [asset_ids[index::3] for index in range(min(3, len(asset_ids)))]
-    dynamic_groups = [asset_ids[index::4] for index in range(min(4, len(asset_ids)))]
+    stable_group_count = min(3, len(asset_ids))
+    dynamic_group_count = min(4, len(asset_ids))
+    stable_groups = [
+        asset_ids[
+            index * len(asset_ids) // stable_group_count : (index + 1)
+            * len(asset_ids)
+            // stable_group_count
+        ]
+        for index in range(stable_group_count)
+    ]
+    dynamic_groups = [
+        asset_ids[
+            index * len(asset_ids) // dynamic_group_count : (index + 1)
+            * len(asset_ids)
+            // dynamic_group_count
+        ]
+        for index in range(dynamic_group_count)
+    ]
     stable = [
         ShotPlan(
             reference_asset_ids=group,
-            duration_weight=1,
+            duration_weight=1 + (0.25 if index == len(stable_groups) - 1 else 0),
+            entry_state=(
+                "从参考图中的自然站姿开始"
+                if index == 0
+                else "承接上一段结束时的人物位置、朝向和手部状态"
+            ),
             action="做小幅自然动作",
+            exit_state="动作自然落定并保持商品区域清晰",
             camera="稳定缓慢推进",
             product_display="服装正面",
             shot_function="产品清晰开场" if index == 0 else "细节展示",
@@ -109,8 +133,12 @@ def fake_analysis(asset_ids: list[str], user_requirement: str = "") -> AnalysisR
     dynamic = [
         ShotPlan(
             reference_asset_ids=group,
-            duration_weight=1,
+            duration_weight=1.25 if index == 0 else 1,
+            entry_state=(
+                "从参考图中的自然站姿开始" if index == 0 else "从上一段结束姿势和运动方向继续"
+            ),
             action="在场景中自信行进",
+            exit_state="动作平稳收束并形成下一段可延续的姿势",
             camera="控制横向跟拍",
             product_display="服装整体轮廓",
             shot_function="强动态广告开场" if index == 0 else "动态展示",
@@ -123,7 +151,7 @@ def fake_analysis(asset_ids: list[str], user_requirement: str = "") -> AnalysisR
         stable_plan=VariantPlan(shots=stable),
         dynamic_plan=VariantPlan(shots=dynamic),
         user_requirement_normalized=" ".join(user_requirement.split()),
-        model_version="fake-2.1",
+        model_version="fake-2.2",
     )
 
 
@@ -193,6 +221,7 @@ class OpenAIAnalysisAdapter:
                 response = await client.responses.parse(
                     model=self.settings.openai_model,
                     reasoning={"effort": self.settings.openai_reasoning_effort},
+                    max_output_tokens=self.settings.openai_analysis_max_output_tokens,
                     input=[{"role": "user", "content": content}],
                     text_format=AnalysisResult,
                 )

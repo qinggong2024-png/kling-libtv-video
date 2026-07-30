@@ -40,8 +40,14 @@ class VideoGenerationRequest:
     image_paths: tuple[Path, ...]
     duration: int | None
     aspect_ratio: str | None
+    product_reference_paths: tuple[Path, ...] = ()
     fallback_mode: str = "disabled"
     task_trace_id: str | None = None
+    resolution: str | None = None
+    audio: str | None = None
+    multi_shot: bool | None = None
+    external_task_id: str | None = None
+    callback_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,7 @@ class ProviderTaskResult:
     raw_status: str
     outputs: tuple[ProviderOutput, ...]
     raw_response: dict[str, Any]
+    credits_consumed: int | None = None
 
 
 @dataclass(frozen=True)
