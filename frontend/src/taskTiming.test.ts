@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
+import {
+  formatDurationSeconds,
+  formatElapsed,
+  parseTaskTimestamp,
+  visibleTaskTimingStageKeys,
+} from './taskTiming'
 
 describe('task timing', () => {
   it('treats timezone-less API timestamps as UTC', () => {
@@ -24,5 +29,24 @@ describe('task timing', () => {
   it('formats live stage durations with seconds', () => {
     expect(formatDurationSeconds(38 * 60 + 7)).toBe('38 分 7 秒')
     expect(formatDurationSeconds(2 * 3600 + 3 * 60)).toBe('2 小时 3 分')
+  })
+
+  it('only shows real execution stages for fixed-template tasks', () => {
+    expect(visibleTaskTimingStageKeys('FIXED_TEMPLATE')).toEqual([
+      'SOURCE_UPLOAD',
+      'GENERATION',
+      'DOWNLOAD',
+    ])
+  })
+
+  it('keeps analysis and confirmation stages for legacy tasks', () => {
+    expect(visibleTaskTimingStageKeys('LEGACY_ANALYSIS')).toEqual([
+      'SOURCE_UPLOAD',
+      'ANALYSIS',
+      'CONFIRMATION',
+      'MATERIALIZATION',
+      'GENERATION',
+      'DOWNLOAD',
+    ])
   })
 })

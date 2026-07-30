@@ -100,7 +100,12 @@ import { KlingElementsPanel } from './KlingElementsPanel'
 import { OperationsPanel } from './OperationsPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
 import { formatRiskFlags } from './riskLabels'
-import { formatDurationSeconds, formatElapsed, parseTaskTimestamp } from './taskTiming'
+import {
+  formatDurationSeconds,
+  formatElapsed,
+  parseTaskTimestamp,
+  visibleTaskTimingStageKeys,
+} from './taskTiming'
 import { createUuid } from './uuid'
 import {
   providerPresentation,
@@ -369,7 +374,8 @@ function TaskTimingTimeline({ task }: { task: Task }) {
     return () => window.clearInterval(timer)
   }, [hasActiveStage])
 
-  const stages = TASK_TIMING_STAGE_META.map((meta) => ({
+  const visibleStageKeys = new Set(visibleTaskTimingStageKeys(task.workflowKind))
+  const stages = TASK_TIMING_STAGE_META.filter(({ key }) => visibleStageKeys.has(key)).map((meta) => ({
     ...meta,
     stage: stagesByKey.get(meta.key) ?? {
       key: meta.key,
@@ -405,7 +411,10 @@ function TaskTimingTimeline({ task }: { task: Task }) {
         <div><dt>总耗时</dt><dd>{formatDurationSeconds(totalSeconds)}</dd></div>
       </dl>
     </header>
-    <ol className="task-timing-stages">
+    <ol
+      className="task-timing-stages"
+      style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }}
+    >
       {stages.map(({ key, category, stage }, index) => {
         const elapsed = stageElapsedSeconds(stage, now)
         const statusText = stage.status === 'ACTIVE'

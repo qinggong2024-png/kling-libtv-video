@@ -1,5 +1,36 @@
 const EXPLICIT_TIMEZONE = /(Z|[+-]\d{2}:\d{2})$/i
 
+export type TaskTimingStageKey =
+  | 'SOURCE_UPLOAD'
+  | 'ANALYSIS'
+  | 'CONFIRMATION'
+  | 'MATERIALIZATION'
+  | 'GENERATION'
+  | 'DOWNLOAD'
+
+const FIXED_TEMPLATE_STAGE_KEYS: readonly TaskTimingStageKey[] = [
+  'SOURCE_UPLOAD',
+  'GENERATION',
+  'DOWNLOAD',
+]
+
+const LEGACY_ANALYSIS_STAGE_KEYS: readonly TaskTimingStageKey[] = [
+  'SOURCE_UPLOAD',
+  'ANALYSIS',
+  'CONFIRMATION',
+  'MATERIALIZATION',
+  'GENERATION',
+  'DOWNLOAD',
+]
+
+export function visibleTaskTimingStageKeys(
+  workflowKind?: string | null,
+): readonly TaskTimingStageKey[] {
+  return workflowKind === 'FIXED_TEMPLATE'
+    ? FIXED_TEMPLATE_STAGE_KEYS
+    : LEGACY_ANALYSIS_STAGE_KEYS
+}
+
 export function parseTaskTimestamp(value: string): number {
   const normalized = EXPLICIT_TIMEZONE.test(value) ? value : `${value}Z`
   return new Date(normalized).getTime()
