@@ -12,6 +12,7 @@ from libtv_agent.domain.models import (
     GenerationVariant,
     ParentTask,
 )
+from libtv_agent.services.provider_routing import provider_capacity_scope
 from libtv_agent.services.runtime_control import get_runtime_config
 from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -60,19 +61,22 @@ async def acquire_capacity(
     task = await session.get(ParentTask, variant.parent_task_id)
     if task is None:
         return None
+    provider_scope = provider_capacity_scope(attempt.provider, settings)
+    if provider_scope is None:
+        return None
     project_scope_id = attempt.project_uuid
     if not project_scope_id:
-        if attempt.provider not in {"kling", settings.kling_cli_provider_name}:
+        if provider_scope != "provider:kling":
             return None
-        project_scope_id = f"{attempt.provider}:{task.id}"
+        project_scope_id = str(task.id)
     runtime = await get_runtime_config(session, settings)
     if runtime is None or runtime.config_json["globalPaused"]:
         return None
     limits = runtime.config_json["generationConcurrency"]
     scopes = (
-        ("GLOBAL", settings.deployment_id, int(limits["global"])),
-        ("USER", str(task.user_id), int(limits["perUser"])),
-        ("PROJECT", project_scope_id, int(limits["sameProject"])),
+        ("GLOBAL", f"{provider_scope}:{settings.deployment_id}", int(limits["global"])),
+        ("USER", f"{provider_scope}:{task.user_id}", int(limits["perUser"])),
+        ("PROJECT", f"{provider_scope}:{project_scope_id}", int(limits["sameProject"])),
     )
     now = datetime.now(UTC)
     expires = now + timedelta(seconds=lease_seconds)

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.1",
+  "schemaVersion": "2.2",
   "garmentFacts": {
     "category": "合成服装",
     "mainColor": "绿色",
@@ -33,12 +33,14 @@
   },
   "riskFlags": [],
   "stablePlan": {
-    "continuityStrategy": "explicit_cuts",
+    "continuityStrategy": "state_continuity",
     "shots": [
       {
         "referenceAssetIds": ["{{ASSET_1}}"],
         "durationWeight": 1,
+        "entryState": "从自然站姿开始",
         "action": "做小幅自然动作",
+        "exitState": "动作落定并保持正面清晰",
         "camera": "稳定缓慢推进",
         "productDisplay": "服装正面",
         "shotFunction": "产品清晰开场"
@@ -46,12 +48,14 @@
     ]
   },
   "dynamicPlan": {
-    "continuityStrategy": "explicit_cuts",
+    "continuityStrategy": "state_continuity",
     "shots": [
       {
         "referenceAssetIds": ["{{ASSET_1}}"],
         "durationWeight": 1,
+        "entryState": "从自然站姿开始",
         "action": "在场景中自信转身",
+        "exitState": "转身后稳定面向镜头",
         "camera": "控制横向跟拍",
         "productDisplay": "服装整体轮廓",
         "shotFunction": "强动态广告开场"
@@ -59,5 +63,5 @@
     ]
   },
   "userRequirementNormalized": "合成回放测试要求",
-  "modelVersion": "synthetic-replay-2.1"
+  "modelVersion": "synthetic-replay-2.2"
 }

@@ -12,8 +12,8 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from libtv_agent import __version__
 from libtv_agent.adapters.kling_official_cli import (
     KlingCliError,
-    KlingOfficialCliAdapter,
 )
+from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import create_libtv_adapter
 from libtv_agent.adapters.object_store import create_object_store
 from libtv_agent.api.router import api_router
@@ -121,14 +121,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database = Database(app_settings.database_url)
         await _recover_stale_analyses(app)
         await _recover_stale_materialization_tasks(app)
-        if app_settings.kling_cli_enabled:
+        if app_settings.kling_enabled:
             try:
                 availability = await app.state.kling_adapter.check_availability()
-                if availability.status == "KLING_CLI_READY":
+                if availability.available:
                     await app.state.kling_adapter.refresh_capabilities(force=True)
             except KlingCliError as exc:
                 logger.warning(
-                    "Kling CLI capability refresh failed at startup: %s",
+                    "Kling Provider capability refresh failed at startup: %s",
                     exc.code,
                 )
         recovery_task = asyncio.create_task(_analysis_recovery_loop(app))
@@ -151,7 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.libtv_adapter = create_libtv_adapter(app_settings)
-    app.state.kling_adapter = KlingOfficialCliAdapter(app_settings)
+    app.state.kling_adapter = create_kling_adapter(app_settings)
     app.state.libtv_login_manager = LibTVLoginManager()
     app.state.object_store = create_object_store(app_settings)
     app.state.settings = app_settings

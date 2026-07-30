@@ -25,6 +25,7 @@ export interface Asset {
   sha256: string
   width: number
   height: number
+  sizeBytes?: number
   thumbnailUrl: string
   role?: 'STORYBOARD' | 'PRODUCT' | string
   usedForAnalysis?: boolean
@@ -42,6 +43,13 @@ export interface Variant {
   validationStatus: string
   downloadArtifactId: string | null
   errorCode: string | null
+  provider: string
+  providerTaskId: string | null
+  providerStatus: string | null
+  executionBackend: string | null
+  variantIndex?: number | null
+  variantKey?: string | null
+  variantSeed?: Record<string, string | number>
   feedback: FeedbackValue | null
   feedbackReasons: FeedbackReason[]
   feedbackComment: string | null
@@ -83,6 +91,15 @@ export interface Task {
     canRegenerate: boolean
     canDownload: boolean
   }
+  workflowKind?: 'FIXED_TEMPLATE' | 'LEGACY_ANALYSIS' | string
+  templateId?: string | null
+  templateVersion?: string | null
+  siteProfileId?: string | null
+  siteProfileVersion?: string | null
+  settings?: Record<string, unknown>
+  compiledPlan?: Record<string, unknown> | null
+  materialValidation?: Record<string, unknown> | null
+  paidSubmissionConsentAt?: string | null
   timing?: {
     stages: Array<{
       key: 'SOURCE_UPLOAD' | 'ANALYSIS' | 'CONFIRMATION' | 'MATERIALIZATION' | 'GENERATION' | 'DOWNLOAD'
@@ -94,6 +111,65 @@ export interface Task {
   }
   createdAt: string
   updatedAt: string
+}
+
+export interface VideoTemplateSummary {
+  id: string
+  version: string
+  status: 'draft' | 'active' | 'retired'
+  name: string
+  description: string
+  minImages: number
+  maxImages: number
+  defaultSettings: {
+    durationSeconds: number
+    ratio: string
+    sound: boolean
+    subtitles: boolean
+    smartStoryboard: boolean
+    continuityStrategy: 'explicit_cuts' | 'continuous_when_possible'
+  }
+  actionPresets: Record<string, { label: string; instruction: string }>
+  cameraPresets: Record<string, { label: string; instruction: string }>
+  tempoPresets: Record<string, { label: string; instruction: string }>
+  sourceNote: string
+}
+
+export interface SiteStyleProfileSummary {
+  id: string
+  version: string
+  status: 'draft' | 'active' | 'retired'
+  name: string
+  siteUrl: string
+  sourceUrls: string[]
+  retrievedAt: string
+  evidenceLevel: 'verified_site' | 'restricted_site'
+  tone: string
+  audience: string
+  palette: string[]
+  typography: string
+  cameraLanguage: string
+  openingRule: string
+  middleRule: string
+  endingRule: string
+  preferredShots: string[]
+  preferredActions: string[]
+  pacing: string
+  productPriorities: string[]
+  forbiddenMismatches: string[]
+  researchNote: string
+}
+
+export interface MotionActionSummary {
+  id: string
+  label: string
+  category: 'outfit' | 'detail' | 'back' | 'interaction' | 'product'
+  instruction: string
+  purpose: string
+  compatibleTemplates: string[]
+  requirements: string[]
+  avoid: string[]
+  riskLevel: 'low' | 'conditional'
 }
 
 export interface PromptAssistantResponse {
@@ -134,7 +210,17 @@ export interface UploadResult {
   width: number
   height: number
   mimeType: string
+  sizeBytes: number
   thumbnailUrl: string
+}
+
+export interface FixedVideoTaskOptions {
+  templateId: string
+  siteProfileId: string
+  resultCount: number
+  actionIntensity: 'low' | 'standard' | 'high'
+  cameraTempo: 'slow' | 'standard' | 'fast'
+  cutMode: 'explicit_cuts' | 'continuous_when_possible'
 }
 
 export interface SystemStatus {
@@ -154,6 +240,8 @@ export interface SystemStatus {
   csrfCookieName: string
   kling: {
     enabled: boolean
+    backend: 'cli' | 'api'
+    provider: string
     status: string
     available: boolean
     authenticated: boolean
@@ -168,6 +256,8 @@ export interface SystemStatus {
 
 export interface KlingStatus {
   enabled: boolean
+  backend: 'cli' | 'api'
+  provider: string
   status: string
   available: boolean
   authenticated: boolean

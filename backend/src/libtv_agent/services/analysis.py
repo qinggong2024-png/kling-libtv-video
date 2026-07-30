@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from libtv_agent.adapters.kling_official_cli import KlingCliError, KlingOfficialCliAdapter
+from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.object_store import ObjectStore
 from libtv_agent.adapters.openai_analysis import (
     AnalysisImageInput,
@@ -15,6 +15,7 @@ from libtv_agent.adapters.openai_analysis import (
     OpenAIAnalysisAdapter,
     ReplayAnalysisAdapter,
 )
+from libtv_agent.adapters.video_provider import VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import ordered_assets_hash, sha256_json
 from libtv_agent.domain.enums import ParentTaskPhase, VariantKind
@@ -42,6 +43,7 @@ from libtv_agent.services.prompts import (
     normalize_analysis_motion,
     render_prompt,
     select_mode_type,
+    select_prompt_max_chars,
     validate_ab_action_difference,
     validate_required_coverage,
 )
@@ -65,8 +67,8 @@ FAKE_SCHEMA = {
     },
 }
 
-ANALYSIS_PROMPT_VERSION = "analysis-v2.4.0"
-ANALYSIS_PROMPT_PATH = Path(__file__).parents[3] / "contracts" / "analysis-prompt-v2.4.0.txt"
+ANALYSIS_PROMPT_VERSION = "analysis-v2.6.0"
+ANALYSIS_PROMPT_PATH = Path(__file__).parents[3] / "contracts" / "analysis-prompt-v2.6.0.txt"
 ANALYSIS_IMAGE_CONCURRENCY = 4
 VISUAL_FACT_CACHE_TTL = timedelta(days=30)
 ANALYSIS_HEARTBEAT_SECONDS = 30
@@ -178,11 +180,11 @@ async def _schema_snapshot(
     *,
     generation_provider: str,
     storyboard_count: int,
-    kling_adapter: KlingOfficialCliAdapter | None,
+    kling_adapter: VideoProviderAdapter | None,
 ) -> ModelSchemaSnapshot:
     if generation_provider == "kling":
         if kling_adapter is None:
-            raise KlingCliError("KLING_CAPABILITY_FETCH_FAILED", "Kling CLI adapter is unavailable")
+            raise KlingCliError("KLING_CAPABILITY_FETCH_FAILED", "Kling adapter is unavailable")
         capabilities = await kling_adapter.refresh_capabilities()
         if (
             storyboard_count > capabilities.image_input_limit
@@ -191,11 +193,11 @@ async def _schema_snapshot(
             raise KlingCliError(
                 "KLING_MULTI_STORYBOARD_UNSUPPORTED",
                 (
-                    "Current Kling CLI cannot accept all ordered storyboard images; "
+                    "Current Kling provider cannot accept all ordered storyboard images; "
                     "explicit first_last_frame fallback is disabled"
                 ),
             )
-        model = settings.kling_cli_default_model or next(iter(capabilities.supported_models), None)
+        model = settings.active_kling_model or next(iter(capabilities.supported_models), None)
         if model is None:
             raise KlingCliError(
                 "KLING_CAPABILITY_UNSUPPORTED",
@@ -207,10 +209,10 @@ async def _schema_snapshot(
             else capabilities.image_input_limit
         )
         schema = {
-            "provider": settings.kling_cli_provider_name,
+            "provider": kling_adapter.get_provider_name(),
             "modelKey": model,
             "maxMediaCount": max_media,
-            "maxPromptLength": 2000,
+            "maxPromptLength": 3072 if settings.kling_provider_backend == "api" else 2000,
             "modeTypes": ["singleImage2video", "mixed2video"],
             "modeMediaRanges": {
                 "singleImage2video": [1, 1],
@@ -348,11 +350,21 @@ async def _run_openai_analysis_request(
     settings: Settings,
     analysis_run_id: uuid.UUID,
     model: str,
+    reasoning_effort: str,
+    max_output_tokens: int,
     prompt: str,
     images: list[AnalysisImageInput],
     asset_ids: list[str],
 ) -> AnalysisResult:
-    adapter = OpenAIAnalysisAdapter(settings.model_copy(update={"openai_model": model}))
+    adapter = OpenAIAnalysisAdapter(
+        settings.model_copy(
+            update={
+                "openai_model": model,
+                "openai_reasoning_effort": reasoning_effort,
+                "openai_analysis_max_output_tokens": max_output_tokens,
+            }
+        )
+    )
     correlation_id = analysis_run_id.hex
     session.add(
         AuditEvent(
@@ -425,7 +437,7 @@ async def analyze_task(
     task: ParentTask,
     settings: Settings,
     object_store: ObjectStore,
-    kling_adapter: KlingOfficialCliAdapter | None = None,
+    kling_adapter: VideoProviderAdapter | None = None,
     *,
     analysis_run_id: uuid.UUID,
 ) -> None:
@@ -460,8 +472,8 @@ async def analyze_task(
     generation_provider = str(preference_snapshot.get("generationProvider") or "libtv")
     if generation_provider not in {"libtv", "kling"}:
         raise ValueError("selected generation provider is unavailable")
-    if generation_provider == "kling" and not settings.kling_cli_enabled:
-        raise KlingCliError("KLING_CAPABILITY_UNSUPPORTED", "Kling CLI Provider is disabled")
+    if generation_provider == "kling" and not settings.kling_enabled:
+        raise KlingCliError("KLING_CAPABILITY_UNSUPPORTED", "Kling Provider is disabled")
     fallback_model = _analysis_fallback_model(settings, analysis_model)
     ordered_hash = ordered_assets_hash(
         {"assetId": str(asset.id), "sha256": asset.sha256, "order": asset.order_no}
@@ -483,7 +495,12 @@ async def analyze_task(
             "userRequirementNormalized": normalized_requirement,
             "modelVersion": analysis_model,
             "fallbackModelVersion": fallback_model,
-            "schemaVersion": "2.1",
+            "reasoningEffort": settings.openai_reasoning_effort,
+            "fallbackReasoningEffort": settings.openai_analysis_fallback_reasoning_effort,
+            "verbosity": settings.openai_analysis_verbosity,
+            "maxOutputTokens": settings.openai_analysis_max_output_tokens,
+            "fallbackMaxOutputTokens": settings.openai_analysis_fallback_max_output_tokens,
+            "schemaVersion": "2.2",
             "analysisPromptVersion": ANALYSIS_PROMPT_VERSION,
         }
     )
@@ -535,6 +552,8 @@ async def analyze_task(
                     settings,
                     analysis_run_id,
                     analysis_model,
+                    settings.openai_reasoning_effort,
+                    settings.openai_analysis_max_output_tokens,
                     prompt,
                     images,
                     asset_ids,
@@ -568,6 +587,8 @@ async def analyze_task(
                     settings,
                     analysis_run_id,
                     fallback_model,
+                    settings.openai_analysis_fallback_reasoning_effort,
+                    settings.openai_analysis_fallback_max_output_tokens,
                     prompt,
                     images,
                     asset_ids,
@@ -585,9 +606,7 @@ async def analyze_task(
                 prompt,
                 images,
             )
-            analysis_json = normalize_analysis_motion(
-                result.model_dump(mode="json", by_alias=True)
-            )
+            analysis_json = normalize_analysis_motion(result.model_dump(mode="json", by_alias=True))
             _validated_analysis_timelines(analysis_json, required_ids)
         current_to_canonical = {value: key for key, value in canonical_to_current.items()}
         cached_facts = _replace_asset_ids(analysis_json, current_to_canonical)
@@ -641,13 +660,17 @@ async def analyze_task(
         user_id=task.user_id,
         analysis_result=analysis_json,
     )
+    prompt_max_chars = select_prompt_max_chars(
+        generation_provider,
+        int(snapshot.schema_json["maxPromptLength"]),
+    )
     for variant in task.variants:
         variant.prompt_text = render_prompt(
             variant.variant_type,
             timelines[variant.variant_type],
             node_names,
             normalized_user_requirement,
-            int(snapshot.schema_json["maxPromptLength"]),
+            prompt_max_chars,
             feedback_guidance[variant.variant_type],
             garment_category=str(analysis_json.get("garmentFacts", {}).get("category", "")),
             storyboard_facts=list(analysis_json.get("storyboardFacts", [])),

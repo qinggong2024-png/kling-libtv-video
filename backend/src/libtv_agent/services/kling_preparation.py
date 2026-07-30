@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from libtv_agent.adapters.kling_official_cli import KlingCliError, KlingOfficialCliAdapter
+from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.object_store import ObjectStore
-from libtv_agent.adapters.video_provider import VideoGenerationRequest
+from libtv_agent.adapters.video_provider import VideoGenerationRequest, VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
 from libtv_agent.domain.enums import AttemptStatus, ParentTaskPhase
@@ -21,37 +21,57 @@ def _asset_suffix(filename: str) -> str:
 
 async def prepare_kling_task(
     session: AsyncSession,
-    adapter: KlingOfficialCliAdapter,
+    adapter: VideoProviderAdapter,
     object_store: ObjectStore,
     task: ParentTask,
     settings: Settings,
 ) -> list[GenerationAttempt]:
     availability = await adapter.check_availability()
-    if availability.status != "KLING_CLI_READY":
+    if not availability.available:
         raise KlingCliError(
             availability.status,
-            availability.reason or "Kling CLI Provider is unavailable",
+            availability.reason or "Kling provider is unavailable",
         )
-    ordered_assets = sorted(
-        (asset for asset in task.assets if asset.used_for_generation),
+    storyboard_assets = sorted(
+        (asset for asset in task.assets if asset.used_for_generation and asset.role != "PRODUCT"),
         key=lambda item: item.order_no,
     )
-    if not ordered_assets:
+    product_reference_assets = sorted(
+        (asset for asset in task.assets if asset.role == "PRODUCT"),
+        key=lambda item: item.order_no,
+    )
+    if not storyboard_assets:
         raise KlingCliError("KLING_INVALID_INPUT", "At least one storyboard image is required")
-    localized_paths: list[Path] = []
-    for asset in ordered_assets:
+    storyboard_paths: list[Path] = []
+    for index, asset in enumerate(storyboard_assets, start=1):
         if not asset.object_key:
             raise KlingCliError(
                 "KLING_INVALID_INPUT", f"Storyboard asset {asset.id} has no source object"
             )
-        localized_paths.append(
+        storyboard_paths.append(
             await object_store.localize(
                 asset.object_key,
                 settings.runner_root
                 / "kling"
                 / "inputs"
                 / str(task.id)
-                / f"asset-{asset.order_no}{_asset_suffix(asset.original_filename)}",
+                / f"storyboard-{index}{_asset_suffix(asset.original_filename)}",
+            )
+        )
+    product_reference_paths: list[Path] = []
+    for index, asset in enumerate(product_reference_assets, start=1):
+        if not asset.object_key:
+            raise KlingCliError(
+                "KLING_INVALID_INPUT", f"Product reference asset {asset.id} has no source object"
+            )
+        product_reference_paths.append(
+            await object_store.localize(
+                asset.object_key,
+                settings.runner_root
+                / "kling"
+                / "inputs"
+                / str(task.id)
+                / f"product-reference-{index}{_asset_suffix(asset.original_filename)}",
             )
         )
 
@@ -68,28 +88,56 @@ async def prepare_kling_task(
         latest_by_variant.setdefault(attempt.variant_id, attempt)
 
     attempts: list[GenerationAttempt] = []
-    for variant in task.variants:
+    provider_name = adapter.get_provider_name()
+    for variant in sorted(
+        task.variants,
+        key=lambda item: item.variant_index or (1 if item.variant_type.value == "STABLE" else 2),
+    ):
+        duration = int(
+            variant.generation_config_json.get("duration")
+            or variant.generation_config_json.get("durationSeconds")
+            or settings.active_kling_duration
+        )
+        aspect_ratio = str(
+            variant.generation_config_json.get("aspectRatio")
+            or settings.active_kling_aspect_ratio
+        )
         request = VideoGenerationRequest(
             prompt=variant.prompt_text,
-            model=settings.kling_cli_default_model,
-            image_paths=tuple(localized_paths),
-            duration=settings.kling_cli_default_duration,
-            aspect_ratio=settings.kling_cli_default_aspect_ratio,
+            model=settings.active_kling_model,
+            image_paths=tuple(storyboard_paths),
+            duration=duration,
+            aspect_ratio=aspect_ratio,
+            product_reference_paths=tuple(product_reference_paths),
             fallback_mode=settings.kling_storyboard_fallback_mode,
             task_trace_id=task.id.hex,
+            resolution=settings.kling_api_resolution,
+            audio=settings.kling_api_audio,
+            multi_shot=settings.kling_api_multi_shot,
+            external_task_id=f"{task.id.hex}-{variant.id.hex}-{variant.revision}",
+            callback_url=settings.kling_api_callback_url,
         )
         model = await adapter.validate_request(request)
         intent_hash = sha256_json(
             {
                 "userId": str(task.user_id),
                 "parentTaskId": str(task.id),
-                "childTaskType": variant.variant_type.value,
-                "provider": settings.kling_cli_provider_name,
+                "childTaskType": variant.variant_key or variant.variant_type.value,
+                "variantIndex": variant.variant_index,
+                "provider": provider_name,
                 "model": model,
-                "inputAssetHash": sha256_json([asset.sha256 for asset in ordered_assets]),
+                "inputAssetHash": sha256_json(
+                    {
+                        "storyboards": [asset.sha256 for asset in storyboard_assets],
+                        "productReferences": [asset.sha256 for asset in product_reference_assets],
+                    }
+                ),
                 "promptHash": variant.prompt_hash,
-                "duration": settings.kling_cli_default_duration,
-                "aspectRatio": settings.kling_cli_default_aspect_ratio,
+                "duration": duration,
+                "aspectRatio": aspect_ratio,
+                "resolution": settings.kling_api_resolution,
+                "audio": settings.kling_api_audio,
+                "multiShot": settings.kling_api_multi_shot,
             }
         )
         attempt = latest_by_variant.get(variant.id)
@@ -103,7 +151,7 @@ async def prepare_kling_task(
         }:
             attempt = GenerationAttempt(
                 variant_id=variant.id,
-                provider=settings.kling_cli_provider_name,
+                provider=provider_name,
                 provider_model=model,
                 provider_status="queued",
                 intent_hash=intent_hash,
@@ -123,9 +171,17 @@ async def prepare_kling_task(
             "generationProvider": "kling",
             "model": model,
             "modelKey": model,
-            "duration": settings.kling_cli_default_duration,
-            "aspectRatio": settings.kling_cli_default_aspect_ratio,
+            "duration": duration,
+            "aspectRatio": aspect_ratio,
+            "resolution": settings.kling_api_resolution,
+            "audio": settings.kling_api_audio,
+            "multiShot": settings.kling_api_multi_shot,
+            "providerBackend": settings.kling_provider_backend,
+            "providerName": provider_name,
             "storyboardFallbackMode": settings.kling_storyboard_fallback_mode,
+            "storyboardImageCount": len(storyboard_assets),
+            "productReferenceImageCount": len(product_reference_assets),
+            "imageRolePolicy": "storyboard_scene_product_garment_only",
         }
         attempts.append(attempt)
     task.phase = ParentTaskPhase.QUEUED

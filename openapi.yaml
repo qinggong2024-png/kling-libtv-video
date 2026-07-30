@@ -3189,6 +3189,236 @@
           }
         }
       }
+    },
+    "/api/v1/video-templates": {
+      "get": {
+        "tags": [
+          "video-templates"
+        ],
+        "summary": "Get Video Templates",
+        "operationId": "get_video_templates_api_v1_video_templates_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Video Templates Api V1 Video Templates Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/motion-actions": {
+      "get": {
+        "tags": [
+          "motion-actions"
+        ],
+        "summary": "Get Motion Actions",
+        "operationId": "get_motion_actions_api_v1_motion_actions_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Motion Actions Api V1 Motion Actions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-style-profiles": {
+      "get": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Get Site Style Profiles",
+        "operationId": "get_site_style_profiles_api_v1_site_style_profiles_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Site Style Profiles Api V1 Site Style Profiles Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-tasks": {
+      "post": {
+        "tags": [
+          "video-tasks"
+        ],
+        "summary": "Create Video Task",
+        "operationId": "create_video_task_api_v1_video_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoTaskCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3308,6 +3538,11 @@
           "height": {
             "type": "integer",
             "title": "Height"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes",
+            "default": 0
           },
           "thumbnailUrl": {
             "type": "string",
@@ -4166,7 +4401,7 @@
             "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "title": "Analysismodel",
-            "default": "gpt-5.6-terra"
+            "default": "gpt-5.6-luna"
           },
           "generationProvider": {
             "type": "string",
@@ -4359,6 +4594,96 @@
           "timing": {
             "$ref": "#/components/schemas/TaskTimingRead"
           },
+          "workflowKind": {
+            "type": "string",
+            "title": "Workflowkind",
+            "default": "LEGACY_ANALYSIS"
+          },
+          "templateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Templateid"
+          },
+          "templateVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Templateversion"
+          },
+          "siteProfileId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Siteprofileid"
+          },
+          "siteProfileVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Siteprofileversion"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          },
+          "compiledPlan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiledplan"
+          },
+          "materialValidation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Materialvalidation"
+          },
+          "paidSubmissionConsentAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paidsubmissionconsentat"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -4543,6 +4868,10 @@
             "type": "string",
             "title": "Mimetype"
           },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
           "thumbnailUrl": {
             "type": "string",
             "title": "Thumbnailurl"
@@ -4556,6 +4885,7 @@
           "width",
           "height",
           "mimeType",
+          "sizeBytes",
           "thumbnailUrl"
         ],
         "title": "UploadRead"
@@ -4739,6 +5069,70 @@
             ],
             "title": "Errorcode"
           },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "providerTaskId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Providertaskid"
+          },
+          "providerStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Providerstatus"
+          },
+          "executionBackend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executionbackend"
+          },
+          "variantIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variantindex"
+          },
+          "variantKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variantkey"
+          },
+          "variantSeed": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Variantseed"
+          },
           "feedback": {
             "anyOf": [
               {
@@ -4777,9 +5171,104 @@
           "promptHash",
           "generationStatus",
           "downloadStatus",
-          "validationStatus"
+          "validationStatus",
+          "provider"
         ],
         "title": "VariantRead"
+      },
+      "VideoTaskCreate": {
+        "properties": {
+          "clientTaskId": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Clienttaskid"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "storyboards": {
+            "items": {
+              "$ref": "#/components/schemas/StoryboardInput"
+            },
+            "type": "array",
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Storyboards"
+          },
+          "templateId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Templateid"
+          },
+          "siteProfileId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Siteprofileid"
+          },
+          "resultCount": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Resultcount",
+            "default": 1
+          },
+          "actionIntensity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "standard",
+              "high"
+            ],
+            "title": "Actionintensity",
+            "default": "standard"
+          },
+          "cameraTempo": {
+            "type": "string",
+            "enum": [
+              "slow",
+              "standard",
+              "fast"
+            ],
+            "title": "Cameratempo",
+            "default": "standard"
+          },
+          "cutMode": {
+            "type": "string",
+            "enum": [
+              "explicit_cuts",
+              "continuous_when_possible"
+            ],
+            "title": "Cutmode",
+            "default": "explicit_cuts"
+          },
+          "paidSubmissionConsent": {
+            "type": "boolean",
+            "title": "Paidsubmissionconsent"
+          },
+          "sourceUploadDurationSeconds": {
+            "type": "number",
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Sourceuploaddurationseconds",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "clientTaskId",
+          "title",
+          "storyboards",
+          "templateId",
+          "siteProfileId",
+          "paidSubmissionConsent"
+        ],
+        "title": "VideoTaskCreate"
       }
     }
   }

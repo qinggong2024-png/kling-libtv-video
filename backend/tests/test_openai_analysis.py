@@ -66,13 +66,15 @@ async def test_openai_contract_binds_each_asset_and_order_without_network() -> N
 
     result = await adapter.analyze(prompt, images)
 
-    assert result.model_version == "fake-2.1"
+    assert result.model_version == "fake-2.2"
     assert client.responses.request is not None
-    assert client.responses.request["model"] == "gpt-5.6-terra"
-    assert client.responses.request["reasoning"] == {"effort": "low"}
+    assert client.responses.request["model"] == "gpt-5.6-luna"
+    assert client.responses.request["reasoning"] == {"effort": "none"}
+    assert "verbosity" not in client.responses.request
+    assert client.responses.request["max_output_tokens"] == 4000
     request_input = client.responses.request["input"]
     content = request_input[0]["content"]  # type: ignore[index]
-    assert content[0]["text"].startswith("ANALYSIS_PROMPT_VERSION: analysis-v2.4.0")
+    assert content[0]["text"].startswith("ANALYSIS_PROMPT_VERSION: analysis-v2.6.0")
     assert content[1] == {"type": "input_text", "text": "STORYBOARD assetId=asset-1 order=1"}
     assert content[2]["image_url"] == images[0].image_url
     assert content[3] == {"type": "input_text", "text": "STORYBOARD assetId=asset-2 order=2"}
@@ -138,6 +140,9 @@ def test_analysis_prompt_is_complete_and_versioned() -> None:
     assert "Dress or skirt" in prompt
     assert "surface-locked textures" in prompt
     assert "continuous walking" in prompt
+    assert "entryState, action, and exitState" in prompt
+    assert "Do not put exact timestamps" in prompt
+    assert 'continuityStrategy exactly "state_continuity"' in prompt
     assert "user requirement" in prompt
     assert "{{" not in prompt
 

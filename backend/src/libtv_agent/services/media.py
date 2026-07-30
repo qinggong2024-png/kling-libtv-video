@@ -36,6 +36,10 @@ async def download_with_retries(
             last_error = exc
             if exc.code != "DOWNLOAD_RETRYABLE":
                 raise
+        except Exception as exc:
+            last_error = exc
+            if not bool(getattr(exc, "retryable", False)):
+                raise
     raise LibTVError(
         "DOWNLOAD_RETRYABLE", f"download failed after {attempts} attempts: {last_error}"
     )
@@ -48,6 +52,7 @@ async def technical_validate(
     duration_max: float = 11.0,
     target_ratio: float = 9 / 16,
     ratio_tolerance: float = 0.01,
+    allow_audio: bool = False,
 ) -> TechnicalValidation:
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
@@ -83,7 +88,7 @@ async def technical_validate(
         issues.append("DURATION_OUT_OF_RANGE")
     if height <= 0 or abs((width / height) - target_ratio) > ratio_tolerance:
         issues.append("ASPECT_RATIO_INVALID")
-    if has_audio:
+    if has_audio and not allow_audio:
         issues.append("UNEXPECTED_AUDIO")
     digest, size = await asyncio.to_thread(_hash_and_size, path)
     return TechnicalValidation(

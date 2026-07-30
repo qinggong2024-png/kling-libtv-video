@@ -50,6 +50,7 @@ class KlingCliError(RuntimeError):
         details: dict[str, Any] | None = None,
         submitted: bool = False,
         uncertain: bool = False,
+        retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -60,6 +61,7 @@ class KlingCliError(RuntimeError):
         self.details = details or {}
         self.submitted = submitted
         self.uncertain = uncertain
+        self.retry_after_seconds = retry_after_seconds
 
 
 def parse_cli_json(stdout: str) -> dict[str, Any]:
@@ -196,6 +198,30 @@ def _all_allowed_values(specs: list[dict[str, Any]], *names: str) -> tuple[str, 
                 if text not in values:
                     values.append(text)
     return tuple(values)
+
+
+def _role_bound_prompt(request: VideoGenerationRequest) -> str:
+    if not request.product_reference_paths:
+        return request.prompt
+    storyboard_count = len(request.image_paths)
+    product_start = storyboard_count + 1
+    product_end = storyboard_count + len(request.product_reference_paths)
+    storyboard_label = f"图片1至图片{storyboard_count}" if storyboard_count > 1 else "图片1"
+    product_label = (
+        f"图片{product_start}至图片{product_end}"
+        if product_start != product_end
+        else f"图片{product_start}"
+    )
+    role_guard = (
+        "【输入图片用途，必须严格遵守】"
+        f"{storyboard_label}是分镜图，只用于决定视频的场景、构图、人物姿势、动作、"
+        "镜头运动和镜头顺序；"
+        f"{product_label}是产品参考图，只用于还原服装款式、版型、颜色、面料、印花、"
+        "Logo与文字细节。不得采用产品参考图的背景、构图、摆放方式或拍摄姿势，"
+        "不得把白底图、平铺图或商品静物图变成视频场景。若两类图片冲突，"
+        "场景与动作以分镜图为准，服装外观细节以产品参考图为准。"
+    )
+    return f"{role_guard}\n\n{request.prompt}"
 
 
 class KlingOfficialCliAdapter:
@@ -578,6 +604,8 @@ class KlingOfficialCliAdapter:
             models_to_check = capabilities.supported_models
         candidates: list[str] = []
         parameter_compatible = False
+        role_compatible = False
+        total_image_count = len(request.image_paths) + len(request.product_reference_paths)
         for model in models_to_check:
             arguments = _argument_specs(capabilities, model)
             durations = _allowed_values(arguments, "duration")
@@ -591,18 +619,37 @@ class KlingOfficialCliAdapter:
             if request.aspect_ratio and ratios and request.aspect_ratio not in ratios:
                 continue
             parameter_compatible = True
-            input_limit, supports_tail, _ = _model_input_profile(capabilities, model)
-            if len(request.image_paths) > input_limit and not (
-                request.fallback_mode == "first_last_frame" and supports_tail
+            input_limit, supports_tail, supports_repeated_images = _model_input_profile(
+                capabilities, model
+            )
+            if request.product_reference_paths and not supports_repeated_images:
+                continue
+            role_compatible = True
+            if total_image_count > input_limit and not (
+                not request.product_reference_paths
+                and request.fallback_mode == "first_last_frame"
+                and supports_tail
             ):
                 continue
             candidates.append(model)
         if not candidates:
+            if parameter_compatible and request.product_reference_paths and not role_compatible:
+                raise KlingCliError(
+                    "KLING_PRODUCT_REFERENCE_UNSUPPORTED",
+                    "Compatible Kling models cannot keep product references separate from "
+                    "storyboard inputs",
+                )
             if parameter_compatible:
                 largest_limit = max(
                     (_model_input_profile(capabilities, model)[0] for model in models_to_check),
                     default=1,
                 )
+                if request.product_reference_paths:
+                    raise KlingCliError(
+                        "KLING_IMAGE_INPUT_LIMIT_EXCEEDED",
+                        "Compatible Kling models support at most "
+                        f"{largest_limit} total storyboard and product reference image input(s)",
+                    )
                 raise KlingCliError(
                     "KLING_MULTI_STORYBOARD_UNSUPPORTED",
                     "Compatible Kling models support at most "
@@ -621,13 +668,31 @@ class KlingOfficialCliAdapter:
             raise KlingCliError("KLING_INVALID_INPUT", "At least one storyboard image is required")
         capabilities = await self.refresh_capabilities()
         model = self._select_model(capabilities, request.model, request)
-        limit, supports_tail, _ = _model_input_profile(capabilities, model)
-        if len(request.image_paths) > limit and not (
-            request.fallback_mode == "first_last_frame" and supports_tail
-        ):
+        limit, supports_tail, supports_repeated_images = _model_input_profile(capabilities, model)
+        total_image_count = len(request.image_paths) + len(request.product_reference_paths)
+        if request.product_reference_paths and not supports_repeated_images:
             raise KlingCliError(
-                "KLING_MULTI_STORYBOARD_UNSUPPORTED",
-                f"Selected Kling model supports at most {limit} storyboard image input(s)",
+                "KLING_PRODUCT_REFERENCE_UNSUPPORTED",
+                "Selected Kling model cannot keep product references separate from "
+                "storyboard inputs",
+            )
+        if total_image_count > limit and not (
+            not request.product_reference_paths
+            and request.fallback_mode == "first_last_frame"
+            and supports_tail
+        ):
+            kind = (
+                "storyboard and product reference"
+                if request.product_reference_paths
+                else "storyboard"
+            )
+            raise KlingCliError(
+                (
+                    "KLING_IMAGE_INPUT_LIMIT_EXCEEDED"
+                    if request.product_reference_paths
+                    else "KLING_MULTI_STORYBOARD_UNSUPPORTED"
+                ),
+                f"Selected Kling model supports at most {limit} total {kind} image input(s)",
             )
         if request.fallback_mode not in {"disabled", "first_last_frame"}:
             raise KlingCliError("KLING_INVALID_INPUT", "Invalid Kling storyboard fallback mode")
@@ -636,12 +701,19 @@ class KlingOfficialCliAdapter:
                 raise KlingCliError(
                     "KLING_INVALID_INPUT", f"Storyboard image is unavailable: {path.name}"
                 )
+        for path in request.product_reference_paths:
+            if not path.is_file():
+                raise KlingCliError(
+                    "KLING_INVALID_INPUT",
+                    f"Product reference image is unavailable: {path.name}",
+                )
         return model
 
     async def submit(self, request: VideoGenerationRequest) -> ProviderSubmissionResult:
         model = await self.validate_request(request)
         capabilities = await self.refresh_capabilities()
         paths = list(request.image_paths)
+        product_paths = list(request.product_reference_paths)
         input_limit, supports_tail, supports_repeated_images = _model_input_profile(
             capabilities, model
         )
@@ -649,7 +721,7 @@ class KlingOfficialCliAdapter:
             paths = [paths[0], paths[-1]]
         arguments = ["--model", model]
         if supports_repeated_images:
-            for path in paths:
+            for path in [*paths, *product_paths]:
                 arguments.extend(["--image", str(path)])
         else:
             arguments.extend(["--image", str(paths[0])])
@@ -668,7 +740,7 @@ class KlingOfficialCliAdapter:
             arguments.extend(["--aspectRatio", request.aspect_ratio])
         if request.task_trace_id:
             arguments.extend(["--task-trace-id", request.task_trace_id])
-        arguments.append(request.prompt)
+        arguments.append(_role_bound_prompt(request))
         async with self._submit_semaphore:
             body = await self._invoke(
                 "image_to_video",
@@ -803,6 +875,9 @@ async def retry_kling_call(
         except KlingCliError as exc:
             if not exc.retryable or index == attempts - 1:
                 raise
-            delay = base_delay * (2**index) + random.uniform(0, base_delay)
+            delay = max(
+                base_delay * (2**index) + random.uniform(0, base_delay),
+                exc.retry_after_seconds or 0,
+            )
             await asyncio.sleep(delay)
     raise AssertionError("unreachable")

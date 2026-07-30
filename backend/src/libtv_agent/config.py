@@ -31,9 +31,15 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
-    openai_model: str = "gpt-5.6-terra"
-    openai_analysis_fallback_model: str | None = "gpt-5.6-sol"
-    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
+    openai_model: str = "gpt-5.6-luna"
+    openai_analysis_fallback_model: str | None = "gpt-5.6-terra"
+    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "none"
+    openai_analysis_fallback_reasoning_effort: Literal[
+        "none", "low", "medium", "high", "xhigh", "max"
+    ] = "low"
+    openai_analysis_verbosity: Literal["low", "medium", "high"] = "low"
+    openai_analysis_max_output_tokens: int = Field(default=4000, ge=1000, le=128_000)
+    openai_analysis_fallback_max_output_tokens: int = Field(default=6000, ge=1000, le=128_000)
     openai_analysis_timeout_seconds: float = Field(default=180.0, gt=0, le=900)
     openai_analysis_timeout_base_image_count: int = Field(default=4, ge=1, le=20)
     openai_analysis_timeout_per_extra_image_seconds: float = Field(default=45.0, ge=0, le=300)
@@ -60,6 +66,7 @@ class Settings(BaseSettings):
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
     fake_libtv_scenario: str = "success"
+    kling_provider_backend: Literal["cli", "api"] = "cli"
     kling_cli_enabled: bool = False
     kling_cli_executable: str = "kling"
     kling_cli_provider_name: str = "kling_official_cli"
@@ -77,6 +84,26 @@ class Settings(BaseSettings):
     kling_storyboard_fallback_mode: Literal["disabled", "first_last_frame"] = "disabled"
     kling_cli_capability_cache_seconds: int = Field(default=3600, ge=60, le=86_400)
     kling_enable_paid_integration_test: bool = False
+    kling_api_enabled: bool = False
+    kling_api_key: str | None = None
+    kling_api_base_url: str = "https://api-singapore.klingai.com"
+    kling_api_provider_name: str = "kling_official_api"
+    kling_api_model: Literal["kling-3.0-omni"] = "kling-3.0-omni"
+    kling_api_duration: int = Field(default=10, ge=3, le=15)
+    kling_api_aspect_ratio: Literal["16:9", "9:16", "1:1"] = "9:16"
+    kling_api_resolution: Literal["720p", "1080p", "4k"] = "1080p"
+    kling_api_audio: Literal["native", "off"] = "off"
+    kling_api_multi_shot: bool = True
+    kling_api_callback_url: str | None = None
+    kling_api_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+    kling_api_task_timeout_seconds: float = Field(default=1800.0, ge=60, le=86_400)
+    kling_api_download_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
+    kling_api_max_submit_concurrency: int = Field(default=1, ge=1, le=20)
+    kling_api_max_poll_concurrency: int = Field(default=4, ge=1, le=50)
+    kling_api_poll_interval_seconds: float = Field(default=20.0, ge=1, le=300)
+    kling_api_max_poll_interval_seconds: float = Field(default=60.0, ge=1, le=600)
+    kling_api_max_retries: int = Field(default=3, ge=1, le=8)
+    kling_api_enable_paid_integration_test: bool = False
     max_input_image_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     artifact_root: Path = Path("var/artifacts")
     admin_credentials_file: Path = Path("var/runtime/admin-credentials.json")
@@ -99,6 +126,13 @@ class Settings(BaseSettings):
     generation_same_project: int = Field(default=1, ge=1, le=4)
     generation_per_user: int = Field(default=1, ge=1, le=6)
     generation_global: int = Field(default=1, ge=1, le=12)
+    unknown_user_window_seconds: int = Field(default=1800, ge=60, le=86_400)
+    unknown_user_distinct_task_threshold: int = Field(default=2, ge=2, le=100)
+    unknown_provider_window_seconds: int = Field(default=600, ge=60, le=86_400)
+    unknown_provider_distinct_task_threshold: int = Field(default=5, ge=3, le=1000)
+    unknown_provider_distinct_user_threshold: int = Field(default=3, ge=2, le=1000)
+    unknown_provider_min_attempts: int = Field(default=6, ge=3, le=10_000)
+    unknown_provider_rate_threshold: float = Field(default=0.5, gt=0, le=1)
     prepared_queue_low_watermark: int = Field(default=12, ge=1, le=1000)
     prepared_queue_high_watermark: int = Field(default=24, ge=2, le=2000)
     global_paused: bool = False
@@ -150,10 +184,15 @@ class Settings(BaseSettings):
             self.libtv_execution_mode == "live"
             or self.paid_generation_enabled
             or self.kling_enable_paid_integration_test
+            or self.kling_api_enable_paid_integration_test
         ):
             raise ValueError("test environments cannot enable paid generation")
         if self.kling_cli_poll_interval_seconds > self.kling_cli_max_poll_interval_seconds:
             raise ValueError("Kling poll interval cannot exceed its maximum")
+        if self.kling_api_poll_interval_seconds > self.kling_api_max_poll_interval_seconds:
+            raise ValueError("Kling API poll interval cannot exceed its maximum")
+        if self.kling_api_base_url.rstrip("/") != self.kling_api_base_url:
+            self.kling_api_base_url = self.kling_api_base_url.rstrip("/")
         return self
 
     def analysis_timeout_for_image_count(self, image_count: int) -> float:
@@ -162,6 +201,92 @@ class Settings(BaseSettings):
             extra_images * self.openai_analysis_timeout_per_extra_image_seconds
         )
         return min(timeout, self.openai_analysis_timeout_max_seconds)
+
+    @property
+    def kling_enabled(self) -> bool:
+        return (
+            self.kling_api_enabled
+            if self.kling_provider_backend == "api"
+            else self.kling_cli_enabled
+        )
+
+    @property
+    def active_kling_provider_name(self) -> str:
+        return (
+            self.kling_api_provider_name
+            if self.kling_provider_backend == "api"
+            else self.kling_cli_provider_name
+        )
+
+    @property
+    def active_kling_model(self) -> str | None:
+        return (
+            self.kling_api_model
+            if self.kling_provider_backend == "api"
+            else self.kling_cli_default_model
+        )
+
+    @property
+    def active_kling_duration(self) -> int:
+        return (
+            self.kling_api_duration
+            if self.kling_provider_backend == "api"
+            else self.kling_cli_default_duration
+        )
+
+    @property
+    def active_kling_aspect_ratio(self) -> str:
+        return (
+            self.kling_api_aspect_ratio
+            if self.kling_provider_backend == "api"
+            else self.kling_cli_default_aspect_ratio
+        )
+
+    @property
+    def kling_provider_names(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                ("kling", self.kling_cli_provider_name, self.kling_api_provider_name)
+            )
+        )
+
+    def kling_poll_interval(self, *, unknown: bool = False) -> float:
+        if self.kling_provider_backend == "api":
+            return (
+                self.kling_api_max_poll_interval_seconds
+                if unknown
+                else self.kling_api_poll_interval_seconds
+            )
+        return (
+            self.kling_cli_max_poll_interval_seconds
+            if unknown
+            else self.kling_cli_poll_interval_seconds
+        )
+
+    def kling_poll_interval_for_provider(
+        self, provider: str, *, unknown: bool = False
+    ) -> float:
+        if provider.strip().lower() == self.kling_api_provider_name.strip().lower():
+            return (
+                self.kling_api_max_poll_interval_seconds
+                if unknown
+                else self.kling_api_poll_interval_seconds
+            )
+        return (
+            self.kling_cli_max_poll_interval_seconds
+            if unknown
+            else self.kling_cli_poll_interval_seconds
+        )
+
+    def kling_provider_enabled(self, provider: str) -> bool:
+        normalized = provider.strip().lower()
+        if normalized == "kling":
+            return self.kling_enabled
+        if normalized == self.kling_api_provider_name.strip().lower():
+            return self.kling_api_enabled
+        if normalized == self.kling_cli_provider_name.strip().lower():
+            return self.kling_cli_enabled
+        return False
 
     def validate_shared_environment(self) -> None:
         if (

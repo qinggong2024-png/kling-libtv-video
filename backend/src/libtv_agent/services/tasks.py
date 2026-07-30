@@ -118,6 +118,7 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
                 original_filename=upload.original_filename,
                 sha256=upload.sha256,
                 mime_type=upload.mime_type,
+                size_bytes=upload.size_bytes,
                 width=upload.width,
                 height=upload.height,
                 object_key=upload.object_key,
@@ -137,12 +138,13 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
                 original_filename=upload.original_filename,
                 sha256=upload.sha256,
                 mime_type=upload.mime_type,
+                size_bytes=upload.size_bytes,
                 width=upload.width,
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
                 used_for_analysis=True,
-                used_for_generation=False,
+                used_for_generation=payload.generation_provider == "kling",
             )
         )
         upload.claimed_task_id = task_id
@@ -393,7 +395,14 @@ def _build_task_read(
     reserved = summary.reserved_points if summary else 0
     uncertain = summary.uncertain_points if summary else 0
     variant_reads: list[VariantRead] = []
-    for variant in sorted(task.variants, key=lambda value: value.variant_type.value):
+    for variant in sorted(
+        task.variants,
+        key=lambda value: (
+            value.variant_index is None,
+            value.variant_index or 0,
+            value.variant_type.value,
+        ),
+    ):
         attempt = attempts_by_variant.get(variant.id)
         artifact = artifacts_by_attempt.get(attempt.id) if attempt else None
         feedback = feedback_by_variant.get(variant.id)
@@ -409,6 +418,15 @@ def _build_task_read(
                 validation_status=variant.validation_status,
                 download_artifact_id=artifact.id if artifact else None,
                 error_code=attempt.last_error_code if attempt else None,
+                provider=attempt.provider if attempt else str(
+                    variant.generation_config_json.get("generationProvider") or "libtv"
+                ),
+                provider_task_id=attempt.task_id if attempt else None,
+                provider_status=attempt.provider_status if attempt else None,
+                execution_backend=attempt.runner_execution_backend if attempt else None,
+                variant_index=variant.variant_index,
+                variant_key=variant.variant_key,
+                variant_seed=variant.variant_seed_json,
                 feedback=feedback.value if feedback else None,
                 feedback_reasons=list(feedback.reason_codes_json or []) if feedback else [],
                 feedback_comment=feedback.comment if feedback else None,
@@ -442,7 +460,7 @@ def _build_task_read(
         title=task.title,
         asset_count=task.asset_count,
         user_requirement=task.user_requirement_raw,
-        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-terra"),
+        analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-luna"),
         generation_provider=str(preference_snapshot.get("generationProvider") or "libtv"),
         phase=task.phase,
         phase_reason_code=task.phase_reason_code,
@@ -463,6 +481,7 @@ def _build_task_read(
                 sha256=asset.sha256,
                 width=asset.width,
                 height=asset.height,
+                size_bytes=asset.size_bytes,
                 thumbnail_url=f"/api/v1/assets/{asset.id}/thumbnail",
                 role=asset.role,
                 used_for_analysis=asset.used_for_analysis,
@@ -495,6 +514,15 @@ def _build_task_read(
             },
             can_download=can_download,
         ),
+        workflow_kind=task.workflow_kind,
+        template_id=task.template_id,
+        template_version=task.template_version,
+        site_profile_id=task.site_profile_id,
+        site_profile_version=task.site_profile_version,
+        settings=task.settings_json,
+        compiled_plan=task.compiled_plan_json,
+        material_validation=task.material_validation_json,
+        paid_submission_consent_at=task.paid_submission_consent_at,
         timing=_build_task_timing(
             task,
             attempts_by_variant,

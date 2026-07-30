@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "0.1.0",
+  "batchId": "2026-07-30-001",
+  "retrievedAt": "2026-07-30T14:43:46+08:00",
+  "collectionPolicy": {
+    "primaryMarket": "US",
+    "recentContentPreferred": true,
+    "storeOriginalMedia": false,
+    "storeDerivedObservationsOnly": true,
+    "initialGarmentScope": [
+      "tshirt",
+      "jersey",
+      "tank_top",
+      "shirt",
+      "hoodie_sweatshirt",
+      "knitwear",
+      "dress"
+    ],
+    "excludedInFirstBatch": [
+      "kidswear",
+      "swimwear",
+      "accessories_only",
+      "multi_person_family_set",
+      "dance",
+      "complex_outfit_transition"
+    ]
+  },
+  "sites": [
+    {
+      "siteId": "geeksoutfit",
+      "label": "极客",
+      "website": "https://www.geeksoutfit.com/",
+      "theme": ["geek", "technology_humor", "gaming_film_nostalgia"],
+      "aesthetics": ["daily_casual", "retro", "quirky"],
+      "garmentAllowlist": ["tshirt", "raglan_tshirt", "ringer_tshirt", "jersey", "shirt", "hoodie", "sweatshirt", "work_jacket"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/Geeksoutfit-106031815565093",
+        "instagram": "https://www.instagram.com/geeksoutfitstore/",
+        "tiktok": "https://www.tiktok.com/@geeksoutfitstore",
+        "youtube": "https://www.youtube.com/channel/UCYftwHKqZQuA9BDRUaatzaA"
+      },
+      "pinterestQuery": "geek graphic tee outfit model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "guidingcross",
+      "label": "基督",
+      "website": "https://www.guidingcross.com/",
+      "theme": ["christian_faith", "motivational"],
+      "aesthetics": ["daily_casual", "warm", "streetwear"],
+      "garmentAllowlist": ["washed_tshirt", "classic_tshirt", "jersey", "tank_top", "hoodie", "sweatshirt", "dress"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/people/GuidingCross/100085024545095/",
+        "instagram": "https://www.instagram.com/guidingcrossofficial/",
+        "tiktok": "https://www.tiktok.com/@guidingcrossclothing",
+        "youtube": "https://www.youtube.com/@guidingcross"
+      },
+      "pinterestQuery": "christian streetwear graphic tee model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "nerdywave",
+      "label": "暗黑",
+      "website": "https://www.nerdywave.com/",
+      "theme": ["horror", "cult_film", "gaming", "mythology"],
+      "aesthetics": ["dark_alt", "retro", "streetwear"],
+      "garmentAllowlist": ["mesh_jersey", "oversized_jersey", "washed_tshirt", "backprint_tshirt", "tank_top", "shirt", "maxi_dress"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/profile.php?id=61566327023449",
+        "instagram": "https://www.instagram.com/nerdywave_apparel/",
+        "tiktok": "https://www.tiktok.com/@nerdywave_apparel",
+        "youtube": "https://www.youtube.com/channel/UCqHz2Agwp4JCUh3pxD-6eYw"
+      },
+      "pinterestQuery": "dark gothic mesh jersey outfit pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "pagewings",
+      "label": "泛读书",
+      "website": "https://www.pagewings.com/",
+      "theme": ["books", "libraries", "literary", "human_rights"],
+      "aesthetics": ["daily_casual", "bookish", "soft_retro"],
+      "garmentAllowlist": ["washed_tshirt", "heather_tshirt", "cropped_tshirt", "tank_top", "jersey", "crochet_shirt", "dress"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/profile.php?id=61567059693843",
+        "instagram": "https://www.instagram.com/pagewings_brand/",
+        "youtube": "https://www.youtube.com/@pagewings_band"
+      },
+      "pinterestQuery": "bookish graphic tee outfit model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "teachersgram",
+      "label": "教师",
+      "website": "https://www.teachersgram.com/",
+      "theme": ["teacher", "school_subjects", "classroom_holidays"],
+      "aesthetics": ["daily_casual", "bright", "friendly"],
+      "garmentAllowlist": ["graphic_tshirt", "two_sided_tshirt", "jersey", "sweatshirt", "knitwear", "tank_top", "dress"],
+      "officialSocials": {
+        "instagram": "https://www.instagram.com/teachersgramofficial/"
+      },
+      "pinterestQuery": "teacher graphic tee outfit model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "goodnurselife",
+      "label": "护士",
+      "website": "https://www.goodnurselife.com/",
+      "theme": ["nurse", "medical_department", "occupational_humor"],
+      "aesthetics": ["daily_casual", "clean", "friendly"],
+      "garmentAllowlist": ["crewneck_tshirt", "vneck_tshirt", "two_sided_tshirt", "sweatshirt", "knitwear", "hoodie_set"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/profile.php?id=61559705181293",
+        "instagram": "https://www.instagram.com/nursehutshop/"
+      },
+      "pinterestQuery": "nurse graphic tee outfit model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "classyoutlaw",
+      "label": "怪诞",
+      "website": "https://www.classyoutlaw.com/",
+      "theme": ["monster", "yokai", "illusion", "rebellion"],
+      "aesthetics": ["dark_alt", "surreal", "streetwear"],
+      "garmentAllowlist": ["washed_tshirt", "backprint_tshirt", "distressed_tank", "mesh_jersey", "button_up_shirt", "hoodie", "fleece_jacket", "crop_top", "dress"],
+      "officialSocials": {
+        "facebook": "https://www.facebook.com/classyoutlaw/",
+        "instagram": "https://www.instagram.com/classyoutlaw_official/",
+        "youtube": "https://www.youtube.com/@classyoutlaw"
+      },
+      "pinterestQuery": "weird alternative streetwear graphic tee model pose",
+      "catalogEvidence": "verified_browser"
+    },
+    {
+      "siteId": "theretrotee",
+      "label": "怀旧",
+      "website": "https://www.theretrotee.com/",
+      "theme": ["era_nostalgia", "music", "arcade", "old_advertising"],
+      "aesthetics": ["retro", "daily_casual", "playful"],
+      "garmentAllowlist": ["raglan_tshirt", "ringer_tshirt", "cotton_tshirt", "retro_jersey", "vintage_dress", "sweatshirt"],
+      "officialSocials": {},
+      "pinterestQuery": "retro ringer raglan tee outfit model pose",
+      "catalogEvidence": "verified_browser"
+    }
+  ]
+}
