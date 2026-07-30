@@ -22,6 +22,21 @@ function Test-WorkspaceProcessIdentity {
     return $false
 }
 
+function Get-AlembicRevisionIds {
+    param(
+        [object[]]$Output
+    )
+
+    return @(
+        $Output |
+            ForEach-Object {
+                $match = [regex]::Match([string]$_, '^[0-9a-fA-F]{12}')
+                if ($match.Success) { $match.Value.ToLowerInvariant() }
+            } |
+            Sort-Object -Unique
+    )
+}
+
 function Get-WorkspacePortIdentity {
     param(
         [Parameter(Mandatory = $true)]
@@ -30,9 +45,20 @@ function Get-WorkspacePortIdentity {
         [string]$ProjectRoot
     )
 
-    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Sort-Object OwningProcess -Unique |
-        Select-Object -First 1
+    $listener = $null
+    $process = $null
+    $fallbackProcess = $null
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+            Sort-Object OwningProcess -Unique |
+            Select-Object -First 1
+        if (-not $listener) { break }
+        $processId = [int]$listener.OwningProcess
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+        $fallbackProcess = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($process -or $fallbackProcess) { break }
+        Start-Sleep -Milliseconds 100
+    }
     if (-not $listener) {
         return [pscustomobject]@{
             Port = $Port
@@ -45,8 +71,6 @@ function Get-WorkspacePortIdentity {
     }
 
     $processId = [int]$listener.OwningProcess
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
-    $fallbackProcess = Get-Process -Id $processId -ErrorAction SilentlyContinue
     $commandLine = if ($process) { [string]$process.CommandLine } else { $null }
     $executablePath = if ($process) { [string]$process.ExecutablePath } else { $null }
     $owned = Test-WorkspaceProcessIdentity `
