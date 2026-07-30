@@ -517,6 +517,7 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
         object_store_mode="local",
         artifact_root=tmp_path / f"artifacts-{result_count}",
         runner_root=tmp_path / f"runner-{result_count}",
+        kling_admin_config_file=tmp_path / f"kling-config-{result_count}.json",
         kling_cli_enabled=False,
         _env_file=None,
     )
