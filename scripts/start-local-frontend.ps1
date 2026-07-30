@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $projectRoot 'var\logs'
+. (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 Set-Location $projectRoot
 
@@ -12,18 +13,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'frontend\node_modules'
 }
 
 $frontendPort = 5173
-$existingListener = Get-NetTCPConnection -State Listen -LocalPort $frontendPort -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-if ($existingListener) {
+$existingIdentity = Assert-WorkspacePortOwnership `
+    -Port $frontendPort `
+    -ProjectRoot $projectRoot `
+    -ServiceName 'frontend'
+if ($existingIdentity.Listening) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$frontendPort/" -TimeoutSec 3
         if ($response.StatusCode -eq 200) {
-            Write-Host "Frontend is already available on http://127.0.0.1:$frontendPort (PID $($existingListener.OwningProcess))."
+            Write-Host "Frontend from this workspace is already available on http://127.0.0.1:$frontendPort (PID $($existingIdentity.ProcessId))."
             exit 0
         }
     }
     catch { }
-    throw "Port $frontendPort is already owned by PID $($existingListener.OwningProcess), but the frontend check failed."
+    throw "Port $frontendPort is owned by this workspace's PID $($existingIdentity.ProcessId), but the frontend check failed."
 }
 
 & cmd.exe /d /c "npm.cmd run build --prefix frontend 2>&1" |

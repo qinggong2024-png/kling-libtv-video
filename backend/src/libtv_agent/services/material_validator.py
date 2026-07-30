@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from libtv_agent.templates.motion_actions import (
     ACTION_LIBRARY,
     ActionCapability,
     ActionContext,
+    MotionAction,
     evaluate_action,
 )
 from libtv_agent.templates.video_templates import (
@@ -81,6 +83,7 @@ def validate_materials(
     camera_tempo: CameraTempo,
     cut_mode: CutMode,
     requested_action_ids: tuple[str, ...] = (),
+    action_library: Mapping[str, MotionAction] | None = None,
     max_file_bytes: int = 20 * 1024 * 1024,
 ) -> MaterialValidationResult:
     errors: list[ValidationIssue] = []
@@ -246,8 +249,9 @@ def validate_materials(
                 )
             )
 
+    actions = ACTION_LIBRARY if action_library is None else action_library
     for action_id in requested_action_ids:
-        action = ACTION_LIBRARY.get(action_id)
+        action = actions.get(action_id)
         if action is None:
             warnings.append(
                 ValidationIssue(

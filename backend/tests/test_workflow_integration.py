@@ -333,7 +333,10 @@ async def test_task_list_is_sorted_by_latest_update_and_cursor_paginates_without
     tmp_path: Path,
 ) -> None:
     async with running_app(tmp_path) as (client, app):
-        tasks = [await create_draft_task(client, f"cursor-{index}") for index in range(3)]
+        tasks = [
+            await create_draft_task(client, f"cursor-{index}")
+            for index in range(3)
+        ]
         base_time = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
         async with app.state.database.session_factory() as session:
             for index, task in enumerate(tasks):

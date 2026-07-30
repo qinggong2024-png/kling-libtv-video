@@ -75,7 +75,11 @@ async def prepare_kling_task(
         key=lambda item: item.order_no,
     )
     product_reference_assets = sorted(
-        (asset for asset in task.assets if asset.role == "PRODUCT"),
+        (
+            asset
+            for asset in task.assets
+            if asset.used_for_generation and asset.role == "PRODUCT"
+        ),
         key=lambda item: item.order_no,
     )
     if not storyboard_assets:
@@ -227,7 +231,7 @@ async def prepare_kling_task(
             "storyboardFallbackMode": settings.kling_storyboard_fallback_mode,
             "storyboardImageCount": len(storyboard_assets),
             "productReferenceImageCount": len(product_reference_assets),
-            "imageRolePolicy": "storyboard_scene_product_garment_only",
+            "imageRolePolicy": "storyboard_ordered_subject_front_back_side_detail",
         }
         attempts.append(attempt)
     task.phase = ParentTaskPhase.QUEUED

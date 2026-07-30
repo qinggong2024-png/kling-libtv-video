@@ -8,9 +8,14 @@ $apiScript = Join-Path $PSScriptRoot 'start-local-api.ps1'
 $frontendScript = Join-Path $PSScriptRoot 'start-local-frontend.ps1'
 $checkScript = Join-Path $PSScriptRoot 'check-local-services.ps1'
 $logDir = Join-Path $projectRoot 'var\logs'
+. (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-function Test-Ready([string]$Uri) {
+function Test-Ready([string]$Uri, [int]$Port) {
+    $identity = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $projectRoot
+    if (-not $identity.Listening -or -not $identity.OwnedByWorkspace) {
+        return $false
+    }
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 2
         return $response.StatusCode -eq 200
@@ -18,7 +23,10 @@ function Test-Ready([string]$Uri) {
     catch { return $false }
 }
 
-if (-not (Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready')) {
+Assert-WorkspacePortOwnership -Port 8000 -ProjectRoot $projectRoot -ServiceName 'API' | Out-Null
+Assert-WorkspacePortOwnership -Port 5173 -ProjectRoot $projectRoot -ServiceName 'frontend' | Out-Null
+
+if (-not (Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready' 8000)) {
     Start-Process `
         -FilePath 'powershell.exe' `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $apiScript) `
@@ -26,7 +34,7 @@ if (-not (Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready')) {
         -WindowStyle Hidden | Out-Null
 }
 
-if (-not (Test-Ready 'http://127.0.0.1:5173/')) {
+if (-not (Test-Ready 'http://127.0.0.1:5173/' 5173)) {
     Start-Process `
         -FilePath 'powershell.exe' `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $frontendScript) `
@@ -36,9 +44,11 @@ if (-not (Test-Ready 'http://127.0.0.1:5173/')) {
 
 $deadline = [DateTimeOffset]::Now.AddSeconds($StartupTimeoutSeconds)
 do {
-    $apiReady = Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready'
-    $frontendReady = Test-Ready 'http://127.0.0.1:5173/'
-    $proxyReady = Test-Ready 'http://127.0.0.1:5173/api/v1/health/ready'
+    Assert-WorkspacePortOwnership -Port 8000 -ProjectRoot $projectRoot -ServiceName 'API' | Out-Null
+    Assert-WorkspacePortOwnership -Port 5173 -ProjectRoot $projectRoot -ServiceName 'frontend' | Out-Null
+    $apiReady = Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready' 8000
+    $frontendReady = Test-Ready 'http://127.0.0.1:5173/' 5173
+    $proxyReady = Test-Ready 'http://127.0.0.1:5173/api/v1/health/ready' 5173
     if ($apiReady -and $frontendReady -and $proxyReady) { break }
     Start-Sleep -Milliseconds 500
 } while ([DateTimeOffset]::Now -lt $deadline)

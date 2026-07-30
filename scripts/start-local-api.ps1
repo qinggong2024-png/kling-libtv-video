@@ -3,6 +3,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $projectRoot 'var\logs'
 $runnerScript = Join-Path $projectRoot 'backend\src\libtv_agent\runner\local_runner.py'
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+. (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 Set-Location $projectRoot
 
@@ -14,21 +15,23 @@ if (-not (Test-Path -LiteralPath $python)) {
 }
 
 $apiPort = 8000
-$existingListener = Get-NetTCPConnection -State Listen -LocalPort $apiPort -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-if ($existingListener) {
+$existingIdentity = Assert-WorkspacePortOwnership `
+    -Port $apiPort `
+    -ProjectRoot $projectRoot `
+    -ServiceName 'API'
+if ($existingIdentity.Listening) {
     try {
         $response = Invoke-WebRequest `
             -UseBasicParsing `
             -Uri "http://127.0.0.1:$apiPort/api/v1/health/ready" `
             -TimeoutSec 3
         if ($response.StatusCode -eq 200) {
-            Write-Host "API is already ready on http://127.0.0.1:$apiPort (PID $($existingListener.OwningProcess))."
+            Write-Host "API from this workspace is already ready on http://127.0.0.1:$apiPort (PID $($existingIdentity.ProcessId))."
             exit 0
         }
     }
     catch { }
-    throw "Port $apiPort is already owned by PID $($existingListener.OwningProcess), but the API readiness check failed."
+    throw "Port $apiPort is owned by this workspace's PID $($existingIdentity.ProcessId), but the API readiness check failed."
 }
 
 $preflightCode = "import sys; sys.path.insert(0, 'backend/src'); from libtv_agent.app import create_app; create_app()"

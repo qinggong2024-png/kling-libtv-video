@@ -1,27 +1,29 @@
-export type GenerationProviderKind = 'libtv' | 'kling'
+export type GenerationProviderKind = 'legacy' | 'kling'
 
 export type ProviderPresentation = {
   kind: GenerationProviderKind
   displayName: string
-  cliLabel: string
+  displayLabel: string
   cssClass: string
 }
 
 export function generationProviderKind(provider?: string | null): GenerationProviderKind {
   const normalized = provider?.trim().toLowerCase() ?? ''
-  return normalized === 'kling' || normalized.startsWith('kling_') ? 'kling' : 'libtv'
+  return normalized === 'kling' || normalized.startsWith('kling_') ? 'kling' : 'legacy'
 }
 
 export function providerPresentation(provider?: string | null): ProviderPresentation {
   const normalized = provider?.trim().toLowerCase() ?? ''
-  const klingLabel = normalized.includes('_api')
-    ? 'Kling API'
-    : normalized.includes('_cli')
-      ? 'Kling CLI'
-      : '可灵官方 Provider'
-  return generationProviderKind(provider) === 'kling'
-    ? { kind: 'kling', displayName: '可灵', cliLabel: klingLabel, cssClass: 'provider--kling' }
-    : { kind: 'libtv', displayName: 'LibTV', cliLabel: 'LibTV CLI', cssClass: 'provider--libtv' }
+  if (generationProviderKind(provider) === 'kling') {
+    const displayLabel = normalized.includes('_cli') ? '可灵历史任务' : '可灵官方 API'
+    return { kind: 'kling', displayName: '可灵', displayLabel, cssClass: 'provider--kling' }
+  }
+  return {
+    kind: 'legacy',
+    displayName: '历史任务',
+    displayLabel: '历史生成通道',
+    cssClass: 'provider--legacy',
+  }
 }
 
 const PHASE_PROGRESS: Record<string, number> = {
@@ -39,17 +41,17 @@ const PHASE_PROGRESS: Record<string, number> = {
 
 export function providerProgress(phase: string, provider?: string | null) {
   const meta = providerPresentation(provider)
-  const providerLabel = meta.cliLabel
+  const providerLabel = meta.displayLabel
   const labels: Record<string, string> = {
     PREPARING: meta.kind === 'kling'
       ? `${providerLabel}：准备并上传参考图`
-      : `${providerLabel}：创建画布与节点`,
+      : `${providerLabel}：准备历史任务素材`,
     QUEUED: meta.kind === 'kling'
       ? `${providerLabel}：等待提交生成`
-      : `${providerLabel}：等待运行画布`,
+      : `${providerLabel}：等待执行`,
     GENERATING: meta.kind === 'kling'
       ? `${providerLabel}：可灵云端生成中`
-      : `${providerLabel}：画布节点生成中`,
+      : `${providerLabel}：生成中`,
     PARTIALLY_DELIVERABLE: `${providerLabel}：部分结果已返回`,
   }
   return {
@@ -65,10 +67,10 @@ export function providerTimingStageLabel(key: string, provider?: string | null):
   if (key === 'ANALYSIS') return '内容分析'
   if (key === 'CONFIRMATION') return '方案确认'
   if (key === 'MATERIALIZATION') {
-    return meta.kind === 'kling' ? `${meta.cliLabel} 素材准备` : 'LibTV CLI 画布准备'
+    return meta.kind === 'kling' ? `${meta.displayLabel} 素材准备` : '历史任务素材准备'
   }
   if (key === 'GENERATION') {
-    return meta.kind === 'kling' ? '可灵云端生成' : 'LibTV 画布生成'
+    return meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
   }
   return '成品下载'
 }
@@ -93,11 +95,11 @@ export function variantExecutionMessage(
 ): string {
   const meta = providerPresentation(variant.provider ?? taskProvider)
   if (variant.downloadArtifactId) return '成品文件已就绪'
-  if (variant.downloadStatus === 'DOWNLOADING') return `${meta.cliLabel} 已返回结果，正在下载成品`
+  if (variant.downloadStatus === 'DOWNLOADING') return `${meta.displayLabel} 已返回结果，正在下载成品`
   if (variant.generationStatus === 'UNKNOWN') {
     return meta.kind === 'kling'
-      ? `${meta.cliLabel} 提交或查询结果不确定；禁止自动重投，请用任务 ID 对账`
-      : 'LibTV CLI 运行状态不确定；禁止重复执行 --run，请读取画布节点对账'
+      ? `${meta.displayLabel} 提交或查询结果不确定；禁止自动重投，请用任务 ID 对账`
+      : '历史任务执行状态不确定；禁止重复提交，请根据任务记录对账'
   }
   if (variant.errorCode) {
     const retryable = variant.retryable ?? variant.providerErrorRetryable
@@ -107,7 +109,7 @@ export function variantExecutionMessage(
         ? '需要人工处理'
         : ''
     return [
-      `${meta.cliLabel}：${variant.errorCode}`,
+      `${meta.displayLabel}：${variant.errorCode}`,
       (variant.errorMessage ?? variant.providerErrorMessage)?.trim(),
       retry,
     ].filter(Boolean).join(' · ')
@@ -115,12 +117,12 @@ export function variantExecutionMessage(
   if (variant.providerTaskId) {
     return meta.kind === 'kling'
       ? `可灵任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待查询'}`
-      : `LibTV 任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待节点结果'}`
+      : `历史任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待结果'}`
   }
   if (variant.generationStatus === 'PENDING') {
-    return meta.kind === 'kling' ? `等待 ${meta.cliLabel} 提交生成` : '等待 LibTV CLI 运行画布'
+    return meta.kind === 'kling' ? `等待 ${meta.displayLabel} 提交生成` : '等待历史任务执行'
   }
   return meta.kind === 'kling'
-    ? `正在等待 ${meta.cliLabel} 返回生成状态`
-    : '正在等待 LibTV CLI 返回画布状态'
+    ? `正在等待 ${meta.displayLabel} 返回生成状态`
+    : '正在等待历史任务返回状态'
 }

@@ -4212,6 +4212,135 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "motion-actions"
+        ],
+        "summary": "Create Motion Action",
+        "operationId": "create_motion_action_api_v1_motion_actions_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MotionActionWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Motion Action Api V1 Motion Actions Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/motion-actions/{action_id}": {
+      "put": {
+        "tags": [
+          "motion-actions"
+        ],
+        "summary": "Update Motion Action",
+        "operationId": "update_motion_action_api_v1_motion_actions__action_id__put",
+        "parameters": [
+          {
+            "name": "action_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MotionActionWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Motion Action Api V1 Motion Actions  Action Id  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/site-style-profiles": {
@@ -4251,6 +4380,135 @@
                     "additionalProperties": true
                   },
                   "title": "Response Get Site Style Profiles Api V1 Site Style Profiles Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Create Site Style Profile",
+        "operationId": "create_site_style_profile_api_v1_site_style_profiles_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Site Style Profile Api V1 Site Style Profiles Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-style-profiles/{profile_id}": {
+      "put": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Update Site Style Profile",
+        "operationId": "update_site_style_profile_api_v1_site_style_profiles__profile_id__put",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Site Style Profile Api V1 Site Style Profiles  Profile Id  Put"
                 }
               }
             }
@@ -4376,6 +4634,52 @@
           "canDownload"
         ],
         "title": "ActionCapabilities"
+      },
+      "ActionCapability": {
+        "type": "string",
+        "enum": [
+          "forward_step_space",
+          "walk_depth",
+          "lateral_step_space",
+          "open_entry_space",
+          "horizontal_movement_space",
+          "diagonal_step_space",
+          "composition_repositioning",
+          "front_print_visible",
+          "free_hand",
+          "safe_hand_path",
+          "hem_reachable",
+          "hem_clear",
+          "print_outside_stretch_area",
+          "safe_fabric_area",
+          "sleeve_or_shoulder_visible",
+          "face_gaze_adjustable",
+          "collar_visible",
+          "openable_outer_layer",
+          "inner_layer_visible",
+          "pocket_visible",
+          "cuffs_and_hands_visible",
+          "cross_cuff_reachable",
+          "layered_garment",
+          "layer_boundaries_clear",
+          "long_or_loose_hem",
+          "back_reference",
+          "over_shoulder_gaze_safe",
+          "face_visible",
+          "mirror_selfie",
+          "phone_hold_visible",
+          "seated_pose",
+          "seat_visible",
+          "lower_body_path_visible",
+          "standing_space",
+          "support_surface",
+          "handheld_unworn_product",
+          "packaging_or_product_surface",
+          "existing_prop",
+          "prop_pickup_safe"
+        ],
+        "title": "ActionCapability",
+        "description": "Facts that must be confirmed from the input before an action is safe."
       },
       "AdminUserResponse": {
         "properties": {
@@ -5748,6 +6052,105 @@
         ],
         "title": "LoginRequest"
       },
+      "MotionActionWrite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "outfit",
+              "detail",
+              "back",
+              "interaction",
+              "product"
+            ],
+            "title": "Category"
+          },
+          "instruction": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 20,
+            "title": "Instruction"
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 8,
+            "title": "Purpose"
+          },
+          "compatibleTemplates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Compatibletemplates"
+          },
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Requirements"
+          },
+          "requiredCapabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ActionCapability"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requiredcapabilities"
+          },
+          "avoid": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Avoid"
+          },
+          "riskLevel": {
+            "type": "string",
+            "enum": [
+              "low",
+              "conditional"
+            ],
+            "title": "Risklevel",
+            "default": "low"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "category",
+          "instruction",
+          "purpose",
+          "compatibleTemplates"
+        ],
+        "title": "MotionActionWrite"
+      },
       "ParentTaskPhase": {
         "type": "string",
         "enum": [
@@ -6111,6 +6514,177 @@
         ],
         "title": "RuntimeConfigUpdateRequest"
       },
+      "SiteStyleProfileWrite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "retired"
+            ],
+            "title": "Status",
+            "default": "draft"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "siteUrl": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Siteurl",
+            "default": ""
+          },
+          "sourceUrls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Sourceurls"
+          },
+          "retrievedAt": {
+            "type": "string",
+            "format": "date",
+            "title": "Retrievedat"
+          },
+          "evidenceLevel": {
+            "type": "string",
+            "enum": [
+              "verified_site",
+              "restricted_site"
+            ],
+            "title": "Evidencelevel",
+            "default": "restricted_site"
+          },
+          "tone": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 8,
+            "title": "Tone"
+          },
+          "audience": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 6,
+            "title": "Audience"
+          },
+          "palette": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Palette"
+          },
+          "typography": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 2,
+            "title": "Typography"
+          },
+          "cameraLanguage": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Cameralanguage"
+          },
+          "openingRule": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Openingrule"
+          },
+          "middleRule": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Middlerule"
+          },
+          "endingRule": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Endingrule"
+          },
+          "preferredShots": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Preferredshots"
+          },
+          "preferredActions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Preferredactions"
+          },
+          "pacing": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 5,
+            "title": "Pacing"
+          },
+          "productPriorities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Productpriorities"
+          },
+          "forbiddenMismatches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Forbiddenmismatches"
+          },
+          "researchNote": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 8,
+            "title": "Researchnote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "retrievedAt",
+          "tone",
+          "audience",
+          "typography",
+          "cameraLanguage",
+          "openingRule",
+          "middleRule",
+          "endingRule",
+          "preferredShots",
+          "pacing",
+          "productPriorities",
+          "forbiddenMismatches",
+          "researchNote"
+        ],
+        "title": "SiteStyleProfileWrite"
+      },
       "StoryboardInput": {
         "properties": {
           "uploadId": {
@@ -6136,6 +6710,28 @@
           "order"
         ],
         "title": "StoryboardInput"
+      },
+      "SubjectImageInput": {
+        "properties": {
+          "uploadId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploadid"
+          },
+          "order": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uploadId",
+          "order"
+        ],
+        "title": "SubjectImageInput",
+        "description": "An ordered subject reference; order 1 is the required frontal image."
       },
       "TaskCreate": {
         "properties": {
@@ -7016,6 +7612,14 @@
             "maxItems": 7,
             "minItems": 1,
             "title": "Storyboards"
+          },
+          "subjectImages": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectImageInput"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Subjectimages"
           },
           "elementIds": {
             "items": {

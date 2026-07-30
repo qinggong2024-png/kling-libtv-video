@@ -1,3 +1,4 @@
+import asyncio
 import io
 import uuid
 from dataclasses import replace
@@ -8,11 +9,14 @@ from libtv_agent.app import create_app
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import AttemptStatus, ParentTaskPhase
 from libtv_agent.domain.models import (
+    Asset,
     Base,
     GenerationAttempt,
     GenerationCommand,
     GenerationVariant,
+    SubjectElementJob,
 )
+from libtv_agent.domain.schemas import VideoTaskCreate
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
 from libtv_agent.templates.motion_actions import (
@@ -52,6 +56,53 @@ def material(index: int, *, sha256: str | None = None) -> MaterialDescriptor:
         width=1080,
         height=1920,
     )
+
+
+def test_video_task_subject_images_are_optional_ordered_and_exclusive_with_elements() -> None:
+    common = {
+        "clientTaskId": "subject-schema",
+        "title": "Subject schema",
+        "storyboards": [{"uploadId": str(uuid.uuid4()), "order": 1}],
+        "templateId": "ootd_walk",
+        "siteProfileId": "geeksoutfit",
+        "paidSubmissionConsent": True,
+    }
+
+    without_subject = VideoTaskCreate.model_validate({**common, "subjectImages": []})
+    assert without_subject.subject_images == []
+
+    with pytest.raises(ValueError, match="between 2 and 4"):
+        VideoTaskCreate.model_validate(
+            {
+                **common,
+                "subjectImages": [{"uploadId": str(uuid.uuid4()), "order": 1}],
+            }
+        )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        VideoTaskCreate.model_validate(
+            {
+                **common,
+                "subjectImages": [
+                    {"uploadId": str(uuid.uuid4()), "order": 1},
+                    {"uploadId": str(uuid.uuid4()), "order": 2},
+                ],
+                "elementIds": ["element-1"],
+            }
+        )
+    with pytest.raises(ValueError, match="7-reference limit"):
+        VideoTaskCreate.model_validate(
+            {
+                **common,
+                "storyboards": [
+                    {"uploadId": str(uuid.uuid4()), "order": order}
+                    for order in range(1, 5)
+                ],
+                "subjectImages": [
+                    {"uploadId": str(uuid.uuid4()), "order": order}
+                    for order in range(1, 5)
+                ],
+            }
+        )
 
 
 @pytest.mark.parametrize("count", [1, 7])
@@ -460,6 +511,134 @@ async def test_motion_action_api_exposes_prompt_and_compatibility_metadata() -> 
 
 
 @pytest.mark.asyncio
+async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_styles() -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            headers = {"X-User-Id": settings.dev_admin_id}
+            actions_response = await client.get("/api/v1/motion-actions", headers=headers)
+            assert actions_response.status_code == 200
+            action = next(
+                item
+                for item in actions_response.json()
+                if item["id"] == "one_step_settle"
+            )
+            assert action.pop("requiredCapabilities") == ["forward_step_space"]
+            action["label"] = f"{action['label']} edited"
+
+            update_action_response = await client.put(
+                "/api/v1/motion-actions/one_step_settle",
+                headers=headers,
+                json=action,
+            )
+            assert update_action_response.status_code == 200, update_action_response.text
+            assert update_action_response.json()["requiredCapabilities"] == [
+                "forward_step_space"
+            ]
+
+            profiles_response = await client.get(
+                "/api/v1/site-style-profiles",
+                headers=headers,
+            )
+            assert profiles_response.status_code == 200
+            profile = next(
+                item
+                for item in profiles_response.json()
+                if item["id"] == "goodnurselife"
+            )
+            assert profile.pop("version") == "0.1.0-research"
+            profile["researchNote"] = f"{profile['researchNote']} edited"
+
+            update_profile_response = await client.put(
+                "/api/v1/site-style-profiles/goodnurselife",
+                headers=headers,
+                json=profile,
+            )
+            assert update_profile_response.status_code == 200, update_profile_response.text
+            assert update_profile_response.json()["version"] == "0.1.1"
+
+
+@pytest.mark.asyncio
+async def test_catalog_editor_rejects_invalid_references_and_requires_editor_role() -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    action_payload = {
+        "id": "catalog_test_action",
+        "label": "Catalog test action",
+        "category": "outfit",
+        "instruction": "Start in a stable pose, shift once, then stop with the garment visible.",
+        "purpose": "Keep the whole garment visible.",
+        "compatibleTemplates": ["missing_template"],
+        "requirements": [],
+        "avoid": [],
+        "riskLevel": "low",
+    }
+    async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            forbidden_response = await client.post(
+                "/api/v1/motion-actions",
+                headers={"X-User-Id": settings.dev_user_id},
+                json=action_payload,
+            )
+            assert forbidden_response.status_code == 403
+
+            invalid_template_response = await client.post(
+                "/api/v1/motion-actions",
+                headers={"X-User-Id": settings.dev_admin_id},
+                json=action_payload,
+            )
+            assert invalid_template_response.status_code == 422
+            assert "missing_template" in invalid_template_response.text
+
+            profiles_response = await client.get(
+                "/api/v1/site-style-profiles",
+                headers={"X-User-Id": settings.dev_admin_id},
+            )
+            profile = next(
+                item
+                for item in profiles_response.json()
+                if item["id"] == "goodnurselife"
+            )
+            profile.pop("version")
+            profile["preferredActions"] = ["missing_action"]
+            invalid_action_response = await client.put(
+                "/api/v1/site-style-profiles/goodnurselife",
+                headers={"X-User-Id": settings.dev_admin_id},
+                json=profile,
+            )
+            assert invalid_action_response.status_code == 422
+            assert "missing_action" in invalid_action_response.text
+
+            profile["preferredActions"] = []
+            profile["retrievedAt"] = "2026-02-31"
+            invalid_date_response = await client.put(
+                "/api/v1/site-style-profiles/goodnurselife",
+                headers={"X-User-Id": settings.dev_admin_id},
+                json=profile,
+            )
+            assert invalid_date_response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_video_task_requires_explicit_paid_submission_consent(tmp_path) -> None:
     settings = Settings(
         app_env="test",
@@ -699,6 +878,170 @@ async def test_fixed_video_task_queues_only_kling_commands_without_analysis(
                 tuple(variant.generation_config_json["elementIds"]) for variant in variants
             }
             assert element_id_sets == {("element-model-1",)}
+
+
+@pytest.mark.asyncio
+async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element_in_background(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "libtv_agent.services.subject_elements.SUBJECT_ELEMENT_RETRY_BASE_SECONDS",
+        0,
+    )
+    monkeypatch.setitem(
+        VIDEO_TEMPLATES,
+        "garment_detail",
+        replace(VIDEO_TEMPLATES["garment_detail"], status="active", version="1.0.0-test"),
+    )
+    monkeypatch.setitem(
+        SITE_STYLE_PROFILES,
+        "teachersgram",
+        replace(SITE_STYLE_PROFILES["teachersgram"], status="active", version="1.0.0-test"),
+    )
+
+    async def allow_kling(*args, **kwargs) -> None:
+        del args, kwargs
+
+    async def prepare_without_provider_call(session, adapter, object_store, task, settings):
+        del adapter, object_store, settings
+        attempts = []
+        for variant in task.variants:
+            attempt = GenerationAttempt(
+                variant_id=variant.id,
+                provider="kling_official_api",
+                provider_model="kling-3.0-omni",
+                provider_status="queued",
+                intent_hash=f"subject-intent-{variant.variant_index}",
+                status=AttemptStatus.PREPARED,
+            )
+            session.add(attempt)
+            attempts.append(attempt)
+        task.phase = ParentTaskPhase.QUEUED
+        await session.flush()
+        return attempts
+
+    class SubjectElementAdapter:
+        def __init__(self) -> None:
+            self.created = []
+            self.calls = 0
+
+        def get_provider_name(self) -> str:
+            return "kling_official_api"
+
+        async def create_element(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary element provider failure")
+            self.created.append(request)
+            return {
+                "data": {
+                    "id": "automatic-subject-1",
+                    "name": request.element_name,
+                    "description": request.element_description,
+                    "status": "submitted",
+                }
+            }
+
+    monkeypatch.setattr(
+        "libtv_agent.services.fixed_video_tasks.ensure_provider_submission_allowed",
+        allow_kling,
+    )
+    monkeypatch.setattr(
+        "libtv_agent.services.fixed_video_tasks.prepare_kling_task",
+        prepare_without_provider_call,
+    )
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        object_store_mode="local",
+        artifact_root=tmp_path / "artifacts-subject",
+        runner_root=tmp_path / "runner-subject",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    adapter = SubjectElementAdapter()
+    async with app.router.lifespan_context(app):
+        app.state.kling_adapter = adapter
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            uploads = []
+            for key, filename, color in (
+                ("subject-storyboard", "storyboard.png", "#76444a"),
+                ("subject-front", "linen-shirt-front.png", "#335577"),
+                ("subject-back", "linen-shirt-back.png", "#557799"),
+            ):
+                response = await client.post(
+                    "/api/v1/uploads",
+                    headers={
+                        "X-User-Id": settings.dev_user_id,
+                        "Idempotency-Key": key,
+                    },
+                    files={"file": (filename, png_bytes(color), "image/png")},
+                )
+                assert response.status_code == 201, response.text
+                uploads.append(response.json()["id"])
+
+            response = await client.post(
+                "/api/v1/video-tasks",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "fixed-subject-create",
+                },
+                json={
+                    "clientTaskId": "fixed-subject",
+                    "title": "Fixed subject",
+                    "storyboards": [{"uploadId": uploads[0], "order": 1, "required": True}],
+                    "subjectImages": [
+                        {"uploadId": uploads[1], "order": 1},
+                        {"uploadId": uploads[2], "order": 2},
+                    ],
+                    "templateId": "garment_detail",
+                    "siteProfileId": "teachersgram",
+                    "resultCount": 1,
+                    "paidSubmissionConsent": True,
+                },
+            )
+            assert response.status_code == 201, response.text
+            task_id = uuid.UUID(response.json()["id"])
+            await asyncio.gather(*tuple(app.state.subject_element_jobs))
+
+        async with app.state.database.session_factory() as session:
+            assets = list(
+                await session.scalars(
+                    select(Asset).where(Asset.parent_task_id == task_id).order_by(Asset.order_no)
+                )
+            )
+            variants = list(
+                await session.scalars(
+                    select(GenerationVariant).where(GenerationVariant.parent_task_id == task_id)
+                )
+            )
+            subject_job = await session.scalar(
+                select(SubjectElementJob).where(SubjectElementJob.parent_task_id == task_id)
+            )
+
+    assert [(asset.role, asset.source_type, asset.order_no) for asset in assets] == [
+        ("STORYBOARD", "STORYBOARD", 1),
+        ("PRODUCT", "SUBJECT_REFERENCE", 101),
+        ("PRODUCT", "SUBJECT_REFERENCE", 102),
+    ]
+    assert all(asset.used_for_generation for asset in assets)
+    assert all(not asset.used_for_analysis for asset in assets)
+    assert "@image_1" in variants[0].prompt_text
+    assert "@image_2 is the subject frontal reference" in variants[0].prompt_text
+    assert "@image_3 is the subject back reference" in variants[0].prompt_text
+    assert len(adapter.created) == 1
+    assert adapter.calls == 2
+    assert adapter.created[0].element_name.startswith("linen-shirt-")
+    assert len(adapter.created[0].refer_images) == 1
+    assert adapter.created[0].external_task_id == f"fixed-video-subject-{task_id.hex}"
+    assert subject_job is not None
+    assert subject_job.status == "SUBMITTED"
+    assert subject_job.attempt_count == 2
+    assert subject_job.provider_task_id == "automatic-subject-1"
+    assert subject_job.last_error_code is None
 
 
 @pytest.mark.asyncio

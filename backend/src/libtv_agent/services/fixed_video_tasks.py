@@ -19,8 +19,13 @@ from libtv_agent.domain.models import (
     OutboxEvent,
     ParentTask,
     StagedUpload,
+    SubjectElementJob,
 )
 from libtv_agent.domain.schemas import VideoTaskCreate
+from libtv_agent.services.content_catalog import (
+    get_merged_site_style_profile,
+    motion_action_library,
+)
 from libtv_agent.services.generation_safety import write_preview_file
 from libtv_agent.services.kling_preparation import prepare_kling_task
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
@@ -30,8 +35,8 @@ from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
     ensure_provider_submission_allowed,
 )
+from libtv_agent.services.subject_elements import automatic_element_metadata
 from libtv_agent.services.tasks import get_task
-from libtv_agent.templates.site_style_profiles import get_site_style_profile
 from libtv_agent.templates.video_templates import get_video_template
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +64,42 @@ def _validation_snapshot(result: Any) -> dict[str, Any]:
         "warnings": [asdict(issue) for issue in result.warnings],
         "visionCheckRequired": result.vision_check_required,
     }
+
+
+def _reference_role_prompt(
+    *,
+    storyboard_count: int,
+    subject_image_count: int,
+    element_count: int,
+) -> str:
+    """Describe Kling content IDs without letting subject images redefine the shots."""
+
+    storyboard_ids = ", ".join(f"@image_{index}" for index in range(1, storyboard_count + 1))
+    instructions = [
+        f"Reference roles: {storyboard_ids} are ordered storyboards and control scene, action, "
+        "composition, and camera order."
+    ]
+    if subject_image_count:
+        first_subject_index = storyboard_count + 1
+        subject_roles = [f"@image_{first_subject_index} is the subject frontal reference"]
+        if subject_image_count >= 2:
+            subject_roles.append(f"@image_{first_subject_index + 1} is the subject back reference")
+        for offset in range(2, subject_image_count):
+            subject_roles.append(
+                f"@image_{first_subject_index + offset} is a subject side/detail reference"
+            )
+        instructions.append(
+            "; ".join(subject_roles)
+            + ". Subject references constrain only identity, garment shape, color, print, logo, "
+            "and visible text; ignore their background, pose, and composition."
+        )
+    elif element_count:
+        element_ids = ", ".join(f"@element_{index}" for index in range(1, element_count + 1))
+        instructions.append(
+            f"{element_ids} are historical subject elements and constrain subject identity and "
+            "appearance without overriding storyboard scene or composition."
+        )
+    return " ".join(instructions)
 
 
 async def _mark_action_required(
@@ -110,12 +151,20 @@ async def create_fixed_video_task(
     except ValueError as exc:
         raise FixedVideoTaskValidationError("VIDEO_TEMPLATE_NOT_ACTIVE", str(exc)) from exc
     try:
-        site_profile = get_site_style_profile(payload.site_profile_id, require_active=True)
+        site_profile = await get_merged_site_style_profile(
+            session,
+            payload.site_profile_id,
+            require_active=True,
+        )
     except ValueError as exc:
         raise FixedVideoTaskValidationError("SITE_PROFILE_NOT_ACTIVE", str(exc)) from exc
 
+    actions = await motion_action_library(session)
     ordered_inputs = sorted(payload.storyboards, key=lambda item: item.order)
-    upload_ids = [item.upload_id for item in ordered_inputs]
+    ordered_subject_inputs = sorted(payload.subject_images, key=lambda item: item.order)
+    upload_ids = [
+        item.upload_id for item in [*ordered_inputs, *ordered_subject_inputs]
+    ]
     uploads = list(
         await session.scalars(
             select(StagedUpload).where(
@@ -154,6 +203,7 @@ async def create_fixed_video_task(
         camera_tempo=payload.camera_tempo,
         cut_mode=payload.cut_mode,
         requested_action_ids=site_profile.preferred_actions,
+        action_library=actions,
         max_file_bytes=settings.max_input_image_bytes,
     )
     validation_json = _validation_snapshot(validation)
@@ -176,13 +226,22 @@ async def create_fixed_video_task(
                 variant_index=index,
                 site_profile=site_profile,
                 action_context=validation.action_context,
+                action_library=actions,
             )
         )
         for index in range(1, payload.result_count + 1)
     ]
+    role_prompt = _reference_role_prompt(
+        storyboard_count=len(ordered_inputs),
+        subject_image_count=len(ordered_subject_inputs),
+        element_count=len(payload.element_ids),
+    )
     plan_json = {
         "compiler": "fixed-template-v1",
-        "variants": [asdict(plan) for plan in plans],
+        "variants": [
+            {**asdict(plan), "master_prompt": f"{plan.master_prompt} {role_prompt}"}
+            for plan in plans
+        ],
     }
     task_id = uuid.uuid4()
     consent_at = datetime.now(UTC)
@@ -211,7 +270,7 @@ async def create_fixed_video_task(
         user_id=user_id,
         client_task_id=payload.client_task_id,
         title=payload.title,
-        asset_count=len(ordered_inputs),
+        asset_count=len(upload_ids),
         phase=ParentTaskPhase.PREPARING,
         phase_reason_code=None,
         workflow_kind="FIXED_TEMPLATE",
@@ -248,6 +307,29 @@ async def create_fixed_video_task(
             )
         )
         upload.claimed_task_id = task_id
+    for item in ordered_subject_inputs:
+        upload = by_id[item.upload_id]
+        task.assets.append(
+            Asset(
+                parent_task_id=task_id,
+                source_type="SUBJECT_REFERENCE",
+                role="PRODUCT",
+                order_no=100 + item.order,
+                required=False,
+                original_filename=upload.original_filename,
+                sha256=upload.sha256,
+                mime_type=upload.mime_type,
+                size_bytes=upload.size_bytes,
+                width=upload.width,
+                height=upload.height,
+                object_key=upload.object_key,
+                thumbnail_key=upload.thumbnail_key,
+                used_for_analysis=False,
+                used_for_generation=True,
+            )
+        )
+        upload.claimed_task_id = task_id
+    prompt_texts = [f"{plan.master_prompt} {role_prompt}" for plan in plans]
     task.variants = [
         GenerationVariant(
             variant_type=VariantKind.STABLE,
@@ -255,17 +337,37 @@ async def create_fixed_video_task(
             variant_index=index,
             variant_key=f"result-{index}",
             variant_seed_json=plan.variant_seed,
-            prompt_text=plan.master_prompt,
-            prompt_hash=sha256_json(plan.master_prompt),
+            prompt_text=prompt_text,
+            prompt_hash=sha256_json(prompt_text),
             prompt_template_version=template.version,
             generation_config_json={**settings_json, "variantIndex": index},
             generation_config_hash=sha256_json({**settings_json, "variantIndex": index}),
             ordered_storyboard_assets_hash=asset_hash,
             confirmed_at=consent_at,
         )
-        for index, plan in enumerate(plans, start=1)
+        for index, (plan, prompt_text) in enumerate(
+            zip(plans, prompt_texts, strict=True),
+            start=1,
+        )
     ]
     session.add(task)
+    if ordered_subject_inputs:
+        first_subject_upload = by_id[ordered_subject_inputs[0].upload_id]
+        subject_name, subject_description = automatic_element_metadata(
+            first_subject_upload.original_filename,
+            task_id=task_id,
+            reference_count=len(ordered_subject_inputs),
+        )
+        session.add(
+            SubjectElementJob(
+                parent_task_id=task_id,
+                user_id=user_id,
+                external_task_id=f"fixed-video-subject-{task_id.hex}",
+                name=subject_name,
+                description=subject_description,
+                status="PENDING",
+            )
+        )
     session.add(
         AuditEvent(
             actor_id=user_id,

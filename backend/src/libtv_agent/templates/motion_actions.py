@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Literal
@@ -648,13 +648,15 @@ def compatible_action_ids(
     action_ids: tuple[str, ...],
     *,
     context: ActionContext | None = None,
+    library: Mapping[str, MotionAction] | None = None,
 ) -> tuple[str, ...]:
+    actions = ACTION_LIBRARY if library is None else library
     return tuple(
         action_id
         for action_id in action_ids
-        if action_id in ACTION_LIBRARY
-        and template_id in ACTION_LIBRARY[action_id].compatible_templates
-        and evaluate_action(ACTION_LIBRARY[action_id], context).allowed
+        if action_id in actions
+        and template_id in actions[action_id].compatible_templates
+        and evaluate_action(actions[action_id], context).allowed
     )
 
 
@@ -663,8 +665,15 @@ def render_action_ids(
     action_ids: tuple[str, ...],
     *,
     context: ActionContext | None = None,
+    library: Mapping[str, MotionAction] | None = None,
 ) -> str:
-    compatible = compatible_action_ids(template_id, action_ids, context=context)
+    actions = ACTION_LIBRARY if library is None else library
+    compatible = compatible_action_ids(
+        template_id,
+        action_ids,
+        context=context,
+        library=actions,
+    )
     if not compatible:
         return "不额外添加站点专属动作，保持模板动作骨架"
-    return "；".join(ACTION_LIBRARY[action_id].instruction for action_id in compatible)
+    return "；".join(actions[action_id].instruction for action_id in compatible)

@@ -305,14 +305,15 @@ async def test_element_routes_form_minimum_adapter_contract(tmp_path: Path) -> N
     )
     app = create_app(settings)
     adapter = FakeKlingAdapter(_verified_result())
-    headers = {"X-User-Id": str(ADMIN_ID)}
+    user_headers = {"X-User-Id": str(USER_ID)}
+    admin_headers = {"X-User-Id": str(ADMIN_ID)}
 
     async with app.router.lifespan_context(app):
         app.state.kling_adapter = adapter
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             created = await client.post(
                 "/api/v1/admin/kling/elements",
-                headers=headers,
+                headers=admin_headers,
                 json={
                     "name": "model",
                     "description": "two-angle subject",
@@ -325,14 +326,26 @@ async def test_element_routes_form_minimum_adapter_contract(tmp_path: Path) -> N
             assert created.status_code == 201, created.text
             assert created.json()["id"] == "element-1"
 
-            listed = await client.get("/api/v1/admin/kling/elements", headers=headers)
+            listed = await client.get("/api/v1/admin/kling/elements", headers=user_headers)
             assert listed.status_code == 200
             assert [item["id"] for item in listed.json()["items"]] == ["element-1"]
 
-            fetched = await client.get("/api/v1/admin/kling/elements/element-1", headers=headers)
+            fetched = await client.get(
+                "/api/v1/admin/kling/elements/element-1",
+                headers=user_headers,
+            )
             assert fetched.status_code == 200
 
-            deleted = await client.delete("/api/v1/admin/kling/elements/element-1", headers=headers)
+            forbidden_delete = await client.delete(
+                "/api/v1/admin/kling/elements/element-1",
+                headers=user_headers,
+            )
+            assert forbidden_delete.status_code == 403
+
+            deleted = await client.delete(
+                "/api/v1/admin/kling/elements/element-1",
+                headers=admin_headers,
+            )
             assert deleted.status_code == 204
 
 
@@ -365,3 +378,79 @@ async def test_element_list_accepts_official_empty_array_shape() -> None:
         "total": 0,
         "official": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_element_list_expands_official_task_results() -> None:
+    from libtv_agent.services.kling_elements import list_elements
+
+    class OfficialElementAdapter:
+        async def list_elements(
+            self,
+            *,
+            page_num: int,
+            page_size: int,
+            official: bool,
+        ) -> dict[str, Any]:
+            assert (page_num, page_size, official) == (1, 30, True)
+            return {
+                "code": 0,
+                "message": "ok",
+                "data": [
+                    {
+                        "task_id": "task-173",
+                        "task_status": "succeed",
+                        "created_at": "2026-07-29T09:00:00Z",
+                        "updated_at": "2026-07-29T09:01:00Z",
+                        "task_result": {
+                            "elements": [
+                                {
+                                    "element_id": "element-172",
+                                    "name": "Official actor",
+                                    "description": "Official preset subject",
+                                    "status": "active",
+                                    "image": "https://cdn.example.test/official.jpg",
+                                    "video": {
+                                        "video_url": (
+                                            "https://cdn.example.test/official.mp4"
+                                        )
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+
+    page = await list_elements(
+        OfficialElementAdapter(),
+        page_num=1,
+        page_size=30,
+        official=True,
+    )
+
+    assert page["total"] == 1
+    assert page["official"] is True
+    assert page["items"] == [
+        {
+            "id": "element-172",
+            "name": "Official actor",
+            "description": "Official preset subject",
+            "status": "active",
+            "imageUrls": ["https://cdn.example.test/official.jpg"],
+            "videoUrl": "https://cdn.example.test/official.mp4",
+            "voiceId": None,
+            "createdAt": "2026-07-29T09:00:00Z",
+            "updatedAt": "2026-07-29T09:01:00Z",
+            "raw": {
+                "element_id": "element-172",
+                "name": "Official actor",
+                "description": "Official preset subject",
+                "status": "active",
+                "image": "https://cdn.example.test/official.jpg",
+                "video": {
+                    "video_url": "https://cdn.example.test/official.mp4"
+                },
+            },
+        }
+    ]

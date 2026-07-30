@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from libtv_agent.domain.enums import (
@@ -12,6 +12,7 @@ from libtv_agent.domain.enums import (
     ValidationStatus,
     VariantKind,
 )
+from libtv_agent.templates.motion_actions import ActionCapability
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
@@ -23,6 +24,43 @@ class ApiModel(BaseModel):
         serialize_by_alias=True,
         from_attributes=True,
     )
+
+
+class MotionActionWrite(ApiModel):
+    id: str = Field(min_length=2, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=2, max_length=80)
+    category: Literal["outfit", "detail", "back", "interaction", "product"]
+    instruction: str = Field(min_length=20, max_length=500)
+    purpose: str = Field(min_length=8, max_length=300)
+    compatible_templates: list[str] = Field(min_length=1, max_length=20)
+    requirements: list[str] = Field(default_factory=list, max_length=20)
+    required_capabilities: list[ActionCapability] | None = Field(default=None, max_length=20)
+    avoid: list[str] = Field(default_factory=list, max_length=20)
+    risk_level: Literal["low", "conditional"] = "low"
+
+
+class SiteStyleProfileWrite(ApiModel):
+    id: str = Field(min_length=2, max_length=80, pattern=r"^[a-z][a-z0-9_-]*$")
+    status: Literal["draft", "active", "retired"] = "draft"
+    name: str = Field(min_length=2, max_length=120)
+    site_url: str = Field(default="", max_length=500)
+    source_urls: list[str] = Field(default_factory=list, max_length=30)
+    retrieved_at: date
+    evidence_level: Literal["verified_site", "restricted_site"] = "restricted_site"
+    tone: str = Field(min_length=8, max_length=300)
+    audience: str = Field(min_length=6, max_length=300)
+    palette: list[str] = Field(default_factory=list, max_length=20)
+    typography: str = Field(min_length=2, max_length=300)
+    camera_language: str = Field(min_length=10, max_length=500)
+    opening_rule: str = Field(min_length=10, max_length=500)
+    middle_rule: str = Field(min_length=10, max_length=500)
+    ending_rule: str = Field(min_length=10, max_length=500)
+    preferred_shots: list[str] = Field(min_length=1, max_length=20)
+    preferred_actions: list[str] = Field(default_factory=list, max_length=30)
+    pacing: str = Field(min_length=5, max_length=300)
+    product_priorities: list[str] = Field(min_length=1, max_length=30)
+    forbidden_mismatches: list[str] = Field(min_length=1, max_length=30)
+    research_note: str = Field(min_length=8, max_length=1000)
 
 
 class UploadRead(ApiModel):
@@ -45,6 +83,13 @@ class StoryboardInput(ApiModel):
 class ProductReferenceInput(ApiModel):
     upload_id: uuid.UUID
     order: int = Field(ge=1, le=5)
+
+
+class SubjectImageInput(ApiModel):
+    """An ordered subject reference; order 1 is the required frontal image."""
+
+    upload_id: uuid.UUID
+    order: int = Field(ge=1, le=4)
 
 
 class TaskCreate(ApiModel):
@@ -95,6 +140,10 @@ class VideoTaskCreate(ApiModel):
     client_task_id: str = Field(min_length=1, max_length=160)
     title: str = Field(min_length=1, max_length=160)
     storyboards: list[StoryboardInput] = Field(min_length=1, max_length=7)
+    subject_images: list[SubjectImageInput] = Field(
+        default_factory=list,
+        max_length=4,
+    )
     element_ids: list[str] = Field(default_factory=list, max_length=7)
     template_id: str = Field(min_length=1, max_length=80)
     site_profile_id: str = Field(min_length=1, max_length=80)
@@ -110,18 +159,25 @@ class VideoTaskCreate(ApiModel):
         orders = [item.order for item in self.storyboards]
         if sorted(orders) != list(range(1, len(orders) + 1)):
             raise ValueError("storyboard order must be contiguous and start at 1")
-        upload_ids = [item.upload_id for item in self.storyboards]
+        upload_ids = [item.upload_id for item in [*self.storyboards, *self.subject_images]]
         if len(set(upload_ids)) != len(upload_ids):
-            raise ValueError("storyboard uploads must be unique")
+            raise ValueError("storyboard and subject image uploads must be unique")
+        subject_orders = [item.order for item in self.subject_images]
+        if len(subject_orders) == 1:
+            raise ValueError("subject images must contain between 2 and 4 references when provided")
+        if subject_orders and sorted(subject_orders) != list(range(1, len(subject_orders) + 1)):
+            raise ValueError("subject image order must be contiguous and start at 1")
         normalized_element_ids = [element_id.strip() for element_id in self.element_ids]
         if any(not element_id or len(element_id) > 160 for element_id in normalized_element_ids):
             raise ValueError("element IDs must be non-empty and at most 160 characters")
         if len(set(normalized_element_ids)) != len(normalized_element_ids):
             raise ValueError("element IDs must be unique")
-        if len(self.storyboards) + len(normalized_element_ids) > 7:
+        if self.subject_images and normalized_element_ids:
+            raise ValueError("new subject images and historical element IDs are mutually exclusive")
+        if len(self.storyboards) + len(self.subject_images) + len(normalized_element_ids) > 7:
             raise ValueError(
-                "storyboards and element IDs together cannot exceed the Kling Omni "
-                "7-reference limit"
+                "storyboards, subject images, and element IDs together cannot exceed "
+                "the Kling Omni 7-reference limit"
             )
         self.element_ids = normalized_element_ids
         return self
