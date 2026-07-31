@@ -164,7 +164,7 @@ class WaveSpeedConfigUpdateRequest(BaseModel):
     clearApiKey: bool = False
     enabled: bool | None = None
     baseUrl: str | None = Field(default=None, min_length=8, max_length=2048)
-    maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=20)
+    maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=50)
     maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
 
 

@@ -20,7 +20,7 @@ class _StoredWaveSpeedConfig(BaseModel):
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
     enabled: bool = False
     baseUrl: str = "https://api.wavespeed.ai/api/v3"
-    maxSubmitConcurrency: int = Field(default=1, ge=1, le=20)
+    maxSubmitConcurrency: int = Field(default=1, ge=1, le=50)
     maxPollConcurrency: int = Field(default=4, ge=1, le=50)
 
     @field_validator("apiKey", mode="before")

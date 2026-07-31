@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     wavespeed_api_base_url: str = "https://api.wavespeed.ai/api/v3"
     wavespeed_provider_name: str = "wavespeed"
     wavespeed_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
-    wavespeed_max_submit_concurrency: int = Field(default=1, ge=1, le=20)
+    wavespeed_max_submit_concurrency: int = Field(default=1, ge=1, le=50)
     wavespeed_max_poll_concurrency: int = Field(default=4, ge=1, le=50)
     wavespeed_get_max_retries: int = Field(default=3, ge=1, le=8)
     wavespeed_get_retry_base_seconds: float = Field(default=2.0, ge=2, le=30)
