@@ -20,8 +20,17 @@ class _StoredWaveSpeedConfig(BaseModel):
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
     enabled: bool = False
     baseUrl: str = "https://api.wavespeed.ai/api/v3"
-    maxSubmitConcurrency: int = Field(default=1, ge=1, le=20)
+    maxSubmitConcurrency: int = Field(default=1, ge=1, le=50)
     maxPollConcurrency: int = Field(default=4, ge=1, le=50)
+    videoModel: str = Field(
+        default="kwaivgi/kling-video-o3-pro/reference-to-video",
+        min_length=3,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+$",
+    )
+    videoDuration: int = Field(default=10, ge=3, le=15)
+    videoAspectRatio: str = Field(default="9:16", pattern="^(16:9|9:16|1:1)$")
+    videoSound: bool = False
 
     @field_validator("apiKey", mode="before")
     @classmethod
@@ -79,6 +88,10 @@ def _snapshot(settings: Settings) -> _StoredWaveSpeedConfig:
         baseUrl=settings.wavespeed_api_base_url,
         maxSubmitConcurrency=settings.wavespeed_max_submit_concurrency,
         maxPollConcurrency=settings.wavespeed_max_poll_concurrency,
+        videoModel=settings.wavespeed_video_model,
+        videoDuration=settings.wavespeed_video_duration,
+        videoAspectRatio=settings.wavespeed_video_aspect_ratio,
+        videoSound=settings.wavespeed_video_sound,
     )
 
 
@@ -99,6 +112,10 @@ def _apply(settings: Settings, config: _StoredWaveSpeedConfig) -> None:
     settings.wavespeed_api_base_url = config.baseUrl
     settings.wavespeed_max_submit_concurrency = config.maxSubmitConcurrency
     settings.wavespeed_max_poll_concurrency = config.maxPollConcurrency
+    settings.wavespeed_video_model = config.videoModel
+    settings.wavespeed_video_duration = config.videoDuration
+    settings.wavespeed_video_aspect_ratio = config.videoAspectRatio  # type: ignore[assignment]
+    settings.wavespeed_video_sound = config.videoSound
 
 
 def _validate_environment_endpoint(settings: Settings, base_url: str) -> None:
@@ -131,7 +148,13 @@ def wavespeed_admin_config_status(settings: Settings) -> dict[str, object]:
         "baseUrl": settings.wavespeed_api_base_url,
         "maxSubmitConcurrency": settings.wavespeed_max_submit_concurrency,
         "maxPollConcurrency": settings.wavespeed_max_poll_concurrency,
+        "videoModel": settings.wavespeed_video_model,
+        "videoDuration": settings.wavespeed_video_duration,
+        "videoAspectRatio": settings.wavespeed_video_aspect_ratio,
+        "videoSound": settings.wavespeed_video_sound,
         "provider": settings.wavespeed_provider_name,
+        "videoProvider": settings.wavespeed_video_provider_name,
+        "videoBackendActive": settings.kling_provider_backend == "wavespeed",
         "updatedAt": modified,
     }
 
@@ -147,6 +170,10 @@ def update_wavespeed_admin_config(
         "baseUrl",
         "maxSubmitConcurrency",
         "maxPollConcurrency",
+        "videoModel",
+        "videoDuration",
+        "videoAspectRatio",
+        "videoSound",
     }
     if set(updates) - allowed:
         raise ValueError("unsupported WaveSpeed administrator configuration")

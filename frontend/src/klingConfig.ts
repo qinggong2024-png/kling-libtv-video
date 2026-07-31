@@ -85,7 +85,7 @@ export function formatKlingApiVersion(value?: string | null): string {
 
 export function createKlingConfigDraft(config: KlingConfig): KlingConfigDraft {
   return {
-    backend: 'api',
+    backend: config.backend,
     baseUrl: config.baseUrl ?? '',
     callbackUrl: config.callbackUrl ?? '',
     model: config.model,
@@ -107,10 +107,7 @@ export function validateKlingConfig(
   apiKeyConfigured: boolean,
 ): string {
   const willHaveApiKey = Boolean(draft.apiKey.trim()) || (apiKeyConfigured && !draft.clearApiKey)
-  if (draft.backend !== 'api') {
-    return '生产生成通道固定为可灵官方 API。'
-  }
-  if (draft.enabled && !willHaveApiKey) {
+  if (draft.backend === 'api' && draft.enabled && !willHaveApiKey) {
     return '启用可灵官方 API 前，请先配置 API Key。'
   }
   const normalizedBaseUrl = draft.baseUrl.trim().replace(/\/+$/, '')
@@ -149,7 +146,7 @@ function validCallbackUrl(value: string): boolean {
 export function buildKlingConfigPatch(draft: KlingConfigDraft): KlingConfigPatch {
   const apiKey = draft.apiKey.trim()
   return {
-    backend: 'api',
+    backend: draft.backend,
     ...(apiKey ? { apiKey } : {}),
     ...(draft.clearApiKey ? { clearApiKey: true } : {}),
     baseUrl: draft.baseUrl.trim().replace(/\/+$/, ''),

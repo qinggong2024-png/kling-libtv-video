@@ -314,7 +314,7 @@ export interface SystemStatus {
   csrfCookieName: string
   kling: {
     enabled: boolean
-    backend: 'api'
+    backend: 'api' | 'wavespeed'
     provider: string
     status: string
     available: boolean
@@ -330,7 +330,7 @@ export interface SystemStatus {
 
 export interface KlingStatus {
   enabled: boolean
-  backend: 'api'
+  backend: 'api' | 'wavespeed'
   provider: string
   status: string
   available: boolean
@@ -351,7 +351,7 @@ export interface KlingStatus {
 }
 
 export interface KlingConfig {
-  backend: 'api'
+  backend: 'api' | 'wavespeed'
   apiKeyConfigured: boolean
   baseUrl: string
   callbackUrl: string | null
@@ -369,7 +369,7 @@ export interface KlingConfig {
 }
 
 export interface KlingConfigPatch {
-  backend?: 'api'
+  backend?: 'api' | 'wavespeed'
   apiKey?: string
   clearApiKey?: boolean
   baseUrl?: string
@@ -395,7 +395,13 @@ export interface WaveSpeedConfig {
   baseUrl: string
   maxSubmitConcurrency: number
   maxPollConcurrency: number
+  videoModel: string
+  videoDuration: number
+  videoAspectRatio: string
+  videoSound: boolean
   provider: string
+  videoProvider: string
+  videoBackendActive: boolean
   status: string
   available: boolean
   checkedAt: string | null
@@ -412,6 +418,10 @@ export interface WaveSpeedConfigPatch {
   baseUrl?: string
   maxSubmitConcurrency?: number
   maxPollConcurrency?: number
+  videoModel?: string
+  videoDuration?: number
+  videoAspectRatio?: string
+  videoSound?: boolean
 }
 
 export type ImageGenerationBatchStatus =

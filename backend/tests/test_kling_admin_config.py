@@ -8,12 +8,14 @@ from libtv_agent.adapters.kling_official_api import ApiHttpResponse, KlingOffici
 from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import create_libtv_adapter
 from libtv_agent.adapters.object_store import create_object_store
+from libtv_agent.adapters.wavespeed_video import WaveSpeedVideoAdapter
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
 from libtv_agent.domain.enums import UserRole
 from libtv_agent.domain.models import AuditEvent, Base, User
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from libtv_agent.services.kling_config import load_kling_admin_config
+from libtv_agent.services.wavespeed_config import load_wavespeed_admin_config
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -32,12 +34,59 @@ def kling_settings(database_url: str, tmp_path: Path) -> Settings:
         runner_root=tmp_path / "runner",
         admin_credentials_file=tmp_path / "runtime" / "admin-credentials.json",
         kling_admin_config_file=tmp_path / "runtime" / "kling-config.json",
+        wavespeed_admin_config_file=tmp_path / "runtime" / "wavespeed-config.json",
         kling_provider_backend="api",
         kling_cli_enabled=False,
         kling_api_enabled=False,
         kling_api_key=None,
         _env_file=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_admin_can_switch_new_video_work_to_wavespeed(tmp_path: Path) -> None:
+    database_url = await initialized_database(tmp_path, "wavespeed-video-switch.db")
+    settings = kling_settings(database_url, tmp_path)
+    app = create_app(settings)
+    headers = {"X-User-Id": str(ADMIN_ID)}
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            wavespeed = await client.patch(
+                "/api/v1/admin/wavespeed/config",
+                headers=headers,
+                json={
+                    "apiKey": "wavespeed-video-test-key",
+                    "enabled": True,
+                    "videoModel": "kwaivgi/kling-video-o3-std/reference-to-video",
+                    "videoDuration": 8,
+                    "videoAspectRatio": "16:9",
+                    "videoSound": True,
+                },
+            )
+            assert wavespeed.status_code == 200, wavespeed.text
+
+            switched = await client.patch(
+                "/api/v1/admin/kling/config",
+                headers=headers,
+                json={"backend": "wavespeed"},
+            )
+            assert switched.status_code == 200, switched.text
+            assert switched.json()["backend"] == "wavespeed"
+            assert switched.json()["provider"] == "wavespeed_video"
+            assert isinstance(app.state.kling_adapter, WaveSpeedVideoAdapter)
+
+            system = await client.get("/api/v1/system/status", headers=headers)
+            assert system.status_code == 200
+            assert system.json()["kling"]["backend"] == "wavespeed"
+            assert system.json()["kling"]["provider"] == "wavespeed_video"
+
+    reloaded = kling_settings(database_url, tmp_path)
+    assert load_kling_admin_config(reloaded) is True
+    assert load_wavespeed_admin_config(reloaded) is True
+    assert reloaded.kling_provider_backend == "wavespeed"
+    assert reloaded.wavespeed_video_model == ("kwaivgi/kling-video-o3-std/reference-to-video")
+    assert isinstance(create_kling_adapter(reloaded), WaveSpeedVideoAdapter)
 
 
 async def initialized_database(tmp_path: Path, name: str) -> str:

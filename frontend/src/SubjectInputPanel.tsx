@@ -21,9 +21,24 @@ import {
 import type { SubjectInputMode, SubjectReferenceFiles } from './subjectFiles'
 import { fillSubjectDropSlots, isSubjectPanelDropExcluded } from './subjectPanelDrop'
 import { getKlingElementStatusLabel, isKlingElementAvailable } from './klingElementStatus'
+import { swapSubjectReferenceFiles } from './subjectUploadReorder'
+import type { SubjectDragSlot } from './subjectUploadReorder'
 import type { KlingElement } from './types'
 
 const COLLAPSED_HISTORY_COUNT = 6
+const SUBJECT_DRAG_MIME = 'application/x-subject-slot'
+
+function readSubjectDragSlot(dataTransfer: DataTransfer): SubjectDragSlot | null {
+  const value = dataTransfer.getData(SUBJECT_DRAG_MIME) || dataTransfer.getData('text/plain')
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(value) as SubjectDragSlot
+    if (!parsed || !['frontalImage', 'backImage', 'detailImages'].includes(parsed.slot)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
 
 export type SubjectHistoryElement = Pick<
   KlingElement,
@@ -80,6 +95,8 @@ function UploadTile({
   invalid,
   onChange,
   onDrop,
+  dragSource,
+  onInternalDrop,
   onRemove,
 }: {
   id: string
@@ -90,6 +107,8 @@ function UploadTile({
   invalid?: boolean
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   onDrop: (files: File[]) => void
+  dragSource: SubjectDragSlot
+  onInternalDrop: (source: SubjectDragSlot) => void
   onRemove: () => void
 }) {
   return <div className={`subject-upload-tile${file ? ' is-filled' : ''}${required ? ' is-required' : ''}`}>
@@ -99,17 +118,29 @@ function UploadTile({
       onDragOver={(event) => {
         event.preventDefault()
         event.stopPropagation()
+        event.dataTransfer.dropEffect = Array.from(event.dataTransfer.types).includes(SUBJECT_DRAG_MIME) ? 'move' : 'copy'
       }}
       onDrop={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        if (!disabled) onDrop(Array.from(event.dataTransfer.files))
+        if (disabled) return
+        const source = readSubjectDragSlot(event.dataTransfer)
+        if (source) onInternalDrop(source)
+        else onDrop(Array.from(event.dataTransfer.files))
       }}
     >
       {file ? <span
         className="subject-upload-tile__preview"
         role="img"
         aria-label={`${label}预览：${file.name}`}
+        draggable={!disabled}
+        title="Drag to swap positions"
+        onDragStart={(event) => {
+          event.stopPropagation()
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData(SUBJECT_DRAG_MIME, JSON.stringify(dragSource))
+          event.dataTransfer.setData('text/plain', JSON.stringify(dragSource))
+        }}
       >
         <LocalFileThumbnail file={file} alt="" />
       </span> : null}
@@ -146,6 +177,7 @@ function DetailUploadTile({
   invalid,
   onChange,
   onDrop,
+  onInternalDrop,
   onRemove,
 }: {
   id: string
@@ -154,6 +186,7 @@ function DetailUploadTile({
   invalid?: boolean
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   onDrop: (files: File[]) => void
+  onInternalDrop: (source: SubjectDragSlot, targetIndex?: number) => void
   onRemove: (index: number) => void
 }) {
   const isFull = files.length >= SUBJECT_MAX_DETAIL_IMAGES
@@ -164,18 +197,35 @@ function DetailUploadTile({
       onDragOver={(event) => {
         event.preventDefault()
         event.stopPropagation()
+        event.dataTransfer.dropEffect = Array.from(event.dataTransfer.types).includes(SUBJECT_DRAG_MIME) ? 'move' : 'copy'
       }}
       onDrop={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        if (!disabled && !isFull) onDrop(Array.from(event.dataTransfer.files))
+        if (disabled) return
+        const source = readSubjectDragSlot(event.dataTransfer)
+        if (source) {
+          const target = (event.target as Element | null)?.closest<HTMLElement>('[data-subject-detail-index]')
+          const targetIndex = target?.dataset.subjectDetailIndex
+          onInternalDrop(source, targetIndex === undefined ? undefined : Number(targetIndex))
+        } else if (!isFull) onDrop(Array.from(event.dataTransfer.files))
       }}
     >
       {files.length ? <span className={`subject-upload-tile__previews subject-upload-tile__previews--${files.length}`}>
-        {files.map((file) => <span
+        {files.map((file, index) => <span
           key={`${file.name}-${file.size}-${file.lastModified}`}
           className="subject-upload-tile__preview"
           role="img"
+          data-subject-detail-index={index}
+          draggable={!disabled}
+          title="Drag to swap positions"
+          onDragStart={(event) => {
+            event.stopPropagation()
+            event.dataTransfer.effectAllowed = 'move'
+            const source: SubjectDragSlot = { slot: 'detailImages', index }
+            event.dataTransfer.setData(SUBJECT_DRAG_MIME, JSON.stringify(source))
+            event.dataTransfer.setData('text/plain', JSON.stringify(source))
+          }}
           aria-label={`侧面图预览：${file.name}`}
         >
           <LocalFileThumbnail file={file} alt="" />
@@ -338,6 +388,15 @@ export function SubjectInputPanel({
     onSelectedElementIdChange(elementId)
   }
 
+  const reorderSubjectFiles = (source: SubjectDragSlot, target: SubjectDragSlot) => {
+    if (disabled || (source.slot === target.slot && source.index === target.index)) return
+    const next = swapSubjectReferenceFiles(uploadedFiles, source, target)
+    if (next === uploadedFiles) return
+    setSelectionError('')
+    if (mode !== 'upload') changeMode('upload')
+    onUploadedFilesChange(next)
+  }
+
   const errorId = `${id}-error`
   return <section
     className={panelClassName}
@@ -397,6 +456,8 @@ export function SubjectInputPanel({
           invalid={Boolean(validation.fieldErrors.frontalImage)}
           onChange={(event) => selectSingleImage('frontalImage', event)}
           onDrop={(files) => selectSingleFile('frontalImage', files[0] ?? null)}
+          dragSource={{ slot: 'frontalImage' }}
+          onInternalDrop={(source) => reorderSubjectFiles(source, { slot: 'frontalImage' })}
           onRemove={() => onUploadedFilesChange({ ...uploadedFiles, frontalImage: null })}
         />
         <UploadTile
@@ -406,6 +467,8 @@ export function SubjectInputPanel({
           disabled={disabled}
           onChange={(event) => selectSingleImage('backImage', event)}
           onDrop={(files) => selectSingleFile('backImage', files[0] ?? null)}
+          dragSource={{ slot: 'backImage' }}
+          onInternalDrop={(source) => reorderSubjectFiles(source, { slot: 'backImage' })}
           onRemove={() => onUploadedFilesChange({ ...uploadedFiles, backImage: null })}
         />
         <DetailUploadTile
@@ -415,6 +478,10 @@ export function SubjectInputPanel({
           invalid={Boolean(validation.fieldErrors.detailImages)}
           onChange={selectDetailImages}
           onDrop={selectDetailFiles}
+          onInternalDrop={(source, targetIndex) => reorderSubjectFiles(source, {
+            slot: 'detailImages',
+            ...(targetIndex === undefined ? {} : { index: targetIndex }),
+          })}
           onRemove={(index) => onUploadedFilesChange({
             ...uploadedFiles,
             detailImages: uploadedFiles.detailImages.filter((_, fileIndex) => fileIndex !== index),

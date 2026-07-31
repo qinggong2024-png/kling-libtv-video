@@ -102,7 +102,7 @@ async def confirm_task(
         await ensure_provider_submission_allowed(
             session,
             settings,
-            provider,
+            settings.active_kling_provider_name,
             user_id=task.user_id,
         )
         if kling_adapter is None:
@@ -204,8 +204,8 @@ async def confirm_task(
                 ),
                 "storyboardFallbackMode": settings.kling_storyboard_fallback_mode,
                 "resolution": settings.kling_api_resolution,
-                "audio": settings.kling_api_audio,
-                "multiShot": settings.kling_api_multi_shot,
+                "audio": settings.active_video_audio,
+                "multiShot": settings.active_video_multi_shot,
             }
             preview: dict[str, object] = {
                 "paidBoundary": paid_boundary,
@@ -213,13 +213,20 @@ async def confirm_task(
                 "promptHash": variant.prompt_hash,
                 "estimatedGenerationCount": 1,
                 "authorized": settings.kling_provider_submission_enabled(attempt.provider),
-                "costRisk": "Submitting this request consumes Kling credits.",
+                "costRisk": "Submitting this request consumes video generation credits.",
             }
             if attempt.provider == settings.kling_api_provider_name:
                 preview["httpContract"] = {
                     "method": "POST",
                     "baseUrl": settings.kling_api_base_url,
                     "path": "/omni-video/kling-3.0-omni",
+                    "authentication": "Bearer <redacted>",
+                }
+            elif attempt.provider == settings.wavespeed_video_provider_name:
+                preview["httpContract"] = {
+                    "method": "POST",
+                    "baseUrl": settings.wavespeed_api_base_url,
+                    "path": f"/{attempt.provider_model or settings.wavespeed_video_model}",
                     "authentication": "Bearer <redacted>",
                 }
             else:

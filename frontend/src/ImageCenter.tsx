@@ -14,7 +14,7 @@ import {
   IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
   buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
   createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
-  moveImageAssetSlot, normalizeImageGenerationModes, parseStoryboardPrompt, validateImageCenterDraft,
+  moveImageAssetSlot, normalizeImageGenerationModes, normalizeImageGenerationQuality, parseStoryboardPrompt, validateImageCenterDraft,
 } from './imageCenterModel'
 import type { ImageGenerationBatch, ImageGenerationBatchItem } from './types'
 import type {
@@ -23,6 +23,8 @@ import type {
 } from './imageCenterModel'
 import { loadImageCenterDraft, saveImageCenterDraft } from './imageCenterStore'
 import { createUuid } from './uuid'
+import { imageTaskNotificationForTransition } from './browserNotifications'
+import type { TaskNotification } from './browserNotifications'
 
 export type VideoSubjectSource = 'generated' | 'product-front' | 'product-back'
 
@@ -33,7 +35,17 @@ export interface ImageCenterVideoHandoff {
 }
 
 export interface ImageCenterProps {
-  onPrepareVideos: (handoffs: ImageCenterVideoHandoff[]) => void | Promise<void>
+  active: boolean
+  openTaskId: string | null
+  onPrepareVideos: (handoffs: ImageCenterVideoHandoff[], onSubmitted: () => void) => void | Promise<void>
+  onNotifications: (events: ImageCenterNotificationEvent[]) => void
+  onActiveTasksChange: (active: boolean) => void
+}
+
+export interface ImageCenterNotificationEvent {
+  taskId: string
+  status: ImageGenerationTask['status']
+  notification: TaskNotification
 }
 
 const taskStatusPresentation = {
@@ -234,7 +246,6 @@ function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
       assets={outfit}
       onChange={(assets) => onChange({ ...outfit, ...assets })}
     />
-    <details className="outfit-card__override"><summary>套装补充要求<ChevronRight size={14} /></summary><textarea value={outfit.promptOverride} maxLength={2800} placeholder="可选，将追加到本套装的融合与分镜提示词" onChange={(event) => onChange({ ...outfit, promptOverride: event.target.value })} /></details>
   </article>
 }
 
@@ -470,7 +481,7 @@ function SelectionWorkbench({ tasks, selectedOutputIds, expanded, preparing, onE
   </section>
 }
 
-export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
+export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
   const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
   const [activeOutfitId, setActiveOutfitId] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -482,6 +493,20 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
   const [previewSource, setPreviewSource] = useState<{ file: File; label: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
+  const latestDraftRef = useRef(draft)
+  const loadedRef = useRef(false)
+  const previousTaskStatusesRef = useRef<Map<string, ImageGenerationTask['status']>>(new Map())
+  const notificationBaselineReadyRef = useRef(false)
+
+  useEffect(() => {
+    latestDraftRef.current = draft
+    loadedRef.current = loaded
+  }, [draft, loaded])
+  useEffect(() => () => {
+    if (!loadedRef.current) return
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+    void saveImageCenterDraft(latestDraftRef.current)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -496,7 +521,7 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
           ...defaults.config,
           ...stored.config,
           modes: normalizeImageGenerationModes(stored.config.modes),
-          quality: 'medium',
+          quality: normalizeImageGenerationQuality(stored.config.quality),
           outputFormat: 'png',
         },
         tasks: stored.tasks.map((task) => ({
@@ -526,6 +551,27 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
     saveTimerRef.current = window.setTimeout(() => { void saveImageCenterDraft(draft).then(() => setSaveState('saved')).catch(() => setSaveState('error')) }, 450)
     return () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current) }
   }, [draft, loaded])
+
+  const hasActiveTasks = draft.tasks.some((task) => !TERMINAL_IMAGE_STATUSES.has(task.status))
+  useEffect(() => {
+    onActiveTasksChange(loaded && hasActiveTasks)
+  }, [hasActiveTasks, loaded, onActiveTasksChange])
+
+  useEffect(() => {
+    if (!loaded) return
+    const nextStatuses = new Map(draft.tasks.map((task) => [task.id, task.status]))
+    if (!notificationBaselineReadyRef.current) {
+      previousTaskStatusesRef.current = nextStatuses
+      notificationBaselineReadyRef.current = true
+      return
+    }
+    const events = draft.tasks.flatMap((task): ImageCenterNotificationEvent[] => {
+      const notification = imageTaskNotificationForTransition(previousTaskStatusesRef.current.get(task.id), task)
+      return notification ? [{ taskId: task.id, status: task.status, notification }] : []
+    })
+    previousTaskStatusesRef.current = nextStatuses
+    if (events.length) onNotifications(events)
+  }, [draft.tasks, loaded, onNotifications])
 
   const pollingBatchIds = useMemo(() => Array.from(new Set(draft.tasks
     .filter((task) => task.batchId && !TERMINAL_IMAGE_STATUSES.has(task.status))
@@ -558,9 +604,18 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
     setSaveState('saving')
     setDraft((current) => ({ ...updater(current), updatedAt: new Date().toISOString() }))
   }
+  useEffect(() => {
+    if (!active || !openTaskId) return
+    setDraft((current) => current.activeTab === 'results'
+      ? current
+      : { ...current, activeTab: 'results', updatedAt: new Date().toISOString() })
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`image-task-${openTaskId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active, openTaskId])
   const summary = useMemo(() => calculateImageTaskSummary(draft), [draft])
   const errors = useMemo(() => validateImageCenterDraft(draft), [draft])
-  const storyboardShots = useMemo(() => parseStoryboardPrompt(draft.config.storyboardPrompt), [draft.config.storyboardPrompt])
   const selectedIds = useMemo(() => new Set(draft.selectedOutputIds), [draft.selectedOutputIds])
   const previewOutput = previewOutputId
     ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
@@ -625,8 +680,6 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
   const submit = () => {
     if (errors.length) { setNotice(errors[0]); return }
     const tasks = buildWaitingTasks(draft, createUuid)
-    const modelLabel = draft.config.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'
-    if (!window.confirm(`即将通过 ${modelLabel} 生成 ${summary.totalImages} 张图片，此操作可能产生费用。确认提交？`)) return
     void submitTaskSet(tasks, summary.totalImages)
   }
   const prepareRegeneration = (source: ImageGenerationTask) => {
@@ -669,16 +722,23 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
     if (preparingVideos) return
     const selectedTasks = getOrderedSelectedTasks(draft.tasks, draft.selectedOutputIds)
     if (!selectedTasks.length) return
+    const preparedOutputIds = new Set(selectedTasks.flatMap(({ outputs }) => outputs.map((output) => output.id)))
     setPreparingVideos(true)
     try {
-      await onPrepareVideos(selectedTasks.map(({ task, outputs }) => ({ task, outputs, subjectSource: 'product-front' })))
+      await onPrepareVideos(
+        selectedTasks.map(({ task, outputs }) => ({ task, outputs, subjectSource: 'product-front' })),
+        () => updateDraft((current) => ({
+          ...current,
+          selectedOutputIds: current.selectedOutputIds.filter((id) => !preparedOutputIds.has(id)),
+        })),
+      )
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : '无法准备视频制作素材。')
     } finally { setPreparingVideos(false) }
   }
-  if (!loaded) return <div className="image-center-loading"><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
+  if (!loaded) return <div className="image-center-loading" hidden={!active}><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
 
-  return <div className="image-center page-view">
+  return <div className="image-center page-view" hidden={!active}>
     <header className="image-center-title"><div><span>批量换装工作台</span><h1>图片中心</h1><p>一个模特对应多套产品，集中完成生图、挑图和视频衔接。</p></div><div className="image-center-title__actions"><span className={`image-center-save-state is-${saveState}`}><Save size={14} />{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</span></div></header>
     <nav className="image-center-tabs" aria-label="图片中心视图"><button type="button" className={draft.activeTab === 'create' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Layers3 size={17} />批量创作</button><button type="button" className={draft.activeTab === 'results' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'results' }))}><Images size={17} />生图记录{draft.tasks.length ? <i>{draft.tasks.length}</i> : null}</button></nav>
     {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
@@ -717,7 +777,7 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
         </div>
         <div className="image-prompt-grid" role="radiogroup" aria-label="生成任务">
           <section className={draft.config.modes.includes('fusion') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('fusion')} onClick={() => selectMode('fusion')}><span><Sparkles size={17} /></span><span><strong>多图融合</strong><small>按现有视角生成换装基准图</small></span><i>{draft.config.modes.includes('fusion') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_fusion" label="自定义提示词" value={draft.config.fusionPrompt} disabled={!draft.config.modes.includes('fusion')} onChange={(fusionPrompt) => updateConfig({ fusionPrompt })} placeholder="描述人物一致性、服装还原和画面要求" /></section>
-          <section className={draft.config.modes.includes('storyboard') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('storyboard')} onClick={() => selectMode('storyboard')}><span><Images size={17} /></span><span><strong>分镜图生成</strong><small>从一段提示词扩展有序镜头</small></span><i>{draft.config.modes.includes('storyboard') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_storyboard" label="自定义提示词" value={draft.config.storyboardPrompt} disabled={!draft.config.modes.includes('storyboard')} onChange={(storyboardPrompt) => updateConfig({ storyboardPrompt })} placeholder="用一整段文字描述镜头顺序和展示重点" />{draft.config.modes.includes('storyboard') && storyboardShots.length ? <div className="storyboard-shot-preview"><strong>已解析 {storyboardShots.length} 个镜头</strong><ol>{storyboardShots.map((shot) => <li key={shot.id}><span>{String(shot.order).padStart(2, '0')}</span><p>{shot.instruction}</p></li>)}</ol></div> : null}</section>
+          <section className={draft.config.modes.includes('storyboard') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('storyboard')} onClick={() => selectMode('storyboard')}><span><Images size={17} /></span><span><strong>分镜图生成</strong><small>从一段提示词扩展有序镜头</small></span><i>{draft.config.modes.includes('storyboard') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_storyboard" label="自定义提示词" value={draft.config.storyboardPrompt} disabled={!draft.config.modes.includes('storyboard')} onChange={(storyboardPrompt) => updateConfig({ storyboardPrompt })} placeholder="用一整段文字描述镜头顺序和展示重点" /></section>
         </div>
         <label className="back-inference-toggle"><input type="checkbox" checked={draft.config.allowBackInference} onChange={(event) => updateConfig({ allowBackInference: event.target.checked })} /><span><i>{draft.config.allowBackInference ? <Check size={13} /> : null}</i><strong>允许推测缺失的背面</strong><small>只有模特或产品一方提供背面时继续生成，并给结果添加风险标签。</small></span></label>
         <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><button type="button" className="primary-button primary-button--large" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={18} /> : <WandSparkles size={18} />}{submitting ? '正在提交' : '创建生图任务'}</button></div></div>
@@ -728,15 +788,15 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = taskStatusPresentation[task.status]
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
-        return <article key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
+        return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
       })}</div>}
     </section>}
-    {draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
+    {active && draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
       {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : <span className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
       <button type="button" className="primary-button" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : '创建生图任务'}</button>
     </div>, document.body) : null}
-    {draft.activeTab === 'results' && selectedIds.size ? createPortal(<SelectionWorkbench
+    {active && draft.activeTab === 'results' && selectedIds.size ? createPortal(<SelectionWorkbench
       tasks={draft.tasks}
       selectedOutputIds={draft.selectedOutputIds}
       expanded={selectionBarExpanded}
@@ -747,13 +807,13 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
       onPlaceOutput={placeOutput}
       onGenerate={() => void prepareVideos()}
     />, document.body) : null}
-    {previewOutput ? <OutputPreview
+    {active && previewOutput ? <OutputPreview
       output={previewOutput}
       selected={selectedIds.has(previewOutput.id)}
       onToggle={() => toggleOutput(previewOutput.id)}
       onClose={() => setPreviewOutputId(null)}
     /> : null}
-    {previewSource ? <AssetPreviewDialog
+    {active && previewSource ? <AssetPreviewDialog
       file={previewSource.file}
       label={previewSource.label}
       onClose={() => setPreviewSource(null)}

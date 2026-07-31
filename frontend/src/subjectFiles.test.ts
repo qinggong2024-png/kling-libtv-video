@@ -4,6 +4,7 @@ import {
   buildSubjectImageReferences,
   createEmptySubjectReferenceFiles,
   getSubjectReferenceCount,
+  SUBJECT_IMAGE_ACCEPT,
   validateReferenceBudget,
   validateSubjectReferenceFiles,
 } from './subjectFiles'
@@ -29,8 +30,18 @@ describe('subject reference files', () => {
     expect(valid).toMatchObject({ isValid: true, fileCount: 1 })
   })
 
+  it('accepts WebP references before backend JPEG normalization', () => {
+    expect(validateSubjectReferenceFiles({
+      frontalImage: image('front.webp', 'image/webp'),
+      backImage: image('back.WEBP', ''),
+      detailImages: [],
+    })).toMatchObject({ isValid: true, fileCount: 2 })
+    expect(SUBJECT_IMAGE_ACCEPT).toContain('.webp')
+    expect(SUBJECT_IMAGE_ACCEPT).toContain('image/webp')
+  })
+
   it('limits details, file type, file size, total size and duplicate slots', () => {
-    const frontalImage = image('front.webp', 'image/webp', 11 * 1024 * 1024)
+    const frontalImage = image('front.gif', 'image/gif', 11 * 1024 * 1024)
     const validation = validateSubjectReferenceFiles({
       frontalImage,
       backImage: frontalImage,

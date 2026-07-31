@@ -24,7 +24,7 @@ class _StoredKlingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: str = _FORMAT
-    backend: str = Field(pattern="^(cli|api)$")
+    backend: str = Field(pattern="^(cli|api|wavespeed)$")
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
     baseUrl: str = "https://api-beijing.klingai.com"
     callbackUrl: str | None = Field(default=None, max_length=2048)
@@ -82,7 +82,7 @@ def kling_admin_config_signature(settings: Settings) -> tuple[int, int] | None:
 
 def _snapshot(settings: Settings) -> _StoredKlingConfig:
     return _StoredKlingConfig(
-        backend="api",
+        backend=settings.kling_provider_backend,
         apiKey=settings.kling_api_key,
         baseUrl=settings.kling_api_base_url,
         callbackUrl=settings.kling_api_callback_url,
@@ -109,10 +109,10 @@ def _read(path: Path) -> _StoredKlingConfig | None:
 
 
 def _apply(settings: Settings, config: _StoredKlingConfig) -> None:
-    # `backend=cli` can exist in an older encrypted snapshot. Loading it must
-    # not restore CLI as the default provider; its enable bit is retained only
-    # so already-submitted CLI attempts can still be queried and downloaded.
-    settings.kling_provider_backend = "api"
+    # CLI can exist in an older snapshot but remains recovery-only.
+    settings.kling_provider_backend = (  # type: ignore[assignment]
+        "api" if config.backend == "cli" else config.backend
+    )
     settings.kling_api_key = config.apiKey
     settings.kling_api_base_url = config.baseUrl  # type: ignore[assignment]
     settings.kling_api_callback_url = config.callbackUrl
@@ -142,7 +142,7 @@ def kling_admin_config_status(settings: Settings) -> dict[str, object]:
         datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat() if path.is_file() else None
     )
     return {
-        "backend": "api",
+        "backend": settings.kling_provider_backend,
         "apiKeyConfigured": bool(settings.kling_api_key),
         "baseUrl": settings.kling_api_base_url,
         "callbackUrl": settings.kling_api_callback_url,
@@ -154,7 +154,7 @@ def kling_admin_config_status(settings: Settings) -> dict[str, object]:
         "multiShot": settings.kling_api_multi_shot,
         "maxSubmitConcurrency": settings.kling_api_max_submit_concurrency,
         "maxPollConcurrency": settings.kling_api_max_poll_concurrency,
-        "enabled": settings.kling_enabled,
+        "enabled": settings.kling_api_enabled,
         "provider": settings.active_kling_provider_name,
         "updatedAt": modified,
     }
@@ -183,9 +183,9 @@ def update_kling_admin_config(
     unknown = set(updates) - allowed
     if unknown:
         raise ValueError("unsupported Kling administrator configuration")
-    if "backend" in updates and updates["backend"] != "api":
+    if "backend" in updates and updates["backend"] not in {"api", "wavespeed"}:
         raise ValueError(
-            "new production work is fixed to the Kling official API; "
+            "video generation backend must be api or wavespeed; "
             "CLI is available only for historical attempt recovery"
         )
     api_key = updates.get("apiKey")
@@ -197,7 +197,6 @@ def update_kling_admin_config(
 
     current = _read(settings.kling_admin_config_file) or _snapshot(settings)
     values = current.model_dump()
-    values["backend"] = "api"
     enabled = updates.pop("enabled", None)
     values.update(updates)
     if enabled is not None:

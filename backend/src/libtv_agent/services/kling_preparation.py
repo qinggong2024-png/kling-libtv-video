@@ -37,7 +37,7 @@ def _resolve_multi_shot(config: dict[str, Any], settings: Settings) -> bool:
     smart_storyboard = config.get("smartStoryboard")
     if isinstance(smart_storyboard, bool):
         return smart_storyboard
-    return settings.kling_api_multi_shot
+    return settings.active_video_multi_shot
 
 
 def _resolve_element_references(config: dict[str, Any]) -> tuple[VideoElementReference, ...]:
@@ -143,6 +143,11 @@ async def prepare_kling_task(
             variant.generation_config_json.get("aspectRatio") or settings.active_kling_aspect_ratio
         )
         multi_shot = _resolve_multi_shot(variant.generation_config_json, settings)
+        audio = str(
+            variant.generation_config_json.get("audio")
+            or variant.generation_config_json.get("sound")
+            or settings.active_video_audio
+        )
         element_references = _resolve_element_references(variant.generation_config_json)
         request = VideoGenerationRequest(
             prompt=variant.prompt_text,
@@ -154,7 +159,7 @@ async def prepare_kling_task(
             fallback_mode=settings.kling_storyboard_fallback_mode,
             task_trace_id=task.id.hex,
             resolution=settings.kling_api_resolution,
-            audio=settings.kling_api_audio,
+            audio=audio,
             multi_shot=multi_shot,
             external_task_id=f"{task.id.hex}-{variant.id.hex}-{variant.revision}",
             callback_url=settings.kling_api_callback_url,
@@ -179,7 +184,7 @@ async def prepare_kling_task(
                 "duration": duration,
                 "aspectRatio": aspect_ratio,
                 "resolution": settings.kling_api_resolution,
-                "audio": settings.kling_api_audio,
+                "audio": audio,
                 "multiShot": multi_shot,
                 "elementIds": [item.element_id for item in element_references],
             }
@@ -218,7 +223,7 @@ async def prepare_kling_task(
             "duration": duration,
             "aspectRatio": aspect_ratio,
             "resolution": settings.kling_api_resolution,
-            "audio": settings.kling_api_audio,
+            "audio": audio,
             "multiShot": multi_shot,
             "elementIds": [item.element_id for item in element_references],
             "elementReferenceCount": len(element_references),

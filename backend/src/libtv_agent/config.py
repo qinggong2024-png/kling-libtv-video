@@ -67,9 +67,9 @@ class Settings(BaseSettings):
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
     fake_libtv_scenario: str = "success"
-    # Retained only so older environment/config snapshots continue to parse.
-    # New work is always routed to the official API; CLI is recovery-only.
-    kling_provider_backend: Literal["cli", "api"] = "api"
+    # CLI remains recovery-only. New work can be routed to either the Kling
+    # official API or WaveSpeed without changing persisted historical attempts.
+    kling_provider_backend: Literal["cli", "api", "wavespeed"] = "api"
     kling_cli_enabled: bool = False
     kling_cli_executable: str = "kling"
     kling_cli_provider_name: str = "kling_official_cli"
@@ -115,11 +115,20 @@ class Settings(BaseSettings):
     wavespeed_api_base_url: str = "https://api.wavespeed.ai/api/v3"
     wavespeed_provider_name: str = "wavespeed"
     wavespeed_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
-    wavespeed_max_submit_concurrency: int = Field(default=1, ge=1, le=20)
+    wavespeed_max_submit_concurrency: int = Field(default=1, ge=1, le=50)
     wavespeed_max_poll_concurrency: int = Field(default=4, ge=1, le=50)
     wavespeed_get_max_retries: int = Field(default=3, ge=1, le=8)
     wavespeed_get_retry_base_seconds: float = Field(default=2.0, ge=2, le=30)
     wavespeed_get_retry_max_seconds: float = Field(default=30.0, ge=2, le=120)
+    wavespeed_video_provider_name: str = "wavespeed_video"
+    wavespeed_video_model: str = "kwaivgi/kling-video-o3-pro/reference-to-video"
+    wavespeed_video_duration: int = Field(default=10, ge=3, le=15)
+    wavespeed_video_aspect_ratio: Literal["16:9", "9:16", "1:1"] = "9:16"
+    wavespeed_video_sound: bool = False
+    wavespeed_video_task_timeout_seconds: float = Field(default=1800.0, ge=60, le=86_400)
+    wavespeed_video_download_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
+    wavespeed_video_poll_interval_seconds: float = Field(default=10.0, ge=1, le=300)
+    wavespeed_video_max_poll_interval_seconds: float = Field(default=30.0, ge=1, le=600)
     wavespeed_admin_config_file: Path = Path("var/runtime/wavespeed-config.json")
     max_input_image_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     artifact_root: Path = Path("var/artifacts")
@@ -209,6 +218,11 @@ class Settings(BaseSettings):
             raise ValueError("Kling poll interval cannot exceed its maximum")
         if self.kling_api_poll_interval_seconds > self.kling_api_max_poll_interval_seconds:
             raise ValueError("Kling API poll interval cannot exceed its maximum")
+        if (
+            self.wavespeed_video_poll_interval_seconds
+            > self.wavespeed_video_max_poll_interval_seconds
+        ):
+            raise ValueError("WaveSpeed video poll interval cannot exceed its maximum")
         if self.kling_api_base_url.rstrip("/") != self.kling_api_base_url:
             self.kling_api_base_url = self.kling_api_base_url.rstrip("/")
         api_url = urlsplit(self.kling_api_base_url)
@@ -288,28 +302,55 @@ class Settings(BaseSettings):
 
     @property
     def kling_enabled(self) -> bool:
+        if self.kling_provider_backend == "wavespeed":
+            return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
         return self.kling_api_enabled
 
     @property
     def active_kling_provider_name(self) -> str:
+        if self.kling_provider_backend == "wavespeed":
+            return self.wavespeed_video_provider_name
         return self.kling_api_provider_name
 
     @property
     def active_kling_model(self) -> str | None:
+        if self.kling_provider_backend == "wavespeed":
+            return self.wavespeed_video_model
         return self.kling_api_model
 
     @property
     def active_kling_duration(self) -> int:
+        if self.kling_provider_backend == "wavespeed":
+            return self.wavespeed_video_duration
         return self.kling_api_duration
 
     @property
     def active_kling_aspect_ratio(self) -> str:
+        if self.kling_provider_backend == "wavespeed":
+            return self.wavespeed_video_aspect_ratio
         return self.kling_api_aspect_ratio
+
+    @property
+    def active_video_audio(self) -> str:
+        if self.kling_provider_backend == "wavespeed":
+            return "native" if self.wavespeed_video_sound else "off"
+        return self.kling_api_audio
+
+    @property
+    def active_video_multi_shot(self) -> bool:
+        return self.kling_api_multi_shot
 
     @property
     def kling_provider_names(self) -> tuple[str, ...]:
         return tuple(
-            dict.fromkeys(("kling", self.kling_cli_provider_name, self.kling_api_provider_name))
+            dict.fromkeys(
+                (
+                    "kling",
+                    self.kling_cli_provider_name,
+                    self.kling_api_provider_name,
+                    self.wavespeed_video_provider_name,
+                )
+            )
         )
 
     def kling_poll_interval(self, *, unknown: bool = False) -> float:
@@ -320,7 +361,14 @@ class Settings(BaseSettings):
         )
 
     def kling_poll_interval_for_provider(self, provider: str, *, unknown: bool = False) -> float:
-        if provider.strip().lower() == self.kling_api_provider_name.strip().lower():
+        normalized = provider.strip().lower()
+        if normalized == self.wavespeed_video_provider_name.strip().lower():
+            return (
+                self.wavespeed_video_max_poll_interval_seconds
+                if unknown
+                else self.wavespeed_video_poll_interval_seconds
+            )
+        if normalized == self.kling_api_provider_name.strip().lower():
             return (
                 self.kling_api_max_poll_interval_seconds
                 if unknown
@@ -341,15 +389,28 @@ class Settings(BaseSettings):
             return self.kling_api_enabled
         if normalized == self.kling_cli_provider_name.strip().lower():
             return self.kling_cli_enabled
+        if normalized == self.wavespeed_video_provider_name.strip().lower():
+            return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
         return False
 
     def kling_provider_submission_enabled(self, provider: str) -> bool:
-        """Only the official API may receive new paid submissions."""
+        """Return whether a concrete provider can submit its persisted queued work."""
         normalized = provider.strip().lower()
-        return (
-            normalized in {"kling", self.kling_api_provider_name.strip().lower()}
-            and self.kling_api_enabled
-        )
+        if normalized == "kling":
+            return self.kling_enabled
+        if normalized == self.wavespeed_video_provider_name.strip().lower():
+            return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
+        if normalized == self.kling_api_provider_name.strip().lower():
+            return self.kling_api_enabled
+        return False
+
+    def video_task_timeout_for_provider(self, provider: str) -> float | None:
+        normalized = provider.strip().lower()
+        if normalized == self.kling_api_provider_name.strip().lower():
+            return self.kling_api_task_timeout_seconds
+        if normalized == self.wavespeed_video_provider_name.strip().lower():
+            return self.wavespeed_video_task_timeout_seconds
+        return None
 
     def validate_shared_environment(self) -> None:
         if (

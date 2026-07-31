@@ -272,14 +272,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def security_contract(request: Request, call_next):
         kling_config_signature = kling_admin_config_signature(app_settings)
-        if kling_config_signature != app.state.kling_config_signature:
-            load_kling_admin_config(app_settings)
-            app.state.kling_adapter = create_kling_adapter(app_settings)
-            app.state.kling_config_signature = kling_admin_config_signature(app_settings)
         wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
-        if wavespeed_config_signature != app.state.wavespeed_config_signature:
+        if (
+            kling_config_signature != app.state.kling_config_signature
+            or wavespeed_config_signature != app.state.wavespeed_config_signature
+        ):
+            load_kling_admin_config(app_settings)
             load_wavespeed_admin_config(app_settings)
+            app.state.kling_adapter = create_kling_adapter(app_settings)
             app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
+            app.state.kling_config_signature = kling_admin_config_signature(app_settings)
             app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
         shared = app_settings.shared_authentication
         unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}

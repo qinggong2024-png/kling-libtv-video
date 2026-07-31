@@ -62,10 +62,11 @@ async def test_admin_config_never_echoes_key_verifies_read_only_and_falls_back_t
             updated = await client.patch(
                 "/api/v1/admin/wavespeed/config",
                 headers=headers,
-                json={"apiKey": ADMIN_KEY, "enabled": True, "maxSubmitConcurrency": 3},
+                json={"apiKey": ADMIN_KEY, "enabled": True, "maxSubmitConcurrency": 50},
             )
             assert updated.status_code == 200
             assert updated.json()["credentialSource"] == "admin"
+            assert updated.json()["maxSubmitConcurrency"] == 50
             assert updated.json()["status"] == "WAVESPEED_CONFIGURED_UNVERIFIED"
             assert ADMIN_KEY not in updated.text
             assert ADMIN_KEY not in settings.wavespeed_admin_config_file.read_text(encoding="utf-8")
@@ -129,6 +130,22 @@ async def test_admin_config_never_echoes_key_verifies_read_only_and_falls_back_t
             )
             assert ADMIN_KEY not in serialized
             assert ENVIRONMENT_KEY not in serialized
+
+
+@pytest.mark.asyncio
+async def test_wavespeed_submit_concurrency_rejects_values_above_50(tmp_path: Path) -> None:
+    settings = _settings(await _database(tmp_path), tmp_path)
+    app = create_app(settings)
+    headers = {"X-User-Id": str(ADMIN_ID)}
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.patch(
+                "/api/v1/admin/wavespeed/config",
+                headers=headers,
+                json={"maxSubmitConcurrency": 51},
+            )
+            assert response.status_code == 422
 
 
 @pytest.mark.asyncio

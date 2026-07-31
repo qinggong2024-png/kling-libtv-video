@@ -6111,7 +6111,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(cli|api)$"
+                "pattern": "^(api|wavespeed)$"
               },
               {
                 "type": "null"
@@ -8622,9 +8622,33 @@
             "type": "integer",
             "title": "Maxpollconcurrency"
           },
+          "videoModel": {
+            "type": "string",
+            "title": "Videomodel"
+          },
+          "videoDuration": {
+            "type": "integer",
+            "title": "Videoduration"
+          },
+          "videoAspectRatio": {
+            "type": "string",
+            "title": "Videoaspectratio"
+          },
+          "videoSound": {
+            "type": "boolean",
+            "title": "Videosound"
+          },
           "provider": {
             "type": "string",
             "title": "Provider"
+          },
+          "videoProvider": {
+            "type": "string",
+            "title": "Videoprovider"
+          },
+          "videoBackendActive": {
+            "type": "boolean",
+            "title": "Videobackendactive"
           },
           "status": {
             "type": "string",
@@ -8686,7 +8710,13 @@
           "baseUrl",
           "maxSubmitConcurrency",
           "maxPollConcurrency",
+          "videoModel",
+          "videoDuration",
+          "videoAspectRatio",
+          "videoSound",
           "provider",
+          "videoProvider",
+          "videoBackendActive",
           "status",
           "available",
           "checkedAt",
@@ -8745,7 +8775,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 20.0,
+                "maximum": 50.0,
                 "minimum": 1.0
               },
               {
@@ -8766,6 +8796,56 @@
               }
             ],
             "title": "Maxpollconcurrency"
+          },
+          "videoModel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 3,
+                "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videomodel"
+          },
+          "videoDuration": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 15.0,
+                "minimum": 3.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videoduration"
+          },
+          "videoAspectRatio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(16:9|9:16|1:1)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videoaspectratio"
+          },
+          "videoSound": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videosound"
           }
         },
         "type": "object",

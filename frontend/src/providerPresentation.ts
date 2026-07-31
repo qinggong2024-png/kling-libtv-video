@@ -1,4 +1,4 @@
-export type GenerationProviderKind = 'legacy' | 'kling'
+export type GenerationProviderKind = 'legacy' | 'kling' | 'wavespeed'
 
 export type ProviderPresentation = {
   kind: GenerationProviderKind
@@ -9,6 +9,7 @@ export type ProviderPresentation = {
 
 export function generationProviderKind(provider?: string | null): GenerationProviderKind {
   const normalized = provider?.trim().toLowerCase() ?? ''
+  if (normalized === 'wavespeed' || normalized.startsWith('wavespeed_')) return 'wavespeed'
   return normalized === 'kling' || normalized.startsWith('kling_') ? 'kling' : 'legacy'
 }
 
@@ -17,6 +18,14 @@ export function providerPresentation(provider?: string | null): ProviderPresenta
   if (generationProviderKind(provider) === 'kling') {
     const displayLabel = normalized.includes('_cli') ? '可灵历史任务' : '可灵官方 API'
     return { kind: 'kling', displayName: '可灵', displayLabel, cssClass: 'provider--kling' }
+  }
+  if (generationProviderKind(provider) === 'wavespeed') {
+    return {
+      kind: 'wavespeed',
+      displayName: 'WaveSpeed',
+      displayLabel: 'WaveSpeed 视频 API',
+      cssClass: 'provider--wavespeed',
+    }
   }
   return {
     kind: 'legacy',
@@ -43,14 +52,14 @@ export function providerProgress(phase: string, provider?: string | null) {
   const meta = providerPresentation(provider)
   const providerLabel = meta.displayLabel
   const labels: Record<string, string> = {
-    PREPARING: meta.kind === 'kling'
+    PREPARING: meta.kind !== 'legacy'
       ? `${providerLabel}：准备并上传参考图`
       : `${providerLabel}：准备历史任务素材`,
-    QUEUED: meta.kind === 'kling'
+    QUEUED: meta.kind !== 'legacy'
       ? `${providerLabel}：等待提交生成`
       : `${providerLabel}：等待执行`,
-    GENERATING: meta.kind === 'kling'
-      ? `${providerLabel}：可灵云端生成中`
+    GENERATING: meta.kind !== 'legacy'
+      ? `${providerLabel}：云端生成中`
       : `${providerLabel}：生成中`,
     PARTIALLY_DELIVERABLE: `${providerLabel}：部分结果已返回`,
   }
@@ -67,10 +76,12 @@ export function providerTimingStageLabel(key: string, provider?: string | null):
   if (key === 'ANALYSIS') return '内容分析'
   if (key === 'CONFIRMATION') return '方案确认'
   if (key === 'MATERIALIZATION') {
-    return meta.kind === 'kling' ? `${meta.displayLabel} 素材准备` : '历史任务素材准备'
+    return meta.kind !== 'legacy' ? `${meta.displayLabel} 素材准备` : '历史任务素材准备'
   }
   if (key === 'GENERATION') {
-    return meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
+    return meta.kind === 'wavespeed'
+      ? 'WaveSpeed 云端生成'
+      : meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
   }
   return '成品下载'
 }
@@ -97,7 +108,7 @@ export function variantExecutionMessage(
   if (variant.downloadArtifactId) return '成品文件已就绪'
   if (variant.downloadStatus === 'DOWNLOADING') return `${meta.displayLabel} 已返回结果，正在下载成品`
   if (variant.generationStatus === 'UNKNOWN') {
-    return meta.kind === 'kling'
+    return meta.kind !== 'legacy'
       ? `${meta.displayLabel} 提交或查询结果不确定；禁止自动重投，请用任务 ID 对账`
       : '历史任务执行状态不确定；禁止重复提交，请根据任务记录对账'
   }
@@ -115,14 +126,14 @@ export function variantExecutionMessage(
     ].filter(Boolean).join(' · ')
   }
   if (variant.providerTaskId) {
-    return meta.kind === 'kling'
-      ? `可灵任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待查询'}`
+    return meta.kind !== 'legacy'
+      ? `${meta.displayName} 任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待查询'}`
       : `历史任务 ${variant.providerTaskId} · ${variant.providerStatus ?? '等待结果'}`
   }
   if (variant.generationStatus === 'PENDING') {
-    return meta.kind === 'kling' ? `等待 ${meta.displayLabel} 提交生成` : '等待历史任务执行'
+    return meta.kind !== 'legacy' ? `等待 ${meta.displayLabel} 提交生成` : '等待历史任务执行'
   }
-  return meta.kind === 'kling'
+  return meta.kind !== 'legacy'
     ? `正在等待 ${meta.displayLabel} 返回生成状态`
     : '正在等待历史任务返回状态'
 }

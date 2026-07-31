@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SubjectInputPanel } from './SubjectInputPanel'
 import { createEmptySubjectReferenceFiles } from './subjectFiles'
 import { fillSubjectDropSlots, isSubjectPanelDropExcluded } from './subjectPanelDrop'
+import { swapSubjectReferenceFiles } from './subjectUploadReorder'
 
 const baseProps = {
   onModeChange: vi.fn(),
@@ -15,6 +16,29 @@ const baseProps = {
 }
 
 describe('SubjectInputPanel', () => {
+  it('swaps front and back files when their previews are dragged between slots', () => {
+    const front = new File(['front'], 'front.png', { type: 'image/png' })
+    const back = new File(['back'], 'back.png', { type: 'image/png' })
+    const files = { frontalImage: front, backImage: back, detailImages: [] }
+
+    expect(swapSubjectReferenceFiles(files, { slot: 'frontalImage' }, { slot: 'backImage' })).toEqual({
+      frontalImage: back,
+      backImage: front,
+      detailImages: [],
+    })
+  })
+
+  it('moves a side image into an empty front slot and preserves the side list', () => {
+    const side = new File(['side'], 'side.png', { type: 'image/png' })
+    const files = { frontalImage: null, backImage: null, detailImages: [side] }
+
+    expect(swapSubjectReferenceFiles(files, { slot: 'detailImages', index: 0 }, { slot: 'frontalImage' })).toEqual({
+      frontalImage: side,
+      backImage: null,
+      detailImages: [],
+    })
+  })
+
   it('fills empty subject slots in visual order for a panel-level drop', () => {
     const [front, back, side, detail] = ['front.png', 'back.png', 'side.png', 'detail.png']
       .map((name) => new File([name], name, { type: 'image/png' }))
@@ -116,6 +140,7 @@ describe('SubjectInputPanel', () => {
       elements={[]}
     />)
     expect(markup).toContain('subject-upload-tile__preview')
+    expect(markup).toContain('draggable="true"')
     expect(markup).toContain('正面图预览：front.png')
     expect(markup).toContain('侧面图预览：side.png')
     expect(markup).not.toContain('点击更换')

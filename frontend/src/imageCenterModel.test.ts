@@ -12,6 +12,7 @@ import {
   imageAssetSetFromSlots,
   moveImageAssetSlot,
   normalizeImageGenerationModes,
+  normalizeImageGenerationQuality,
   parseStoryboardPrompt,
   swapImageAssetSlots,
   validateImageCenterDraft,
@@ -29,6 +30,13 @@ describe('image center model', () => {
     const draft = createImageCenterDraft('batch', 'outfit')
     draft.config.modes = ['fusion', 'storyboard']
     expect(validateImageCenterDraft(draft)).toContain('请选择且只能选择一种生成任务。')
+  })
+
+  it('restores only supported image quality values', () => {
+    expect(normalizeImageGenerationQuality('low')).toBe('low')
+    expect(normalizeImageGenerationQuality('high')).toBe('high')
+    expect(normalizeImageGenerationQuality('legacy-ultra')).toBe('medium')
+    expect(normalizeImageGenerationQuality(undefined)).toBe('medium')
   })
 
   it('treats back and side images as optional', () => {
@@ -105,6 +113,7 @@ describe('image center model', () => {
     draft.model.front = image('model-front.jpg')
     draft.outfits[0].front = image('product-front.jpg')
     draft.config.fusionPrompt = '保持服装准确。'
+    draft.config.quality = 'low'
     draft.outfits.push({
       id: 'outfit-2',
       name: '第二套',
@@ -124,7 +133,7 @@ describe('image center model', () => {
     expect(tasks[0]).toMatchObject({
       aspectRatio: '9:16',
       resolution: '2k',
-      quality: 'medium',
+      quality: 'low',
       outputFormat: 'png',
       modelId: 'google/nano-banana-2/edit',
     })
@@ -177,7 +186,7 @@ describe('image center model', () => {
       resultCount: 3,
       aspectRatio: '3:4',
       resolution: '4k',
-      quality: 'medium',
+      quality: 'high',
       allowBackInference: false,
       storyboardPrompt: '正面展示。转身展示。\n保留印花细节',
     })
