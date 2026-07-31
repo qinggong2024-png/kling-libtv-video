@@ -152,17 +152,7 @@ type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
-type RemixSeed = {
-  id: string
-  storyboards: File[]
-  products: File[]
-  subjectFiles?: SubjectReferenceFiles
-  requirement?: string
-  generationMode?: 'automatic' | 'custom'
-  resultCount?: number
-  actionIntensity?: 'low' | 'standard' | 'high'
-  cutMode?: 'explicit_cuts' | 'continuous_when_possible'
-}
+type RemixSeed = { id: string; storyboards: File[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
 type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 type InPageTaskToast = {
   id: string
@@ -742,14 +732,14 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [elements, setElements] = useState<KlingElement[]>([])
   const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
   const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
-  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.generationMode ?? (seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic'))
+  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic')
   const [customPrompt, setCustomPrompt] = useState(() => seed?.requirement ?? localStorage.getItem('fixed-custom-prompt') ?? '')
   const [subjectMode, setSubjectMode] = useState<SubjectInputMode>(() => seed?.subjectFiles?.frontalImage ? 'upload' : 'none')
   const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(() => seed?.subjectFiles ?? createEmptySubjectReferenceFiles())
   const [elementId, setElementId] = useState('')
-  const [resultCount, setResultCount] = useState(() => seed?.resultCount ?? 1)
-  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>(() => seed?.actionIntensity ?? 'standard')
-  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>(() => seed?.cutMode ?? 'explicit_cuts')
+  const [resultCount, setResultCount] = useState(1)
+  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
+  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [elementCatalogError, setElementCatalogError] = useState('')
@@ -1049,6 +1039,26 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     </div>
     {preview ? <ImagePreview file={preview.file} label={preview.label} onClose={() => setPreview(null)} /> : null}
   </section>
+}
+
+function ImageVideoComposerSheet({ seed, system, actorId, onClose, onCreated }: {
+  seed: RemixSeed
+  system: SystemStatus | null
+  actorId: string | null
+  onClose: () => void
+  onCreated: (task: Task) => void
+}) {
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    return () => document.body.classList.remove('modal-open')
+  }, [])
+
+  return createPortal(<div className="image-composer-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="image-composer-sheet" role="dialog" aria-modal="true" aria-labelledby="image-composer-sheet-title">
+      <header><div><span>图片中心</span><h2 id="image-composer-sheet-title">视频制作</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭视频制作" title="关闭"><X size={18} /></button></header>
+      <div className="image-composer-sheet__body"><ProductionComposer key={seed.id} seed={seed} system={system} actorId={actorId} onCreated={onCreated} /></div>
+    </section>
+  </div>, document.body)
 }
 
 function SectionHeading({ title, count, action }: { title: string; count?: number; action?: React.ReactNode }) {
@@ -2704,6 +2714,7 @@ function App() {
   const [adminSection, setAdminSection] = useState<AdminSection>(() => readAppLocation().adminSection)
   const [video, setVideo] = useState<{ artifactId: string; title: string } | null>(null)
   const [seed, setSeed] = useState<RemixSeed | null>(null)
+  const [imageComposerSeed, setImageComposerSeed] = useState<RemixSeed | null>(null)
   const [loading, setLoading] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [remixStage, setRemixStage] = useState<'materials' | 'reuse' | null>(null)
@@ -3123,7 +3134,7 @@ function App() {
     if (!handoffs.length) return
     setError('')
     try {
-      const seeds = await Promise.all(handoffs.map(async ({ task, outputs, subjectSource, config }) => {
+      const seeds = await Promise.all(handoffs.map(async ({ task, outputs, subjectSource }) => {
         const storyboards = await Promise.all(outputs.slice(0, 6).map((output, index) => imageCenterOutputFile(output, task.outfitName, index)))
         const selectedSubject = subjectSource === 'product-front'
           ? task.product.front
@@ -3141,18 +3152,12 @@ function App() {
             detailImages: [],
           },
           requirement: task.prompt.storyboard || task.prompt.fusion,
-          generationMode: config.generationMode,
-          resultCount: config.resultCount,
-          actionIntensity: config.actionIntensity,
-          cutMode: config.cutMode,
         }
       }))
       pendingImageVideoSeedsRef.current = seeds.slice(1)
-      setSeed(seeds[0])
-      navigate('make')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setImageComposerSeed(seeds[0])
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '无法准备图片中心的视频素材')
+      throw new Error(cause instanceof Error ? cause.message : '无法准备图片中心的视频素材', { cause })
     }
   }
   const play = (task: Task, variant: Variant) => {
@@ -3166,6 +3171,15 @@ function App() {
     if (open) navigate('make', task.id)
     else if (nextSeed) navigate('make')
   }, [navigate])
+  const imageComposerCreated = useCallback((task: Task) => {
+    setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)])
+    const nextSeed = pendingImageVideoSeedsRef.current.shift() ?? null
+    setImageComposerSeed(nextSeed)
+  }, [])
+  const closeImageComposer = () => {
+    pendingImageVideoSeedsRef.current = []
+    setImageComposerSeed(null)
+  }
   const feedbackChanged = useCallback((changed: Task) => {
     setTasks((current) => current.map((task) => task.id === changed.id ? changed : task))
   }, [])
@@ -3224,7 +3238,7 @@ function App() {
         <button className="secondary-button" type="button" onClick={() => void enableBrowserNotifications()}>开启通知</button>
         <button className="icon-button" type="button" aria-label="暂不开启通知" title="暂不开启" onClick={() => setNotificationPromptDismissed(true)}><X size={17} /></button>
       </div> : null}
-      {view === 'images' ? <ImageCenter onPrepareVideos={(handoffs) => void prepareImageCenterVideos(handoffs)} /> : null}
+      {view === 'images' ? <ImageCenter onPrepareVideos={prepareImageCenterVideos} /> : null}
       {view === 'make' && !selectedTask ? <HomeView tasks={tasks} seed={seed} system={system} actorId={system?.sharedAuthentication ? null : actor?.userId ?? null} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
       {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
@@ -3254,6 +3268,7 @@ function App() {
       onDismiss={(id) => setInPageTaskToasts((current) => current.filter((toast) => toast.id !== id))}
     />
     {video ? <VideoPreview artifactId={video.artifactId} title={video.title} onClose={() => setVideo(null)} /> : null}
+    {imageComposerSeed ? <ImageVideoComposerSheet seed={imageComposerSeed} system={system} actorId={system?.sharedAuthentication ? null : actor?.userId ?? null} onClose={closeImageComposer} onCreated={imageComposerCreated} /> : null}
     {remixStage ? <div className="global-loading"><LoaderCircle className="spin" size={20} /><span>{remixStage === 'reuse' ? '正在复用素材和提示词并提交生成' : '正在加载原素材'}</span></div> : null}
   </div>
 }

@@ -5,6 +5,7 @@ import {
   calculateImageTaskSummary,
   compactImageAssetSet,
   createImageCenterDraft,
+  createImageCenterRegenerationDraft,
   getImageAssetSlots,
   getOrderedImageReferences,
   getOrderedSelectedTasks,
@@ -126,6 +127,59 @@ describe('image center model', () => {
       quality: 'medium',
       outputFormat: 'png',
       modelId: 'google/nano-banana-2/edit',
+    })
+  })
+
+  it('restores one result task as an editable draft without removing task history', () => {
+    const draft = createImageCenterDraft('batch', 'outfit-1')
+    const modelFront = image('model-front.jpg')
+    const productFront = image('product-front.jpg')
+    draft.model.front = modelFront
+    draft.outfits[0] = {
+      ...draft.outfits[0],
+      name: '套装 01',
+      sku: 'SKU-01',
+      front: productFront,
+      promptOverride: '保留印花细节',
+    }
+    draft.config.provider = 'gpt'
+    draft.config.modes = ['storyboard']
+    draft.config.resultCount = 3
+    draft.config.aspectRatio = '3:4'
+    draft.config.resolution = '4k'
+    draft.config.quality = 'high'
+    draft.config.allowBackInference = false
+    draft.config.storyboardPrompt = '正面展示。转身展示。'
+    const source = buildWaitingTasks(draft, () => 'task-1')[0]
+    source.status = 'completed'
+    source.outputs = [{ id: 'output-1', kind: 'storyboard', view: 'shot', label: '分镜 1', file: null, url: 'result.png' }]
+    draft.tasks = [source]
+    draft.selectedOutputIds = ['output-1']
+
+    const restored = createImageCenterRegenerationDraft(draft, source, 'regenerated-outfit')
+
+    expect(restored.activeTab).toBe('create')
+    expect(restored.tasks).toBe(draft.tasks)
+    expect(restored.selectedOutputIds).toBe(draft.selectedOutputIds)
+    expect(restored.model.front).toBe(modelFront)
+    expect(restored.outfits).toEqual([{
+      id: 'regenerated-outfit',
+      name: '套装 01',
+      sku: 'SKU-01',
+      promptOverride: '',
+      front: productFront,
+      back: null,
+      side: null,
+    }])
+    expect(restored.config).toMatchObject({
+      provider: 'gpt',
+      modes: ['storyboard'],
+      resultCount: 3,
+      aspectRatio: '3:4',
+      resolution: '4k',
+      quality: 'medium',
+      allowBackInference: false,
+      storyboardPrompt: '正面展示。转身展示。\n保留印花细节',
     })
   })
 

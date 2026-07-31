@@ -170,6 +170,38 @@ export function normalizeImageGenerationModes(
   return [mode ?? 'fusion']
 }
 
+export function createImageCenterRegenerationDraft(
+  current: ImageCenterDraft,
+  source: ImageGenerationTask,
+  outfitId: string,
+): ImageCenterDraft {
+  return {
+    ...current,
+    activeTab: 'create',
+    model: { ...source.model },
+    outfits: [{
+      id: outfitId,
+      name: source.outfitName,
+      sku: source.sku,
+      promptOverride: '',
+      ...source.product,
+    }],
+    config: {
+      ...current.config,
+      provider: source.provider,
+      modes: normalizeImageGenerationModes(source.modes),
+      resultCount: source.resultCount,
+      fusionPrompt: source.prompt.fusion,
+      storyboardPrompt: source.prompt.storyboard,
+      allowBackInference: source.allowBackInference,
+      aspectRatio: source.aspectRatio,
+      resolution: source.resolution,
+      quality: source.quality,
+      outputFormat: source.outputFormat,
+    },
+  }
+}
+
 export function createImageCenterDraft(id: string, outfitId: string, now = new Date().toISOString()): ImageCenterDraft {
   return {
     version: 1,
