@@ -4,7 +4,7 @@ import {
   Sparkles, UploadCloud, UserRound, WandSparkles, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent } from 'react'
+import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
@@ -13,8 +13,8 @@ import { CustomPromptField } from './CustomPromptField'
 import {
   IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
   buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
-  createImageCenterDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
-  moveImageAssetSlot, normalizeImageGenerationModes, outfitCanGenerateBack, parseStoryboardPrompt, validateImageCenterDraft,
+  createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
+  moveImageAssetSlot, normalizeImageGenerationModes, parseStoryboardPrompt, validateImageCenterDraft,
 } from './imageCenterModel'
 import type { ImageGenerationBatch, ImageGenerationBatchItem } from './types'
 import type {
@@ -30,16 +30,10 @@ export interface ImageCenterVideoHandoff {
   task: ImageGenerationTask
   outputs: ImageGenerationOutput[]
   subjectSource: VideoSubjectSource
-  config: {
-    generationMode: 'automatic' | 'custom'
-    resultCount: number
-    actionIntensity: 'low' | 'standard' | 'high'
-    cutMode: 'explicit_cuts' | 'continuous_when_possible'
-  }
 }
 
 export interface ImageCenterProps {
-  onPrepareVideos: (handoffs: ImageCenterVideoHandoff[]) => void
+  onPrepareVideos: (handoffs: ImageCenterVideoHandoff[]) => void | Promise<void>
 }
 
 const taskStatusPresentation = {
@@ -132,10 +126,11 @@ function AuthenticatedAssetPreview({ file, url, alt }: { file: File | null; url:
   return <AssetPreview file={file} url={authenticatedUrl} alt={alt} />
 }
 
-function OrderedAssetUpload({ idPrefix, title, description, assets, onChange }: {
+function OrderedAssetUpload({ idPrefix, title, description, headerAccessory, assets, onChange }: {
   idPrefix: string
   title: string
   description: string
+  headerAccessory?: ReactNode
   assets: ImageAssetSet
   onChange: (assets: ImageAssetSet) => void
 }) {
@@ -172,7 +167,7 @@ function OrderedAssetUpload({ idPrefix, title, description, assets, onChange }: 
   }
 
   return <section
-    className={`ordered-asset-upload asset-count-${count}${count ? ' has-files' : ''}`}
+    className={`ordered-asset-upload asset-count-${count}${count ? ' has-files' : ''}${headerAccessory ? ' has-header-accessory' : ''}`}
     aria-label={title}
     onDragOver={(event) => {
       event.preventDefault()
@@ -183,7 +178,8 @@ function OrderedAssetUpload({ idPrefix, title, description, assets, onChange }: 
     }}
   >
     <header>
-      <div><strong>{title}</strong><small>{description}</small></div>
+      <div className="ordered-asset-upload__title"><strong>{title}</strong><small>{description}</small></div>
+      {headerAccessory}
       <span>{count}/3</span>
     </header>
     <button type="button" className="ordered-asset-dropzone" disabled={count >= 3} onClick={() => inputRef.current?.click()}>
@@ -225,13 +221,19 @@ function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
   onRemove: () => void
 }) {
   return <article className="outfit-card">
-    <header>
-      <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
-      <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
-      <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
-      <button type="button" className="outfit-card__remove" disabled={!canRemove} onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={16} /></button>
-    </header>
-    <OrderedAssetUpload idPrefix={outfit.id} title="产品图片" description="图二固定为球衣正面，图三固定为球衣背面；侧面为补充参考" assets={outfit} onChange={(assets) => onChange({ ...outfit, ...assets })} />
+    <OrderedAssetUpload
+      idPrefix={outfit.id}
+      title="产品图片"
+      description="图二固定为球衣正面，图三固定为球衣背面；侧面为补充参考"
+      headerAccessory={<div className="outfit-card__meta">
+        <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
+        <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} title="套装名称" onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
+        <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} title="商品 SKU" placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
+        <button type="button" className="outfit-card__remove" disabled={!canRemove} onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={16} /></button>
+      </div>}
+      assets={outfit}
+      onChange={(assets) => onChange({ ...outfit, ...assets })}
+    />
     <details className="outfit-card__override"><summary>套装补充要求<ChevronRight size={14} /></summary><textarea value={outfit.promptOverride} maxLength={2800} placeholder="可选，将追加到本套装的融合与分镜提示词" onChange={(event) => onChange({ ...outfit, promptOverride: event.target.value })} /></details>
   </article>
 }
@@ -257,11 +259,46 @@ function OutfitNavItem({ outfit, index, selected, onSelect }: {
   </button>
 }
 
-function SourceThumb({ file, label }: { file: File | null; label: string }) {
-  return <figure className="image-task-source"><span><AssetPreview file={file} alt={file ? `${label}：${file.name}` : ''} /></span><figcaption>{label}</figcaption></figure>
+function SourceThumb({ file, label, onPreview }: {
+  file: File | null
+  label: string
+  onPreview: (file: File, label: string) => void
+}) {
+  return <figure className="image-task-source">
+    <button
+      type="button"
+      disabled={!file}
+      onClick={() => { if (file) onPreview(file, label) }}
+      aria-label={file ? `查看${label}大图` : undefined}
+      title={file ? '查看大图' : undefined}
+    ><AssetPreview file={file} alt={file ? `${label}：${file.name}` : ''} /></button>
+    <figcaption>{label}</figcaption>
+  </figure>
 }
 
-function OutputCard({ taskId, output, selected, onToggle }: { taskId: string; output: ImageGenerationOutput; selected: boolean; onToggle: () => void }) {
+function OutputSelectionButton({ selected, label, className, onToggle }: {
+  selected: boolean
+  label: string
+  className: string
+  onToggle: () => void
+}) {
+  return <button
+    type="button"
+    className={`${className}${selected ? ' is-selected' : ''}`}
+    aria-label={selected ? `取消勾选${label}` : `勾选${label}`}
+    aria-pressed={selected}
+    title={selected ? '取消勾选' : '勾选图片'}
+    onClick={(event) => { event.stopPropagation(); onToggle() }}
+  >{selected ? <Check size={17} strokeWidth={2.6} /> : null}</button>
+}
+
+function OutputCard({ taskId, output, selected, onToggle, onPreview }: {
+  taskId: string
+  output: ImageGenerationOutput
+  selected: boolean
+  onToggle: () => void
+  onPreview: () => void
+}) {
   const download = () => {
     if (output.url) void saveAsset(output.downloadUrl || output.url, `${output.label}.png`)
   }
@@ -276,19 +313,75 @@ function OutputCard({ taskId, output, selected, onToggle }: { taskId: string; ou
     onDragEnd={(event) => event.currentTarget.classList.remove('is-dragging')}
     title="拖入选片工作台"
   >
-    <button type="button" className="image-output-card__select" aria-pressed={selected} onClick={onToggle}>
+    <button type="button" className="image-output-card__preview" onClick={onPreview} aria-label={`查看${output.label}大图`} title="查看大图">
       <span className="image-output-card__media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></span>
       <span><strong>{output.label}</strong><small>{output.kind === 'fusion' ? '多图融合' : '分镜图'}</small></span>
-      <i>{selected ? <Check size={15} /> : null}</i>
     </button>
+    <OutputSelectionButton selected={selected} label={output.label} className="image-output-card__selection" onToggle={onToggle} />
     {output.url ? <button type="button" className="image-output-card__download" onClick={download} title="下载图片" aria-label={`下载${output.label}`}><Download size={14} /></button> : null}
   </article>
 }
 
-function SelectionWorkbench({ tasks, selectedOutputIds, expanded, onExpandedChange, onClear, onRemove, onPlaceOutput, onGenerate }: {
+function AssetPreviewDialog({ file, url = '', label, selection, onClose }: {
+  file: File | null
+  url?: string
+  label: string
+  selection?: { selected: boolean; onToggle: () => void }
+  onClose: () => void
+}) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current()
+    }
+    document.body.classList.add('modal-open')
+    document.addEventListener('keydown', closeOnEscape)
+    dialogRef.current?.focus()
+    return () => {
+      document.body.classList.remove('modal-open')
+      document.removeEventListener('keydown', closeOnEscape)
+      previouslyFocused?.focus()
+    }
+  }, [])
+
+  return createPortal(<div
+    className="image-output-preview-backdrop"
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
+  >
+    <section ref={dialogRef} className="image-output-preview" role="dialog" aria-modal="true" aria-labelledby="image-output-preview-title" tabIndex={-1}>
+      <h2 id="image-output-preview-title" className="sr-only">{label}大图预览</h2>
+      <button type="button" className="image-output-preview__stage" onClick={onClose} aria-label={`关闭${label}大图预览`} title="关闭大图">
+        <AuthenticatedAssetPreview file={file} url={url} alt={label} />
+      </button>
+      <button type="button" className="image-output-preview__close" onClick={onClose} aria-label="关闭大图预览" title="关闭大图"><X size={20} /></button>
+      {selection ? <OutputSelectionButton selected={selection.selected} label={label} className="image-output-preview__selection" onToggle={selection.onToggle} /> : null}
+    </section>
+  </div>, document.body)
+}
+
+function OutputPreview({ output, selected, onToggle, onClose }: {
+  output: ImageGenerationOutput
+  selected: boolean
+  onToggle: () => void
+  onClose: () => void
+}) {
+  return <AssetPreviewDialog
+    file={output.file}
+    url={output.url}
+    label={output.label}
+    selection={{ selected, onToggle }}
+    onClose={onClose}
+  />
+}
+
+function SelectionWorkbench({ tasks, selectedOutputIds, expanded, preparing, onExpandedChange, onClear, onRemove, onPlaceOutput, onGenerate }: {
   tasks: ImageGenerationTask[]
   selectedOutputIds: string[]
   expanded: boolean
+  preparing: boolean
   onExpandedChange: (expanded: boolean) => void
   onClear: () => void
   onRemove: (outputId: string) => void
@@ -339,18 +432,13 @@ function SelectionWorkbench({ tasks, selectedOutputIds, expanded, onExpandedChan
       <button type="button" className="icon-button image-selection-bar__toggle" onClick={() => onExpandedChange(!expanded)} aria-expanded={expanded} aria-controls="image-selection-details" aria-label={expanded ? '收起选片详情' : '展开选片详情'} title={expanded ? '收起详情' : '展开详情'}>{expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
       <div className="image-selection-bar__actions">
         <button type="button" className="secondary-button" onClick={onClear}><X size={16} />取消选择</button>
-        <button type="button" className="primary-button" onClick={onGenerate}><Film size={17} />送入视频队列</button>
+        <button type="button" className="primary-button" disabled={preparing} onClick={onGenerate}>{preparing ? <LoaderCircle className="spin" size={17} /> : <Film size={17} />}{preparing ? '正在准备' : '送入视频队列'}</button>
       </div>
     </div>
     <div id="image-selection-details" className="image-selection-bar__details" aria-hidden={!expanded} inert={!expanded}>
       <div className="image-selection-bar__details-inner">
         <header><div><strong>分镜编排</strong><small>共 {selectedTasks.length} 个产品视频</small></div><span>{selectedOutputIds.length} / {selectedTasks.length * 6} 张</span></header>
         <div className="image-selection-groups">{selectedTasks.map(({ task, outputs }) => <article key={task.id} className="image-selection-group">
-          <div className="image-selection-product">
-            <span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品正面图`} /><i>产品</i></span>
-            <div><strong>{task.outfitName}</strong><small>{task.sku || '未填写 SKU'}</small></div>
-            <em>{outputs.length}/6</em>
-          </div>
           <div className="image-selection-frames" role="list" aria-label={`${task.outfitName}分镜顺序`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOutput(event)}>
             {outputs.map((output, index) => <article
               key={output.id}
@@ -371,57 +459,15 @@ function SelectionWorkbench({ tasks, selectedOutputIds, expanded, onExpandedChan
             </article>)}
             {outputs.length < 6 ? <div className="image-selection-drop-slot" aria-hidden="true"><Plus size={17} /><span>{outputs.length ? '添加分镜' : '暂无分镜'}</span></div> : null}
           </div>
+          <div className="image-selection-product">
+            <span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品正面图`} /><i>产品</i></span>
+            <div><strong>{task.outfitName}</strong><small>{task.sku || '未填写 SKU'}</small></div>
+            <em>{outputs.length}/6</em>
+          </div>
         </article>)}</div>
       </div>
     </div>
   </section>
-}
-
-function VideoPreparationSheet({ tasks, selectedOutputIds, onClose, onConfirm }: {
-  tasks: ImageGenerationTask[]
-  selectedOutputIds: string[]
-  onClose: () => void
-  onConfirm: (handoffs: ImageCenterVideoHandoff[]) => void
-}) {
-  const selectedTasks = useMemo(() => getOrderedSelectedTasks(tasks, selectedOutputIds), [selectedOutputIds, tasks])
-  const [subjects, setSubjects] = useState<Record<string, VideoSubjectSource>>(() => Object.fromEntries(selectedTasks.map(({ task }) => [task.id, 'generated'])))
-  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>('custom')
-  const [resultCount, setResultCount] = useState(1)
-  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
-  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
-  useEffect(() => {
-    document.body.classList.add('modal-open')
-    return () => document.body.classList.remove('modal-open')
-  }, [])
-  const confirm = () => onConfirm(selectedTasks.map(({ task, outputs }) => ({
-    task,
-    outputs,
-    subjectSource: subjects[task.id] ?? 'generated',
-    config: { generationMode, resultCount, actionIntensity, cutMode },
-  })))
-
-  return createPortal(<div className="image-video-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="image-video-sheet" role="dialog" aria-modal="true" aria-labelledby="image-video-sheet-title">
-      <header><div><span>视频制作</span><h2 id="image-video-sheet-title">配置 {selectedTasks.length} 个产品视频</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X size={18} /></button></header>
-      <div className="image-video-sheet__body">
-        <section className="image-video-parameters" aria-labelledby="image-video-parameters-title">
-          <header><div><span>生成参数</span><h3 id="image-video-parameters-title">视频制作配置</h3></div><small>{selectedTasks.reduce((total, item) => total + item.outputs.length, 0)} 张分镜</small></header>
-          <div className="image-video-parameter-grid">
-            <fieldset><legend>生成路线</legend><div className="image-video-segments"><button type="button" className={generationMode === 'custom' ? 'is-selected' : ''} onClick={() => setGenerationMode('custom')}>沿用生图提示词</button><button type="button" className={generationMode === 'automatic' ? 'is-selected' : ''} onClick={() => setGenerationMode('automatic')}>自动编排</button></div></fieldset>
-            <fieldset><legend>结果数量</legend><div className="image-video-segments is-count">{[1, 2, 3, 4].map((count) => <button key={count} type="button" className={resultCount === count ? 'is-selected' : ''} onClick={() => setResultCount(count)}>{count}</button>)}</div></fieldset>
-            <fieldset><legend>动作强度</legend><div className="image-video-segments">{([['low', '克制'], ['standard', '标准'], ['high', '增强']] as const).map(([value, label]) => <button key={value} type="button" className={actionIntensity === value ? 'is-selected' : ''} onClick={() => setActionIntensity(value)}>{label}</button>)}</div></fieldset>
-            <fieldset><legend>镜头衔接</legend><div className="image-video-segments"><button type="button" className={cutMode === 'explicit_cuts' ? 'is-selected' : ''} onClick={() => setCutMode('explicit_cuts')}>明确切镜</button><button type="button" className={cutMode === 'continuous_when_possible' ? 'is-selected' : ''} onClick={() => setCutMode('continuous_when_possible')}>尽量连续</button></div></fieldset>
-          </div>
-        </section>
-        <div className="image-video-draft-list">{selectedTasks.map(({ task, outputs }) => <article key={task.id}>
-          <div className="image-video-draft-main"><span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品图`} /></span><div><strong>{task.outfitName}</strong><small>{outputs.length} 张分镜{task.sku ? ` · ${task.sku}` : ''}</small></div></div>
-          <div className="image-video-draft-frames">{outputs.slice(0, 6).map((output, index) => <span key={output.id}><AuthenticatedAssetPreview file={output.file} url={output.url} alt={`分镜 ${index + 1}`} /><i>{index + 1}</i></span>)}</div>
-          <label className="image-video-subject"><span>主体来源</span><select value={subjects[task.id] ?? 'generated'} onChange={(event) => setSubjects((current) => ({ ...current, [task.id]: event.target.value as VideoSubjectSource }))}><option value="generated">换装成功的模特图</option><option value="product-front">产品正面图</option>{task.product.back ? <option value="product-back">产品背面图</option> : null}</select></label>
-        </article>)}</div>
-      </div>
-      <footer><span>{selectedTasks.length} 个产品 × {resultCount} 个结果，共 {selectedTasks.length * resultCount} 个独立任务</span><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button primary-button--large" onClick={confirm}><Film size={18} />应用参数并继续</button></footer>
-    </section>
-  </div>, document.body)
 }
 
 export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
@@ -430,8 +476,10 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
   const [loaded, setLoaded] = useState(false)
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [notice, setNotice] = useState('')
-  const [sheetOpen, setSheetOpen] = useState(false)
+  const [preparingVideos, setPreparingVideos] = useState(false)
   const [selectionBarExpanded, setSelectionBarExpanded] = useState(false)
+  const [previewOutputId, setPreviewOutputId] = useState<string | null>(null)
+  const [previewSource, setPreviewSource] = useState<{ file: File; label: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
 
@@ -514,6 +562,13 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
   const errors = useMemo(() => validateImageCenterDraft(draft), [draft])
   const storyboardShots = useMemo(() => parseStoryboardPrompt(draft.config.storyboardPrompt), [draft.config.storyboardPrompt])
   const selectedIds = useMemo(() => new Set(draft.selectedOutputIds), [draft.selectedOutputIds])
+  const previewOutput = previewOutputId
+    ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
+    : null
+  const previewSourceImage = (file: File, label: string) => {
+    setPreviewOutputId(null)
+    setPreviewSource({ file, label })
+  }
   useEffect(() => {
     if (!draft.selectedOutputIds.length) setSelectionBarExpanded(false)
   }, [draft.selectedOutputIds.length])
@@ -574,27 +629,12 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
     if (!window.confirm(`即将通过 ${modelLabel} 生成 ${summary.totalImages} 张图片，此操作可能产生费用。确认提交？`)) return
     void submitTaskSet(tasks, summary.totalImages)
   }
-  const regenerate = (source: ImageGenerationTask) => {
-    const task: ImageGenerationTask = {
-      ...source,
-      id: createUuid(),
-      status: 'uploading',
-      batchId: null,
-      providerTaskId: null,
-      providerTaskIds: [],
-      outputs: [],
-      error: '',
-      errorCode: null,
-      retryable: null,
-      errorDetails: null,
-      createdAt: new Date().toISOString(),
-    }
-    const fusionCount = task.modes.includes('fusion')
-      ? (1 + Number(outfitCanGenerateBack(task.model, task.product, task.allowBackInference))) * task.resultCount
-      : 0
-    const expectedCount = fusionCount + (task.modes.includes('storyboard') ? task.storyboardShots.length * task.resultCount : 0)
-    if (!window.confirm(`即将重新提交 ${task.outfitName}，预计生成 ${expectedCount} 张图片并可能产生费用。确认继续？`)) return
-    void submitTaskSet([task], expectedCount)
+  const prepareRegeneration = (source: ImageGenerationTask) => {
+    const outfitId = createUuid()
+    setActiveOutfitId(outfitId)
+    updateDraft((current) => createImageCenterRegenerationDraft(current, source, outfitId))
+    setNotice(`已载入「${source.outfitName}」的素材与生成配置。`)
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
   const toggleOutput = (id: string) => {
     const owner = draft.tasks.find((task) => task.outputs.some((output) => output.id === id))
@@ -625,18 +665,22 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
       return { ...current, selectedOutputIds: nextIds }
     })
   }
-  const clearDraft = () => {
-    if (!window.confirm('确定新建批次？当前素材和未提交配置将被清空。')) return
-    setActiveOutfitId('')
-    setDraft(createImageCenterDraft(createUuid(), createUuid()))
-    setNotice('已新建空白批次。')
+  const prepareVideos = async () => {
+    if (preparingVideos) return
+    const selectedTasks = getOrderedSelectedTasks(draft.tasks, draft.selectedOutputIds)
+    if (!selectedTasks.length) return
+    setPreparingVideos(true)
+    try {
+      await onPrepareVideos(selectedTasks.map(({ task, outputs }) => ({ task, outputs, subjectSource: 'product-front' })))
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : '无法准备视频制作素材。')
+    } finally { setPreparingVideos(false) }
   }
-
   if (!loaded) return <div className="image-center-loading"><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
 
   return <div className="image-center page-view">
-    <header className="image-center-title"><div><span>批量换装工作台</span><h1>图片中心</h1><p>一个模特对应多套产品，集中完成生图、挑图和视频衔接。</p></div><div className="image-center-title__actions"><span className={`image-center-save-state is-${saveState}`}><Save size={14} />{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</span><button type="button" className="secondary-button" onClick={clearDraft}><RotateCcw size={16} />新建批次</button></div></header>
-    <nav className="image-center-tabs" aria-label="图片中心视图"><button type="button" className={draft.activeTab === 'create' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Layers3 size={17} />批量创作</button><button type="button" className={draft.activeTab === 'results' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'results' }))}><Images size={17} />生成结果{draft.tasks.length ? <i>{draft.tasks.length}</i> : null}</button></nav>
+    <header className="image-center-title"><div><span>批量换装工作台</span><h1>图片中心</h1><p>一个模特对应多套产品，集中完成生图、挑图和视频衔接。</p></div><div className="image-center-title__actions"><span className={`image-center-save-state is-${saveState}`}><Save size={14} />{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</span></div></header>
+    <nav className="image-center-tabs" aria-label="图片中心视图"><button type="button" className={draft.activeTab === 'create' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Layers3 size={17} />批量创作</button><button type="button" className={draft.activeTab === 'results' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'results' }))}><Images size={17} />生图记录{draft.tasks.length ? <i>{draft.tasks.length}</i> : null}</button></nav>
     {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
 
     {draft.activeTab === 'create' ? <div className="image-center-create">
@@ -669,7 +713,7 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
           <fieldset className="image-config-block"><legend>生成引擎</legend><div className="image-provider-control">{(['gpt', 'nanobanana'] as ImageProvider[]).map((provider) => <button key={provider} type="button" className={draft.config.provider === provider ? 'is-selected' : ''} onClick={() => updateConfig({ provider })}><span>{provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><small>WaveSpeed API</small>{draft.config.provider === provider ? <Check size={14} /> : null}</button>)}</div></fieldset>
           <fieldset className="image-config-block image-config-select"><legend>画面比例</legend><select aria-label="画面比例" value={draft.config.aspectRatio} onChange={(event) => updateConfig({ aspectRatio: event.target.value })}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option></select></fieldset>
           <fieldset className="image-config-block image-config-select"><legend>分辨率</legend><select aria-label="分辨率" value={draft.config.resolution} onChange={(event) => updateConfig({ resolution: event.target.value })}><option value="1k">1K</option><option value="2k">2K</option><option value="4k">4K</option></select></fieldset>
-          <fieldset className="image-config-block"><legend>统一结果数量</legend><div className="image-result-count">{([1, 2, 3, 4] as const).map((count) => <button key={count} type="button" className={draft.config.resultCount === count ? 'is-selected' : ''} onClick={() => updateConfig({ resultCount: count })}>{count}</button>)}</div><small>应用于当前任务的每个视角或镜头</small></fieldset>
+          <fieldset className="image-config-block"><legend>统一结果数量</legend><div className="image-result-count">{([1, 2, 3, 4] as const).map((count) => <button key={count} type="button" className={draft.config.resultCount === count ? 'is-selected' : ''} onClick={() => updateConfig({ resultCount: count })}>{count}</button>)}</div></fieldset>
         </div>
         <div className="image-prompt-grid" role="radiogroup" aria-label="生成任务">
           <section className={draft.config.modes.includes('fusion') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('fusion')} onClick={() => selectMode('fusion')}><span><Sparkles size={17} /></span><span><strong>多图融合</strong><small>按现有视角生成换装基准图</small></span><i>{draft.config.modes.includes('fusion') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_fusion" label="自定义提示词" value={draft.config.fusionPrompt} disabled={!draft.config.modes.includes('fusion')} onChange={(fusionPrompt) => updateConfig({ fusionPrompt })} placeholder="描述人物一致性、服装还原和画面要求" /></section>
@@ -680,11 +724,11 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
         {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
       </section>
     </div> : <section className="image-results" aria-labelledby="image-results-title">
-      <div className="image-results-heading"><div><h2 id="image-results-title">生成结果</h2><p>任务按套装归组，完成后可在结果中直接挑选分镜。</p></div><button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div>
-      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图任务</h3><p>完成模特、产品和提示词配置后，在这里按套装查看生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
+      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div>
+      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = taskStatusPresentation[task.status]
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
-        return <article key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" /><SourceThumb file={task.product.front} label="产品正面" /><SourceThumb file={task.product.back} label="产品背面" /><SourceThumb file={task.model.back} label="模特背面" /><SourceThumb file={task.product.side} label="产品侧面" /><SourceThumb file={task.model.side} label="模特侧面" /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div>{task.status === 'failed' ? <button type="button" className="secondary-button" disabled={submitting} onClick={() => regenerate(task)}><RotateCcw size={15} />重新生成</button> : null}</div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
+        return <article key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
       })}</div>}
     </section>}
     {draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
@@ -696,12 +740,23 @@ export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
       tasks={draft.tasks}
       selectedOutputIds={draft.selectedOutputIds}
       expanded={selectionBarExpanded}
+      preparing={preparingVideos}
       onExpandedChange={setSelectionBarExpanded}
       onClear={() => updateDraft((current) => ({ ...current, selectedOutputIds: [] }))}
       onRemove={(outputId) => updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((id) => id !== outputId) }))}
       onPlaceOutput={placeOutput}
-      onGenerate={() => setSheetOpen(true)}
+      onGenerate={() => void prepareVideos()}
     />, document.body) : null}
-    {sheetOpen ? <VideoPreparationSheet tasks={draft.tasks} selectedOutputIds={draft.selectedOutputIds} onClose={() => setSheetOpen(false)} onConfirm={(handoffs) => { setSheetOpen(false); onPrepareVideos(handoffs) }} /> : null}
+    {previewOutput ? <OutputPreview
+      output={previewOutput}
+      selected={selectedIds.has(previewOutput.id)}
+      onToggle={() => toggleOutput(previewOutput.id)}
+      onClose={() => setPreviewOutputId(null)}
+    /> : null}
+    {previewSource ? <AssetPreviewDialog
+      file={previewSource.file}
+      label={previewSource.label}
+      onClose={() => setPreviewSource(null)}
+    /> : null}
   </div>
 }
