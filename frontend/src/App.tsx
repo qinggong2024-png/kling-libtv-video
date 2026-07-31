@@ -100,7 +100,7 @@ import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingC
 import { CustomPromptField } from './CustomPromptField'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { ImageCenter } from './ImageCenter'
-import type { ImageCenterVideoHandoff } from './ImageCenter'
+import type { ImageCenterNotificationEvent, ImageCenterVideoHandoff } from './ImageCenter'
 import { KlingSubjectsLibrary } from './KlingSubjectsLibrary'
 import { LoginFlowLines } from './LoginFlowLines'
 import { OperationsPanel } from './OperationsPanel'
@@ -133,6 +133,7 @@ import {
   taskNotificationForTransition,
   writeBrowserNotificationPreference,
 } from './browserNotifications'
+import type { TaskNotification } from './browserNotifications'
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
@@ -147,6 +148,8 @@ import {
 } from './klingConfig'
 import type { KlingConfigDraft } from './klingConfig'
 import { CatalogEditor } from './CatalogEditor'
+import { createImageCenterVideoSeed } from './imageCenterVideoSeed'
+import { loadVideoComposerSettings, saveVideoComposerSettings } from './videoComposerSettings'
 
 type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
@@ -157,10 +160,18 @@ type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'faile
 type InPageTaskToast = {
   id: string
   taskId: string
+  view: 'images' | 'make'
   title: string
   body: string
   tone: 'success' | 'warning'
   expiresAt: number
+}
+type TaskNotificationEvent = {
+  notificationKey: string
+  taskId: string
+  view: 'images' | 'make'
+  payload: TaskNotification
+  tone: InPageTaskToast['tone']
 }
 
 const UPLOAD_CONCURRENCY = 4
@@ -726,20 +737,21 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   system: SystemStatus | null
   actorId: string | null
 }) {
+  const [storedSettings] = useState(() => loadVideoComposerSettings(localStorage))
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: createUuid(), file })) ?? [])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
   const [profiles, setProfiles] = useState<SiteStyleProfileSummary[]>([])
   const [elements, setElements] = useState<KlingElement[]>([])
-  const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
-  const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
-  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic')
-  const [customPrompt, setCustomPrompt] = useState(() => seed?.requirement ?? localStorage.getItem('fixed-custom-prompt') ?? '')
+  const [templateId, setTemplateId] = useState(storedSettings.templateId)
+  const [siteProfileId, setSiteProfileId] = useState(storedSettings.siteProfileId)
+  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.requirement ? 'custom' : storedSettings.generationMode)
+  const [customPrompt, setCustomPrompt] = useState(() => seed?.requirement ?? storedSettings.customPrompt)
   const [subjectMode, setSubjectMode] = useState<SubjectInputMode>(() => seed?.subjectFiles?.frontalImage ? 'upload' : 'none')
   const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(() => seed?.subjectFiles ?? createEmptySubjectReferenceFiles())
   const [elementId, setElementId] = useState('')
-  const [resultCount, setResultCount] = useState(1)
-  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
-  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
+  const [resultCount, setResultCount] = useState(storedSettings.resultCount)
+  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>(storedSettings.actionIntensity)
+  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>(storedSettings.cutMode)
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [elementCatalogError, setElementCatalogError] = useState('')
@@ -788,11 +800,16 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     return () => { active = false }
   }, [])
   useEffect(() => {
-    localStorage.setItem('fixed-generation-mode', generationMode)
-  }, [generationMode])
-  useEffect(() => {
-    localStorage.setItem('fixed-custom-prompt', customPrompt)
-  }, [customPrompt])
+    saveVideoComposerSettings(localStorage, {
+      templateId,
+      siteProfileId,
+      generationMode,
+      customPrompt,
+      resultCount,
+      actionIntensity,
+      cutMode,
+    })
+  }, [actionIntensity, customPrompt, cutMode, generationMode, resultCount, siteProfileId, templateId])
   useEffect(() => {
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
@@ -946,8 +963,6 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         setResetting(true)
         resetTimerRef.current = window.setTimeout(clearSubmittedMaterials, 220)
       }
-      localStorage.setItem('fixed-video-template', templateId)
-      if (generationMode === 'automatic') localStorage.setItem('fixed-site-profile', siteProfileId)
     } catch (cause) {
       const failure = uploadFailure ?? cause
       setError(failure instanceof Error ? failure.message : '素材提交失败，请检查图片后重试')
@@ -1017,7 +1032,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       </div>
       </div>
     <div className="composer-submit-row" aria-live="polite">
-      <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
+      <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{resultCount} 个独立任务</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
       <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
@@ -1512,7 +1527,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         <div className="drawer-header-main"><span>任务 / {isConfirmation ? '方案确认' : RESULT_PHASES.has(task.phase) ? '视频结果' : analysisFailure ? '分析恢复' : needsRecovery ? '异常处理' : '生产进度'}</span><h1 id="detail-title">{task.title}</h1></div>
         <div className="drawer-header-actions"><ProviderBadge provider={task.generationProvider} /><TaskStatusBadge task={task} /></div>
       </header>
-      <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', '可灵生成', '结果'] : ['素材', '分析', '方案', provider.kind === 'kling' ? '可灵生成' : '历史任务生成', '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
+      <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', `${provider.displayName}生成`, '结果'] : ['素材', '分析', '方案', provider.kind === 'legacy' ? '历史任务生成' : `${provider.displayName}生成`, '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
       <div className="drawer-content">
         <section className="source-summary"><div className="source-assets">{[...task.assets].sort((a, b) => a.order - b.order).map((asset, index) => <figure key={asset.id}><AuthenticatedImage src={asset.thumbnailUrl} alt={asset.originalFilename} /><figcaption>{asset.role === 'PRODUCT' || asset.usedForGeneration === false ? '产品图' : `分镜 ${index + 1}`}</figcaption></figure>)}</div><div className="garment-summary"><span>{isCustomWorkflow ? '自定义直达快照' : isFixedWorkflow ? '自动化生成快照' : '服装识别摘要'}</span><strong>{isCustomWorkflow ? '自定义提示词 · 默认生产规格' : isFixedWorkflow ? `${task.siteProfileId ?? '未知站点'} · 自动编排` : [analysis?.garmentFacts?.category, analysis?.garmentFacts?.mainColor, analysis?.garmentFacts?.fit].filter(Boolean).join(' · ') || '正在整理服装信息'}</strong><p>{isCustomWorkflow ? `提示词原文直达 · ${task.variants.length} 个结果` : isFixedWorkflow ? `动作 ${String(task.settings?.actionIntensity ?? 'standard')} · ${task.variants.length} 个结果` : analysis?.consistencyObservations?.summary ?? '系统将优先保持服装结构、颜色、印花和文字准确。'}</p></div></section>
         {analysisFailure ? <section className="analysis-recovery" role="alert">
@@ -1540,7 +1555,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         </> : null}
         {task.phase === 'ANALYZING' ? <AnalysisProgress task={task} /> : null}
         {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} />{error}</div> : null}
-        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成通道</dt><dd>{provider.displayLabel}</dd>{provider.kind === 'legacy' ? <><dt>历史项目 ID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>可灵调用方式</dt><dd>官方 API / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).displayLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入生成通道'}</small>{variant.errorCode ? <small>错误：{variant.errorCode}{variantErrorMessage(variant) ? ` · ${variantErrorMessage(variant)}` : ''}{variantErrorRetryable(variant) === true ? ' · 可以重试' : variantErrorRetryable(variant) === false ? ' · 需要人工处理' : ''}</small> : null}{variantErrorDetails(variant) ? <code>{JSON.stringify(variantErrorDetails(variant))}</code> : null}</span>)}</div></div></details>
+        <details className="technical-details"><summary><span><MoreHorizontal size={17} />技术信息</span><ChevronRight size={16} /></summary><div><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Session ID</dt><dd>{task.clientTaskId}</dd><dt>工作流</dt><dd>{isFixedWorkflow ? '固定模板' : '历史分析流程'}</dd><dt>生成通道</dt><dd>{provider.displayLabel}</dd>{provider.kind === 'legacy' ? <><dt>历史项目 ID</dt><dd>{task.canvasProjectUuid ?? '尚未分配'}</dd></> : <><dt>调用方式</dt><dd>{provider.displayLabel} / 远端任务查询</dd></>}<dt>原始状态</dt><dd>{task.phase}</dd><dt>状态版本</dt><dd>{task.stateVersion}</dd><dt>错误代码</dt><dd>{task.phaseReasonCode ?? '无'}</dd></dl><div className="prompt-hashes">{task.variants.map((variant) => <span key={variant.id}><strong>{variantDisplayName(variant)} · {providerPresentation(variant.provider || task.generationProvider).displayLabel}</strong><code>{variant.providerTaskId ? `${providerPresentation(variant.provider || task.generationProvider).kind === 'kling' ? 'remoteTaskId' : 'taskId'}: ${variant.providerTaskId}` : `Prompt Hash: ${variant.promptHash ?? '尚未锁定'}`}</code><small>{variant.executionBackend ?? '尚未进入生成通道'}</small>{variant.errorCode ? <small>错误：{variant.errorCode}{variantErrorMessage(variant) ? ` · ${variantErrorMessage(variant)}` : ''}{variantErrorRetryable(variant) === true ? ' · 可以重试' : variantErrorRetryable(variant) === false ? ' · 需要人工处理' : ''}</small> : null}{variantErrorDetails(variant) ? <code>{JSON.stringify(variantErrorDetails(variant))}</code> : null}</span>)}</div></div></details>
       </div>
       {task.actionCapabilities.canRegenerate || task.actionCapabilities.canCancel || isConfirmation ? <footer className={`drawer-footer${canReuse ? ' drawer-footer--reuse' : ''}${isConfirmation ? ' drawer-footer--confirmation' : ''}`}>
         <div className="drawer-footer-actions">
@@ -2057,7 +2072,8 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
   const apiKeyWillExist = Boolean(draft?.apiKey.trim()) || Boolean(config?.apiKeyConfigured && !draft?.clearApiKey)
   const hasChanges = Boolean(config && draft && (
-    draft.baseUrl.trim() !== (config.baseUrl ?? '')
+    draft.backend !== config.backend
+    || draft.baseUrl.trim() !== (config.baseUrl ?? '')
     || draft.callbackUrl.trim() !== (config.callbackUrl ?? '')
     || draft.model !== config.model
     || draft.duration !== config.duration
@@ -2083,9 +2099,9 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
     {busy === 'load' && !draft ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取可灵配置…</div> : null}
     {draft ? <>
-      <div className="inline-alert">
-        <CheckCircle2 size={16} />
-        <span>生产通道已固定为 Kling 官方 API。保存 Key 后会先执行只读任务查询验证；验证不会创建视频或消耗生成额度。</span>
+      <div className="kling-config-block">
+        <div className="kling-config-heading"><div><strong>视频生成通道</strong><small>仅影响保存后新提交的视频；历史任务仍由原提供商查询和下载。</small></div><span className="is-configured">{draft.backend === 'wavespeed' ? 'WaveSpeed' : '可灵官方 API'}</span></div>
+        <label htmlFor="video-provider-backend"><strong>当前通道</strong><select id="video-provider-backend" value={draft.backend} disabled={busy !== null} onChange={(event) => updateDraft('backend', event.target.value as KlingConfigDraft['backend'])}><option value="api">可灵官方 API</option><option value="wavespeed">WaveSpeed 视频 API</option></select><small>{draft.backend === 'wavespeed' ? '视频参数与 API Key 在下方 WaveSpeed 配置中维护。' : '使用当前可灵模型、区域和生成参数。'}</small></label>
       </div>
 
       <div className="kling-provider-toolbar">
@@ -2140,12 +2156,29 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 type WaveSpeedConfigDraft = {
   enabled: boolean
   baseUrl: string
+  maxSubmitConcurrency: number
+  maxPollConcurrency: number
+  videoModel: string
+  videoDuration: number
+  videoAspectRatio: string
+  videoSound: boolean
   apiKey: string
   clearApiKey: boolean
 }
 
 function waveSpeedDraft(config: WaveSpeedConfig): WaveSpeedConfigDraft {
-  return { enabled: config.enabled, baseUrl: config.baseUrl, apiKey: '', clearApiKey: false }
+  return {
+    enabled: config.enabled,
+    baseUrl: config.baseUrl,
+    maxSubmitConcurrency: config.maxSubmitConcurrency,
+    maxPollConcurrency: config.maxPollConcurrency,
+    videoModel: config.videoModel,
+    videoDuration: config.videoDuration,
+    videoAspectRatio: config.videoAspectRatio,
+    videoSound: config.videoSound,
+    apiKey: '',
+    clearApiKey: false,
+  }
 }
 
 function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
@@ -2184,6 +2217,10 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
     let parsedUrl: URL
     try { parsedUrl = new URL(draft.baseUrl.trim()) } catch { setError('请输入有效的 WaveSpeed API 根地址。'); return }
     if (!['https:', 'http:'].includes(parsedUrl.protocol)) { setError('WaveSpeed API 地址必须使用 HTTP 或 HTTPS。'); return }
+    if (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(draft.videoModel.trim())) { setError('请输入有效的 WaveSpeed 视频模型 ID。'); return }
+    if (!Number.isInteger(draft.videoDuration) || draft.videoDuration < 3 || draft.videoDuration > 15) { setError('WaveSpeed 视频时长必须是 3-15 秒之间的整数。'); return }
+    if (!Number.isInteger(draft.maxSubmitConcurrency) || draft.maxSubmitConcurrency < 1 || draft.maxSubmitConcurrency > 50) { setError('WaveSpeed 提交并发必须是 1-50 之间的整数。'); return }
+    if (!Number.isInteger(draft.maxPollConcurrency) || draft.maxPollConcurrency < 1 || draft.maxPollConcurrency > 50) { setError('WaveSpeed 查询并发必须是 1-50 之间的整数。'); return }
     setBusy('save')
     setNotice('')
     setError('')
@@ -2191,12 +2228,18 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
       const next = await updateWaveSpeedConfig(adminId, {
         enabled: draft.enabled,
         baseUrl: draft.baseUrl.trim(),
+        maxSubmitConcurrency: draft.maxSubmitConcurrency,
+        maxPollConcurrency: draft.maxPollConcurrency,
+        videoModel: draft.videoModel.trim(),
+        videoDuration: draft.videoDuration,
+        videoAspectRatio: draft.videoAspectRatio,
+        videoSound: draft.videoSound,
         ...(draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
         ...(draft.clearApiKey ? { clearApiKey: true } : {}),
       })
       setConfig(next)
       setDraft(waveSpeedDraft(next))
-      setNotice('WaveSpeed API 配置已保存，后续新生图任务将使用新配置。')
+      setNotice('WaveSpeed API 配置已保存，后续新图片和视频任务将使用新配置。')
       await onChanged()
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : 'WaveSpeed API 配置保存失败')
@@ -2210,7 +2253,17 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
     try {
       const next = await verifyWaveSpeedConfig(adminId)
       setConfig(next)
-      setDraft((current) => current ? { ...current, enabled: next.enabled, baseUrl: next.baseUrl } : waveSpeedDraft(next))
+      setDraft((current) => current ? {
+        ...current,
+        enabled: next.enabled,
+        baseUrl: next.baseUrl,
+        maxSubmitConcurrency: next.maxSubmitConcurrency,
+        maxPollConcurrency: next.maxPollConcurrency,
+        videoModel: next.videoModel,
+        videoDuration: next.videoDuration,
+        videoAspectRatio: next.videoAspectRatio,
+        videoSound: next.videoSound,
+      } : waveSpeedDraft(next))
       setNotice('WaveSpeed 连接状态已刷新；验证不会创建图片任务。')
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : 'WaveSpeed API 连接验证失败')
@@ -2227,13 +2280,19 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
   const hasChanges = Boolean(config && draft && (
     config.enabled !== draft.enabled
     || config.baseUrl !== draft.baseUrl.trim()
+    || config.maxSubmitConcurrency !== draft.maxSubmitConcurrency
+    || config.maxPollConcurrency !== draft.maxPollConcurrency
+    || config.videoModel !== draft.videoModel.trim()
+    || config.videoDuration !== draft.videoDuration
+    || config.videoAspectRatio !== draft.videoAspectRatio
+    || config.videoSound !== draft.videoSound
     || draft.apiKey.trim()
     || draft.clearApiKey
   ))
 
   return <form className="settings-section wavespeed-provider-section" onSubmit={(event) => void save(event)}>
     <div className="settings-section-heading">
-      <div><span>WaveSpeed AI</span><h2>图片生成 API</h2><p>为图片中心提供 GPT Image 2 和 Nano Banana 2。密钥保存后不会在页面回显。</p></div>
+      <div><span>WaveSpeed AI</span><h2>图片与视频生成 API</h2><p>为图片中心和可切换的视频生产通道提供生成能力。密钥保存后不会在页面回显。</p></div>
       <div className="provider-actions">
         <button className="secondary-button" type="button" disabled={busy !== null || !config?.enabled || !config.apiKeyConfigured} onClick={() => void verify()}><RefreshCw className={busy === 'verify' ? 'spin' : ''} size={16} />验证 API 状态</button>
         <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 API 配置'}</button>
@@ -2270,6 +2329,18 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
       <div className="wavespeed-endpoint-row">
         <label htmlFor="wavespeed-base-url"><strong>API 根地址</strong><div className="secret-input"><Globe2 size={16} /><input id="wavespeed-base-url" type="url" value={draft.baseUrl} disabled={busy !== null} onChange={(event) => updateDraft('baseUrl', event.target.value)} placeholder="https://api.wavespeed.ai/api/v3" autoComplete="url" spellCheck={false} maxLength={2048} /></div><small>由服务端校验并用于后续新任务；已提交任务不受影响。</small></label>
         <dl><dt>凭据来源</dt><dd>{credentialLabel}</dd><dt>服务状态</dt><dd>{config?.status || 'UNKNOWN'}</dd><dt>最近验证</dt><dd>{config?.checkedAt ? new Date(config.checkedAt).toLocaleString('zh-CN') : '尚未验证'}</dd></dl>
+      </div>
+
+      <div className="kling-config-block">
+        <div className="kling-config-heading"><div><strong>视频生成参数</strong><small>选择 WaveSpeed 视频通道后，新任务使用这里保存的模型与输出规格。</small></div><span className={config?.videoBackendActive ? 'is-configured' : 'is-missing'}>{config?.videoBackendActive ? '当前视频通道' : '备用视频通道'}</span></div>
+        <div className="kling-settings-grid">
+          <label htmlFor="wavespeed-video-model"><strong>视频模型 ID</strong><input id="wavespeed-video-model" type="text" value={draft.videoModel} disabled={busy !== null} onChange={(event) => updateDraft('videoModel', event.target.value)} placeholder="kwaivgi/kling-video-o3-pro/reference-to-video" spellCheck={false} maxLength={255} /><small>{config?.videoProvider || 'wavespeed_video'}</small></label>
+          <label htmlFor="wavespeed-video-duration"><strong>视频时长</strong><input id="wavespeed-video-duration" type="number" min={3} max={15} step={1} value={draft.videoDuration} disabled={busy !== null} onChange={(event) => updateDraft('videoDuration', Number(event.target.value))} /><small>允许范围 3-15 秒</small></label>
+          <label htmlFor="wavespeed-video-aspect-ratio"><strong>画面比例</strong><select id="wavespeed-video-aspect-ratio" value={draft.videoAspectRatio} disabled={busy !== null} onChange={(event) => updateDraft('videoAspectRatio', event.target.value)}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+          <label htmlFor="wavespeed-submit-concurrency"><strong>提交并发</strong><input id="wavespeed-submit-concurrency" type="number" min={1} max={50} step={1} value={draft.maxSubmitConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxSubmitConcurrency', Number(event.target.value))} /><small>图片与视频共用</small></label>
+          <label htmlFor="wavespeed-poll-concurrency"><strong>查询并发</strong><input id="wavespeed-poll-concurrency" type="number" min={1} max={50} step={1} value={draft.maxPollConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxPollConcurrency', Number(event.target.value))} /><small>图片与视频共用</small></label>
+          <label className="kling-inline-switch"><span><strong>生成声音</strong><small>请求 WaveSpeed 视频模型生成原生声音</small></span><span className="settings-switch"><input type="checkbox" checked={draft.videoSound} disabled={busy !== null} aria-label="启用 WaveSpeed 视频声音" onChange={(event) => updateDraft('videoSound', event.target.checked)} /><span aria-hidden="true" /></span></label>
+        </div>
       </div>
     </> : null}
 
@@ -2726,11 +2797,14 @@ function App() {
   const [notificationPermission, setNotificationPermission] = useState(browserNotificationPermission)
   const [notificationPromptDismissed, setNotificationPromptDismissed] = useState(false)
   const [inPageTaskToasts, setInPageTaskToasts] = useState<InPageTaskToast[]>([])
+  const [hasActiveImageTasks, setHasActiveImageTasks] = useState(false)
+  const [imageNotificationTaskId, setImageNotificationTaskId] = useState<string | null>(null)
   const previousTaskPhasesRef = useRef<Map<string, string>>(new Map())
   const notificationBaselineReadyRef = useRef(false)
   const activeNotificationsRef = useRef<Map<string, Notification>>(new Map())
   const notificationAudioContextRef = useRef<AudioContext | null>(null)
   const pendingImageVideoSeedsRef = useRef<RemixSeed[]>([])
+  const pendingImageSelectionClearRef = useRef<(() => void) | null>(null)
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -2967,6 +3041,59 @@ function App() {
     window.history[replace ? 'replaceState' : 'pushState'](null, '', url)
   }, [])
 
+  const presentTaskNotifications = useCallback((events: TaskNotificationEvent[]) => {
+    if (!events.length) return
+    const now = Date.now()
+    const nextToasts = events.map(({ taskId, view: destinationView, payload, tone }) => ({
+      id: payload.tag,
+      taskId,
+      view: destinationView,
+      title: payload.title,
+      body: payload.body,
+      tone,
+      expiresAt: now + 5000,
+    }))
+    setInPageTaskToasts((current) => {
+      const replacingIds = new Set(nextToasts.map((toast) => toast.id))
+      return [...current.filter((toast) => !replacingIds.has(toast.id)), ...nextToasts].slice(-3)
+    })
+    playTaskNotificationSound(events.some(({ tone }) => tone === 'warning') ? 'warning' : 'success')
+
+    const pageIsInBackground = document.hidden || !document.hasFocus()
+    if (!browserNotificationsEnabled || notificationPermission !== 'granted' || !pageIsInBackground) return
+    for (const { notificationKey, taskId, view: destinationView, payload } of events) {
+      activeNotificationsRef.current.get(notificationKey)?.close()
+      const notification = new Notification(payload.title, {
+        body: payload.body,
+        tag: payload.tag,
+        icon: '/favicon.svg',
+      })
+      activeNotificationsRef.current.set(notificationKey, notification)
+      notification.onclose = () => {
+        if (activeNotificationsRef.current.get(notificationKey) === notification) {
+          activeNotificationsRef.current.delete(notificationKey)
+        }
+      }
+      notification.onclick = () => {
+        notification.close()
+        activeNotificationsRef.current.delete(notificationKey)
+        window.focus()
+        if (destinationView === 'images') setImageNotificationTaskId(taskId)
+        navigate(destinationView, destinationView === 'make' ? taskId : null)
+      }
+    }
+  }, [browserNotificationsEnabled, navigate, notificationPermission, playTaskNotificationSound])
+
+  const handleImageNotifications = useCallback((events: ImageCenterNotificationEvent[]) => {
+    presentTaskNotifications(events.map(({ taskId, status, notification }) => ({
+      notificationKey: `image:${taskId}`,
+      taskId,
+      view: 'images',
+      payload: notification,
+      tone: status === 'completed' ? 'success' : 'warning',
+    })))
+  }, [presentTaskNotifications])
+
   useEffect(() => {
     if (!actor) {
       previousTaskPhasesRef.current.clear()
@@ -2983,67 +3110,38 @@ function App() {
 
     const previousPhases = previousTaskPhasesRef.current
     const nextPhases = new Map(tasks.map((task) => [task.id, task.phase]))
-    for (const [taskId, notification] of activeNotificationsRef.current) {
+    for (const [notificationKey, notification] of activeNotificationsRef.current) {
+      if (!notificationKey.startsWith('video:')) continue
+      const taskId = notificationKey.slice('video:'.length)
       const phase = nextPhases.get(taskId)
       if (shouldCloseTaskNotification(phase, taskId === detailId)) {
         notification.close()
-        activeNotificationsRef.current.delete(taskId)
+        activeNotificationsRef.current.delete(notificationKey)
       }
     }
-    const transitions = tasks.flatMap((task) => {
+    const transitions = tasks.flatMap((task): TaskNotificationEvent[] => {
       const payload = taskNotificationForTransition(previousPhases.get(task.id), task)
       if (!payload) return []
       const tone: InPageTaskToast['tone'] = task.phase === 'DELIVERABLE' ? 'success' : 'warning'
-      return [{ task, payload, tone }]
-    })
-    if (transitions.length) {
-      const now = Date.now()
-      const nextToasts = transitions.map(({ task, payload, tone }) => ({
-        id: payload.tag,
+      return [{
+        notificationKey: `video:${task.id}`,
         taskId: task.id,
-        title: payload.title,
-        body: payload.body,
+        view: 'make',
+        payload,
         tone,
-        expiresAt: now + 5000,
-      }))
-      setInPageTaskToasts((current) => {
-        const replacingIds = new Set(nextToasts.map((toast) => toast.id))
-        return [...current.filter((toast) => !replacingIds.has(toast.id)), ...nextToasts].slice(-3)
-      })
-      playTaskNotificationSound(transitions.some(({ tone }) => tone === 'success') ? 'success' : 'warning')
-    }
-    const pageIsInBackground = document.hidden || !document.hasFocus()
-    if (browserNotificationsEnabled && notificationPermission === 'granted' && pageIsInBackground) {
-      for (const { task, payload } of transitions) {
-        activeNotificationsRef.current.get(task.id)?.close()
-        const notification = new Notification(payload.title, {
-          body: payload.body,
-          tag: payload.tag,
-          icon: '/favicon.svg',
-        })
-        activeNotificationsRef.current.set(task.id, notification)
-        notification.onclose = () => {
-          if (activeNotificationsRef.current.get(task.id) === notification) {
-            activeNotificationsRef.current.delete(task.id)
-          }
-        }
-        notification.onclick = () => {
-          notification.close()
-          activeNotificationsRef.current.delete(task.id)
-          window.focus()
-          navigate('make', task.id)
-        }
-      }
-    }
+      }]
+    })
+    presentTaskNotifications(transitions)
     previousTaskPhasesRef.current = nextPhases
-  }, [actor, browserNotificationsEnabled, detailId, navigate, notificationPermission, playTaskNotificationSound, tasks])
+  }, [actor, detailId, presentTaskNotifications, tasks])
 
   useEffect(() => {
     if (!detailId) return
     const closeSelectedNotification = () => {
       if (document.hidden || !document.hasFocus()) return
-      activeNotificationsRef.current.get(detailId)?.close()
-      activeNotificationsRef.current.delete(detailId)
+      const notificationKey = `video:${detailId}`
+      activeNotificationsRef.current.get(notificationKey)?.close()
+      activeNotificationsRef.current.delete(notificationKey)
     }
     closeSelectedNotification()
     window.addEventListener('focus', closeSelectedNotification)
@@ -3054,6 +3152,25 @@ function App() {
     }
   }, [detailId])
 
+  useEffect(() => {
+    if (view !== 'images') return
+    const closeImageNotifications = () => {
+      if (document.hidden || !document.hasFocus()) return
+      for (const [notificationKey, notification] of activeNotificationsRef.current) {
+        if (!notificationKey.startsWith('image:')) continue
+        notification.close()
+        activeNotificationsRef.current.delete(notificationKey)
+      }
+    }
+    closeImageNotifications()
+    window.addEventListener('focus', closeImageNotifications)
+    document.addEventListener('visibilitychange', closeImageNotifications)
+    return () => {
+      window.removeEventListener('focus', closeImageNotifications)
+      document.removeEventListener('visibilitychange', closeImageNotifications)
+    }
+  }, [view])
+
   const selectedTask = tasks.find((task) => task.id === detailId) ?? null
   const counts = useMemo(() => ({
     attention: tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION').length,
@@ -3062,7 +3179,7 @@ function App() {
   const showNotificationPrompt = browserNotificationsEnabled
     && notificationPermission === 'default'
     && !notificationPromptDismissed
-    && tasks.some((task) => ACTIVE_PHASES.has(task.phase) || task.phase === 'AWAITING_CONFIRMATION')
+    && (hasActiveImageTasks || tasks.some((task) => ACTIVE_PHASES.has(task.phase) || task.phase === 'AWAITING_CONFIRMATION'))
 
   const taskChanged = useCallback(async () => {
     if (detailId) {
@@ -3130,7 +3247,7 @@ function App() {
       setRemixStage(null)
     }
   }
-  const prepareImageCenterVideos = async (handoffs: ImageCenterVideoHandoff[]) => {
+  const prepareImageCenterVideos = async (handoffs: ImageCenterVideoHandoff[], onSubmitted: () => void) => {
     if (!handoffs.length) return
     setError('')
     try {
@@ -3142,19 +3259,10 @@ function App() {
             ? task.product.back
             : storyboards[0]
         if (!selectedSubject) throw new Error(`“${task.outfitName}”缺少可用主体图。`)
-        return {
-          id: createUuid(),
-          storyboards,
-          products: [task.product.front, task.product.back].filter((file): file is File => Boolean(file)),
-          subjectFiles: {
-            frontalImage: selectedSubject,
-            backImage: null,
-            detailImages: [],
-          },
-          requirement: task.prompt.storyboard || task.prompt.fusion,
-        }
+        return createImageCenterVideoSeed(task, storyboards, selectedSubject, createUuid())
       }))
       pendingImageVideoSeedsRef.current = seeds.slice(1)
+      pendingImageSelectionClearRef.current = onSubmitted
       setImageComposerSeed(seeds[0])
     } catch (cause) {
       throw new Error(cause instanceof Error ? cause.message : '无法准备图片中心的视频素材', { cause })
@@ -3173,11 +3281,14 @@ function App() {
   }, [navigate])
   const imageComposerCreated = useCallback((task: Task) => {
     setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)])
+    pendingImageSelectionClearRef.current?.()
+    pendingImageSelectionClearRef.current = null
     const nextSeed = pendingImageVideoSeedsRef.current.shift() ?? null
     setImageComposerSeed(nextSeed)
   }, [])
   const closeImageComposer = () => {
     pendingImageVideoSeedsRef.current = []
+    pendingImageSelectionClearRef.current = null
     setImageComposerSeed(null)
   }
   const feedbackChanged = useCallback((changed: Task) => {
@@ -3234,11 +3345,17 @@ function App() {
       {error ? <div className="service-banner"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => void refresh()}><RefreshCw size={15} />重新连接</button></div> : null}
       {showNotificationPrompt ? <div className="notification-permission-banner" role="region" aria-label="浏览器通知">
         <Bell size={18} />
-        <span><strong>后台进度提醒</strong><small>开启通知，方案待确认或视频完成时会及时提醒你。</small></span>
+        <span><strong>后台进度提醒</strong><small>开启通知，图片或视频完成、异常以及方案待确认时会及时提醒你。</small></span>
         <button className="secondary-button" type="button" onClick={() => void enableBrowserNotifications()}>开启通知</button>
         <button className="icon-button" type="button" aria-label="暂不开启通知" title="暂不开启" onClick={() => setNotificationPromptDismissed(true)}><X size={17} /></button>
       </div> : null}
-      {view === 'images' ? <ImageCenter onPrepareVideos={prepareImageCenterVideos} /> : null}
+      <ImageCenter
+        active={view === 'images'}
+        openTaskId={imageNotificationTaskId}
+        onPrepareVideos={prepareImageCenterVideos}
+        onNotifications={handleImageNotifications}
+        onActiveTasksChange={setHasActiveImageTasks}
+      />
       {view === 'make' && !selectedTask ? <HomeView tasks={tasks} seed={seed} system={system} actorId={system?.sharedAuthentication ? null : actor?.userId ?? null} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
       {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
@@ -3263,7 +3380,8 @@ function App() {
       toasts={inPageTaskToasts}
       onOpen={(toast) => {
         setInPageTaskToasts((current) => current.filter((item) => item.id !== toast.id))
-        navigate('make', toast.taskId)
+        if (toast.view === 'images') setImageNotificationTaskId(toast.taskId)
+        navigate(toast.view, toast.view === 'make' ? toast.taskId : null)
       }}
       onDismiss={(id) => setInPageTaskToasts((current) => current.filter((toast) => toast.id !== id))}
     />

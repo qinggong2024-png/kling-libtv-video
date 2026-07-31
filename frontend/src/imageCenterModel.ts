@@ -6,6 +6,7 @@ export type ImageGenerationMode = 'fusion' | 'storyboard'
 export type ImageTaskStatus = 'uploading' | 'submitting' | 'queued' | 'running' | 'completed' | 'failed' | 'write_uncertain'
 export type ImageOutputKind = 'fusion' | 'storyboard'
 export type ImageOutputView = 'front' | 'back' | 'shot'
+export type ImageGenerationQuality = 'low' | 'medium' | 'high'
 
 export interface ImageAssetSet {
   front: File | null
@@ -29,7 +30,7 @@ export interface ImageCenterConfig {
   allowBackInference: boolean
   aspectRatio: string
   resolution: string
-  quality: 'low' | 'medium' | 'high'
+  quality: ImageGenerationQuality
   outputFormat: 'png'
 }
 
@@ -54,7 +55,7 @@ export interface ImageGenerationTask {
   resultCount: 1 | 2 | 3 | 4
   aspectRatio: string
   resolution: string
-  quality: 'low' | 'medium' | 'high'
+  quality: ImageGenerationQuality
   outputFormat: 'png'
   allowBackInference: boolean
   storyboardShots: StoryboardShot[]
@@ -168,6 +169,10 @@ export function normalizeImageGenerationModes(
 ): [ImageGenerationMode] {
   const mode = modes?.find((item) => item === 'fusion' || item === 'storyboard')
   return [mode ?? 'fusion']
+}
+
+export function normalizeImageGenerationQuality(quality: unknown): ImageGenerationQuality {
+  return quality === 'low' || quality === 'high' ? quality : 'medium'
 }
 
 export function createImageCenterRegenerationDraft(
@@ -329,7 +334,7 @@ export function buildWaitingTasks(
     resultCount: draft.config.resultCount,
     aspectRatio: draft.config.aspectRatio,
     resolution: draft.config.resolution,
-    quality: 'medium',
+    quality: draft.config.quality,
     outputFormat: draft.config.outputFormat,
     allowBackInference: draft.config.allowBackInference,
     storyboardShots: parseStoryboardPrompt(draft.config.storyboardPrompt),

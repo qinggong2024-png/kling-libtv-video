@@ -1,3 +1,5 @@
+import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
+
 export const SUBJECT_MIN_IMAGES = 1
 export const SUBJECT_MAX_IMAGES = 4
 export const SUBJECT_MAX_DETAIL_IMAGES = 2
@@ -5,7 +7,7 @@ export const SUBJECT_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export const SUBJECT_MAX_TOTAL_IMAGE_BYTES = 40 * 1024 * 1024
 export const KLING_MAX_REFERENCES = 7
 
-export const SUBJECT_IMAGE_ACCEPT = '.jpg,.jpeg,.png,image/jpeg,image/png'
+export const SUBJECT_IMAGE_ACCEPT = IMAGE_FILE_ACCEPT
 
 export type SubjectInputMode = 'none' | 'upload' | 'history'
 export type SubjectImageAngle = 'FRONT' | 'BACK' | 'SIDE_OR_DETAIL'
@@ -95,9 +97,9 @@ export function validateSubjectReferenceFiles(files: SubjectReferenceFileCandida
     errors.push(`新主体需要 ${SUBJECT_MIN_IMAGES}–${SUBJECT_MAX_IMAGES} 张参考图，当前已选择 ${chosenFiles.length} 张。`)
   }
 
-  const unsupported = chosenFiles.find((file) => !['image/jpeg', 'image/png'].includes(file.type.toLowerCase()))
+  const unsupported = chosenFiles.find((file) => !isSupportedImageFile(file))
   if (unsupported) {
-    errors.push(`“${unsupported.name}”不是支持的 JPG 或 PNG 图片。`)
+    errors.push(`“${unsupported.name}”不是支持的 JPG、PNG 或 WEBP 图片。`)
   }
 
   const oversized = chosenFiles.find((file) => file.size > SUBJECT_MAX_IMAGE_BYTES)

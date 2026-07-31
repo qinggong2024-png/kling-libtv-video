@@ -438,7 +438,7 @@ async def create_fixed_video_task(
         await ensure_provider_submission_allowed(
             session,
             settings,
-            "kling",
+            settings.active_kling_provider_name,
             user_id=user_id,
         )
         attempts = await prepare_kling_task(
@@ -470,7 +470,7 @@ async def create_fixed_video_task(
                 "promptHash": variant.prompt_hash,
                 "estimatedGenerationCount": 1,
                 "costRisk": (
-                    f"Submitting through {attempt.provider} consumes Kling generation credits."
+                    f"Submitting through {attempt.provider} consumes video generation credits."
                 ),
             }
             previews.append(preview)

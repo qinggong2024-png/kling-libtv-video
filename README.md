@@ -101,16 +101,18 @@ API 默认是 `http://127.0.0.1:8000`，前端默认是 `http://127.0.0.1:5173`�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-local-services.ps1 -RequireFrontend
 ```
 
-## 可灵官方 API 接入
+## 视频生成 API 接入
 
-所有新生产任务固定使用可灵官方 API。旧 LibTV / 可灵 CLI 任务仍可按已持久化的生成通道
-查询和下载，但只在历史记录中显示为历史任务，不再出现在管理中心和个人设置的可选项中。
+新生产任务可由管理员在可灵官方 API 与 WaveSpeed 视频 API 之间切换。旧 LibTV、可灵 API、
+WaveSpeed 或可灵 CLI 任务始终按 attempt 中已持久化的具体 Provider 查询和下载，切换默认通道
+不会改写或重复提交历史任务。
 
 Kling 的新生产任务统一使用官方 API 2.0。现有官方 CLI 只用于查询和下载已经提交的历史
 attempt，不再作为可选的新任务后端。API 使用单个服务端 API Key，不使用旧版 Access Key /
 Secret Key JWT：
 
-管理员可在“管理中心 → 可灵官方 API”中启停 API、替换或清除 API Key，并调整 API
+管理员可在“管理中心 → 可灵官方 API”中选择当前视频通道，并启停可灵 API、替换或清除
+API Key，以及调整 API
 模型、时长、画幅、分辨率、音频、多镜头及提交/查询并发。Windows 下密钥使用
 DPAPI 与受限 ACL 保存，页面和状态接口只返回“是否已配置”，不会回显密钥。API 进程立即应用
 新配置，独立 Runner 在下一调度周期检测并加载；已提交任务继续使用其持久化 Provider。
@@ -133,6 +135,9 @@ KLING_API_MAX_POLL_CONCURRENCY=4
 KLING_API_ENABLE_PAID_INTEGRATION_TEST=false
 ```
 
+`KLING_PROVIDER_BACKEND` 接受 `api` 或 `wavespeed`。选择 `wavespeed` 前，需要先在同一管理
+页面配置并启用 WaveSpeed；只有保存后创建的新任务才使用新通道。
+
 API 默认关闭，不会自动产生付费请求。无密钥 Dry Run：
 
 ```powershell
@@ -147,12 +152,14 @@ uv run python scripts/kling_api_dry_run.py --storyboard-dir C:\path\to\storyboar
 官方任务查询端点执行一次只读鉴权校验；它不创建媒体，也不消耗生成额度。只有该校验成功后才
 显示 `KLING_API_READY` 并允许新任务通过预检。
 
-### WaveSpeed 图片生成
+### WaveSpeed 图片与视频生成
 
 图片中心通过 WaveSpeed 接入 GPT Image 2 和 Nano Banana 2。管理员在“管理中心 →
-可灵官方 API → WaveSpeed 图片生成 API”中保存、替换或清除 API Key，并启用通道及执行
+可灵官方 API → WaveSpeed API”中保存、替换或清除 API Key，并启用通道及执行
 只读连接验证。密钥沿用 Windows DPAPI 与受限 ACL 保存，浏览器只能读取配置状态，不能读取
-密钥明文。后台安全配置优先于环境变量；清除后台覆盖后会回退到环境变量并显示凭据来源。
+密钥明文。WaveSpeed 视频默认使用 Kling O3 Pro reference-to-video，模型 ID、时长、画幅和
+声音均可在管理页面修改。后台安全配置优先于环境变量；清除后台覆盖后会回退到环境变量并
+显示凭据来源。
 
 首次启动可使用以下后备配置：
 
@@ -162,7 +169,16 @@ WAVESPEED_API_KEY=
 WAVESPEED_API_BASE_URL=https://api.wavespeed.ai/api/v3
 WAVESPEED_MAX_SUBMIT_CONCURRENCY=1
 WAVESPEED_MAX_POLL_CONCURRENCY=4
+WAVESPEED_VIDEO_PROVIDER_NAME=wavespeed_video
+WAVESPEED_VIDEO_MODEL=kwaivgi/kling-video-o3-pro/reference-to-video
+WAVESPEED_VIDEO_DURATION=10
+WAVESPEED_VIDEO_ASPECT_RATIO=9:16
+WAVESPEED_VIDEO_SOUND=false
 ```
+
+视频适配器通过 `/media/upload/binary` 上传参考图，通过 `/{model-id}` 提交任务，并轮询
+`/predictions/{id}/result`。当前固定模板使用多参考图，因此配置的模型必须是
+`reference-to-video` 类型；可灵官方 Element ID 不会跨 Provider 复用。
 
 图片中心提交前会显示模型和预计生成张数并要求二次确认。服务端保存用户归属、幂等键、远端
 prediction ID、状态和输出文件；浏览器只轮询本地批次 ID，不能用任意远端 ID 查询其他用户

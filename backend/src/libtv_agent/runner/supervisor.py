@@ -67,6 +67,28 @@ def _kling_asset_suffix(filename: str, object_key: str | None) -> str:
     return ".jpg"
 
 
+def _video_execution_backend(provider: str, settings: Settings) -> str:
+    normalized = provider.strip().lower()
+    if normalized == settings.wavespeed_video_provider_name.strip().lower():
+        return "WAVESPEED_VIDEO_API"
+    if normalized in {"kling", settings.kling_api_provider_name.strip().lower()}:
+        return "KLING_OFFICIAL_API"
+    return "KLING_OFFICIAL_CLI"
+
+
+def _video_timeout_error(provider: str, settings: Settings) -> tuple[str, str]:
+    if provider.strip().lower() == settings.wavespeed_video_provider_name.strip().lower():
+        return (
+            "WAVESPEED_VIDEO_TASK_TIMEOUT",
+            "WaveSpeed video task exceeded the configured wait time; "
+            "the remote task was not resubmitted",
+        )
+    return (
+        "KLING_API_TASK_TIMEOUT",
+        "Kling API task exceeded the configured wait time; the remote task was not resubmitted",
+    )
+
+
 @dataclass(frozen=True)
 class ProcessIdentity:
     command_host_id: str
@@ -134,7 +156,11 @@ class RunnerSupervisor:
 
     def replace_kling_adapter(self, adapter: VideoProviderAdapter) -> None:
         self.kling_adapter = adapter
-        self._kling_adapters[adapter.get_provider_name().strip().lower()] = adapter
+        # Config reloads must also invalidate inactive adapters used to recover
+        # persisted tasks; they are recreated from the task's provider name.
+        self._kling_adapters = {
+            adapter.get_provider_name().strip().lower(): adapter,
+        }
 
     def _kling_adapter_for(self, provider: str) -> VideoProviderAdapter:
         normalized = provider.strip().lower()
@@ -547,14 +573,16 @@ class RunnerSupervisor:
                     or self.settings.kling_api_resolution
                 ),
                 audio=str(
-                    variant.generation_config_json.get("audio") or self.settings.kling_api_audio
+                    variant.generation_config_json.get("audio")
+                    or variant.generation_config_json.get("sound")
+                    or self.settings.active_video_audio
                 ),
                 multi_shot=bool(
                     variant.generation_config_json.get(
                         "multiShot",
                         variant.generation_config_json.get(
                             "smartStoryboard",
-                            self.settings.kling_api_multi_shot,
+                            self.settings.active_video_multi_shot,
                         ),
                     )
                 ),
@@ -598,10 +626,9 @@ class RunnerSupervisor:
         )
         if submission.credits_consumed is not None:
             attempt.billing_source = BillingSource.TASK_BILLING
-        attempt.runner_execution_backend = (
-            "KLING_OFFICIAL_API"
-            if attempt.provider == self.settings.kling_api_provider_name
-            else "KLING_OFFICIAL_CLI"
+        attempt.runner_execution_backend = _video_execution_backend(
+            attempt.provider,
+            self.settings,
         )
         attempt.runner_execution_ref = submission.provider_task_id
         command.status = CommandStatus.PROCESS_STARTED
@@ -614,7 +641,10 @@ class RunnerSupervisor:
         return False
 
     async def poll_kling_tasks(self, session: AsyncSession) -> int:
-        if not (self.settings.kling_cli_enabled or self.settings.kling_api_enabled):
+        if not any(
+            self.settings.kling_provider_enabled(provider)
+            for provider in self.settings.kling_provider_names
+        ):
             return 0
         now = datetime.now(UTC)
         attempts = list(
@@ -640,23 +670,24 @@ class RunnerSupervisor:
             if submitted_at is not None:
                 if submitted_at.tzinfo is None:
                     submitted_at = submitted_at.replace(tzinfo=UTC)
+                task_timeout = self.settings.video_task_timeout_for_provider(attempt.provider)
                 if (
-                    attempt.provider == self.settings.kling_api_provider_name
-                    and (now - submitted_at).total_seconds()
-                    >= self.settings.kling_api_task_timeout_seconds
+                    task_timeout is not None
+                    and (now - submitted_at).total_seconds() >= task_timeout
                 ):
                     command = await session.scalar(
                         select(GenerationCommand).where(GenerationCommand.attempt_id == attempt.id)
                     )
                     attempt.status = AttemptStatus.UNKNOWN_AFTER_SUBMIT
                     attempt.provider_status = "unknown"
+                    error_code, error_message = _video_timeout_error(
+                        attempt.provider,
+                        self.settings,
+                    )
                     record_provider_error(
                         attempt,
-                        code="KLING_API_TASK_TIMEOUT",
-                        message=(
-                            "Kling API task exceeded the configured wait time; "
-                            "the remote task was not resubmitted"
-                        ),
+                        code=error_code,
+                        message=error_message,
                         details={"providerTaskId": attempt.task_id},
                         retryable=True,
                     )

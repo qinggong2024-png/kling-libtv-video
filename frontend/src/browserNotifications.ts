@@ -1,4 +1,5 @@
 import type { Task } from './types'
+import type { ImageGenerationTask, ImageTaskStatus } from './imageCenterModel'
 
 export const BROWSER_NOTIFICATION_PREFERENCE_KEY = 'browser-notifications-enabled'
 
@@ -51,6 +52,38 @@ export function taskNotificationForTransition(previousPhase: string | undefined,
       title: '视频任务已取消',
       body: `“${task.title}”已停止执行。`,
       tag: `task:${task.id}:cancelled`,
+    }
+  }
+  return null
+}
+
+export function imageTaskNotificationForTransition(
+  previousStatus: ImageTaskStatus | undefined,
+  task: ImageGenerationTask,
+): TaskNotification | null {
+  if (!previousStatus || previousStatus === task.status) return null
+  if (task.status === 'completed') {
+    const outputSummary = task.outputs.length ? `，共 ${task.outputs.length} 张` : ''
+    return {
+      title: '图片生成完成',
+      body: `“${task.outfitName}”的图片已生成完成${outputSummary}，可以返回查看。`,
+      tag: `image-task:${task.id}:completed`,
+    }
+  }
+  if (task.status === 'failed') {
+    return {
+      title: '图片生成异常',
+      body: task.error
+        ? `“${task.outfitName}”生成失败：${task.error}`
+        : `“${task.outfitName}”生成失败，请返回查看原因。`,
+      tag: `image-task:${task.id}:failed`,
+    }
+  }
+  if (task.status === 'write_uncertain') {
+    return {
+      title: '图片任务状态异常',
+      body: `“${task.outfitName}”的提交结果暂时无法确认，请勿重复提交并返回查看。`,
+      tag: `image-task:${task.id}:write-uncertain`,
     }
   }
   return null

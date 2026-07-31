@@ -362,9 +362,16 @@ class WaveSpeedAdapter:
         return _validate_remote_url(download_url, field="download_url")
 
     async def submit_prediction(
-        self, model_id: str, payload: Mapping[str, object]
+        self,
+        model_id: str,
+        payload: Mapping[str, object],
+        *,
+        validate_model: bool = True,
     ) -> WaveSpeedSubmission:
-        _validate_model_payload(model_id, payload)
+        if validate_model:
+            _validate_model_payload(model_id, payload)
+        elif not _valid_custom_model_id(model_id):
+            raise WaveSpeedError("WAVESPEED_MODEL_UNSUPPORTED", "invalid WaveSpeed model id")
         async with self._submit_semaphore:
             response = await self._request_json(
                 "POST", f"/{model_id}", dict(payload), submitted=True
@@ -634,3 +641,15 @@ def _validate_model_payload(model_id: str, payload: Mapping[str, object]) -> Non
         raise WaveSpeedError(
             "WAVESPEED_INPUT_INVALID", f"parameters for {model_id} are not normalized"
         )
+
+
+def _valid_custom_model_id(model_id: str) -> bool:
+    parts = model_id.strip().split("/")
+    return (
+        2 <= len(parts) <= 5
+        and len(model_id) <= 255
+        and all(
+            part and all(character.isalnum() or character in {"-", "_", "."} for character in part)
+            for part in parts
+        )
+    )

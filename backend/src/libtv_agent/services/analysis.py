@@ -643,11 +643,7 @@ async def analyze_task(
     generation_aspect_ratio = (
         settings.active_kling_aspect_ratio if generation_provider == "kling" else "9:16"
     )
-    generation_sound = (
-        settings.kling_api_audio
-        if generation_provider == "kling" and settings.kling_provider_backend == "api"
-        else "off"
-    )
+    generation_sound = settings.active_video_audio if generation_provider == "kling" else "off"
     config = {
         "preset": "DEFAULT_10S_9X16",
         "analysisModel": analysis_model,

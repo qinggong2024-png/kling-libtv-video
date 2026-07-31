@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { shouldCloseTaskNotification, taskNotificationForTransition } from './browserNotifications'
+import { imageTaskNotificationForTransition, shouldCloseTaskNotification, taskNotificationForTransition } from './browserNotifications'
 import type { Task } from './types'
+import type { ImageGenerationTask, ImageTaskStatus } from './imageCenterModel'
 
 function task(phase: string): Task {
   return {
@@ -44,5 +45,43 @@ describe('browser task notifications', () => {
     expect(shouldCloseTaskNotification('DELIVERABLE', false)).toBe(false)
     expect(shouldCloseTaskNotification('ACTION_REQUIRED', false)).toBe(false)
     expect(shouldCloseTaskNotification('CANCELLED', false)).toBe(false)
+  })
+})
+
+function imageTask(status: ImageTaskStatus): ImageGenerationTask {
+  return {
+    id: 'image-task-1',
+    outfitName: '蓝色套装',
+    status,
+    outputs: status === 'completed'
+      ? [{ id: 'output-1' }, { id: 'output-2' }]
+      : [],
+    error: status === 'failed' ? '上游服务不可用' : '',
+  } as ImageGenerationTask
+}
+
+describe('browser image task notifications', () => {
+  it('does not notify for an initial or unchanged image status', () => {
+    expect(imageTaskNotificationForTransition(undefined, imageTask('completed'))).toBeNull()
+    expect(imageTaskNotificationForTransition('running', imageTask('running'))).toBeNull()
+  })
+
+  it('notifies when image generation completes', () => {
+    expect(imageTaskNotificationForTransition('running', imageTask('completed'))).toEqual({
+      title: '图片生成完成',
+      body: '“蓝色套装”的图片已生成完成，共 2 张，可以返回查看。',
+      tag: 'image-task:image-task-1:completed',
+    })
+  })
+
+  it.each([
+    ['failed', '图片生成异常', 'image-task:image-task-1:failed'],
+    ['write_uncertain', '图片任务状态异常', 'image-task:image-task-1:write-uncertain'],
+  ] as const)('notifies when an image task becomes %s', (status, title, tag) => {
+    expect(imageTaskNotificationForTransition('running', imageTask(status))).toMatchObject({ title, tag })
+  })
+
+  it('ignores non-terminal image transitions', () => {
+    expect(imageTaskNotificationForTransition('queued', imageTask('running'))).toBeNull()
   })
 })

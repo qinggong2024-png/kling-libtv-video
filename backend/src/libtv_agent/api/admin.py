@@ -91,7 +91,7 @@ class LibTVAccountUseRequest(BaseModel):
 
 
 class KlingConfigUpdateRequest(BaseModel):
-    backend: str | None = Field(default=None, pattern="^(cli|api)$")
+    backend: str | None = Field(default=None, pattern="^(api|wavespeed)$")
     apiKey: str | None = None
     clearApiKey: bool = False
     baseUrl: str | None = Field(default=None, max_length=2048)
@@ -166,6 +166,15 @@ class WaveSpeedConfigUpdateRequest(BaseModel):
     baseUrl: str | None = Field(default=None, min_length=8, max_length=2048)
     maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=50)
     maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
+    videoModel: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+$",
+    )
+    videoDuration: int | None = Field(default=None, ge=3, le=15)
+    videoAspectRatio: str | None = Field(default=None, pattern="^(16:9|9:16|1:1)$")
+    videoSound: bool | None = None
 
 
 class WaveSpeedConfigResponse(BaseModel):
@@ -175,7 +184,13 @@ class WaveSpeedConfigResponse(BaseModel):
     baseUrl: str
     maxSubmitConcurrency: int
     maxPollConcurrency: int
+    videoModel: str
+    videoDuration: int
+    videoAspectRatio: str
+    videoSound: bool
     provider: str
+    videoProvider: str
+    videoBackendActive: bool
     status: str
     available: bool
     checkedAt: str | None
@@ -206,6 +221,8 @@ def _refresh_wavespeed_config_from_disk(request: Request) -> None:
         return
     load_wavespeed_admin_config(request.app.state.settings)
     request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
+    if request.app.state.settings.kling_provider_backend == "wavespeed":
+        request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
     request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
         request.app.state.settings
     )
@@ -282,6 +299,8 @@ async def patch_wavespeed_config(
             detail={"code": "INPUT_INVALID", "message": str(exc)},
         ) from exc
     request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
+    if request.app.state.settings.kling_provider_backend == "wavespeed":
+        request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
     request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
         request.app.state.settings
     )
@@ -431,7 +450,7 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
     settings = request.app.state.settings
     return {
         "enabled": settings.kling_enabled,
-        "backend": "api",
+        "backend": settings.kling_provider_backend,
         "provider": request.app.state.kling_adapter.get_provider_name(),
         "status": availability.status,
         "available": availability.available,
@@ -451,7 +470,11 @@ def _kling_status_payload(request: Request) -> dict[str, object]:
         "supportsWatermarkFreeOutput": (
             capabilities.supports_watermark_free_output if capabilities else False
         ),
-        "verificationMode": "official_read_only_task_query",
+        "verificationMode": (
+            "prediction_read_only_lookup"
+            if settings.kling_provider_backend == "wavespeed"
+            else "official_read_only_task_query"
+        ),
         "verificationMayGenerateOrCharge": False,
     }
 

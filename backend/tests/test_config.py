@@ -47,6 +47,28 @@ def test_kling_api_configuration_selects_independent_provider() -> None:
     assert settings.kling_provider_enabled("kling_official_cli") is False
 
 
+def test_wavespeed_configuration_selects_video_provider_without_disabling_kling_recovery() -> None:
+    settings = Settings(
+        kling_provider_backend="wavespeed",
+        kling_api_enabled=True,
+        kling_api_key="fake-kling-key",
+        wavespeed_enabled=True,
+        wavespeed_api_key="fake-wavespeed-key",
+        wavespeed_video_model="kwaivgi/kling-video-o3-std/reference-to-video",
+        wavespeed_video_duration=8,
+        wavespeed_video_aspect_ratio="16:9",
+        _env_file=None,
+    )
+
+    assert settings.kling_enabled is True
+    assert settings.active_kling_provider_name == "wavespeed_video"
+    assert settings.active_kling_model == "kwaivgi/kling-video-o3-std/reference-to-video"
+    assert settings.active_kling_duration == 8
+    assert settings.active_kling_aspect_ratio == "16:9"
+    assert settings.kling_provider_submission_enabled("wavespeed_video") is True
+    assert settings.kling_provider_submission_enabled("kling_official_api") is True
+
+
 def test_test_environment_cannot_enable_paid_kling_api_test() -> None:
     with pytest.raises(ValueError, match="cannot enable paid"):
         Settings(
