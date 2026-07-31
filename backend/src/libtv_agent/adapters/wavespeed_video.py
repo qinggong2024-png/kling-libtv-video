@@ -57,6 +57,21 @@ def _provider_status(raw_status: str) -> str:
     return "unknown"
 
 
+def _is_probably_video_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(16)
+    except OSError:
+        return False
+    return (
+        len(header) >= 8
+        and header[4:8] == b"ftyp"
+        or header.startswith(b"\x1aE\xdf\xa3")
+        or header.startswith(b"RIFF")
+        and header[8:12] == b"AVI "
+    )
+
+
 class WaveSpeedVideoAdapter:
     """VideoProviderAdapter for WaveSpeed Kling O3 reference-to-video models."""
 
@@ -269,6 +284,13 @@ class WaveSpeedVideoAdapter:
         except WaveSpeedError as exc:
             raise _translate_error(exc) from exc
         status = _provider_status(prediction.status)
+        if status == "succeeded" and not prediction.outputs:
+            raise WaveSpeedVideoError(
+                "WAVESPEED_OUTPUT_URL_MISSING",
+                "WaveSpeed task succeeded without a video output URL",
+                provider_task_id=provider_task_id,
+                raw_status=prediction.status,
+            )
         return ProviderTaskResult(
             status=status,
             raw_status=prediction.status,
@@ -283,7 +305,7 @@ class WaveSpeedVideoAdapter:
         existing_size = await asyncio.to_thread(
             lambda: destination.stat().st_size if destination.is_file() else 0
         )
-        if existing_size > 0:
+        if existing_size > 0 and await asyncio.to_thread(_is_probably_video_file, destination):
             return DownloadResult(path=destination, reused=True, size_bytes=existing_size)
         temporary = destination.with_suffix(f"{destination.suffix}.part")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -336,3 +358,8 @@ class WaveSpeedVideoAdapter:
             },
         )
         return DownloadResult(path=destination, reused=False, size_bytes=size)
+
+    async def download_media(self, *, url: str, destination: Path) -> Path:
+        return (
+            await self.download(ProviderOutput(url=url, content_type="video"), destination)
+        ).path
