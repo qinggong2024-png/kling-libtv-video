@@ -552,6 +552,46 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "不创建只面向大码人物的特殊动作体系。"
         ),
     ),
+    "magicstation": SiteStyleProfile(
+        id="magicstation",
+        version="0.1.0-research",
+        status="draft",
+        name="魔法站点",
+        site_url="",
+        source_urls=(),
+        retrieved_at="2026-07-31",
+        evidence_level="restricted_site",
+        tone="中性、克制并优先保证商品信息清晰，待站点素材核验后再补充品牌表达",
+        expression_language=(
+            "人物保持自然、克制并服务于商品展示；在缺少站点证据时不添加夸张表情、"
+            "戏剧化手势或由品牌名称联想到的表演。"
+        ),
+        audience="待站点资料与目标用户信息补充后确认",
+        palette=("source_image_colors", "neutral"),
+        typography="仅保留输入素材中可见且可核验的文字与排版",
+        camera_language="使用稳定平视、中景和有限轻推展示商品，不凭品牌名称增加特效、特殊机位或虚构场景",
+        opening_rule="先以稳定正面或轻三分之四中景建立人物、服装和商品轮廓",
+        middle_rule="沿用通用动作展示版型与图案，动作幅度克制并确保文字、印花和服装结构可见",
+        ending_rule="回到商品信息完整可辨的稳定画面，不额外加入未经素材支持的视觉元素",
+        preferred_shots=("正面中景", "轻三分之四中景", "商品细节近景"),
+        preferred_actions=(
+            "stance_shift",
+            "three_quarter_turn",
+            "print_detail_pause",
+        ),
+        pacing="standard，以稳定展示和清晰停留为主",
+        product_priorities=("完整轮廓", "版型与面料", "印花和文字可读性"),
+        forbidden_mismatches=(
+            "凭品牌名称添加魔法特效",
+            "新增法杖、书籍或其他道具",
+            "虚构奇幻场景",
+            "特效遮挡商品细节",
+        ),
+        research_note=(
+            "2026-07-31 按用户要求新增品牌档案；尚未提供站点地址、官方素材或视频样片，"
+            "因此保持 draft 和 restricted_site，待证据补齐后再验收品牌表达。"
+        ),
+    ),
 }
 
 

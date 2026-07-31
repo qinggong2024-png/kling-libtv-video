@@ -37,6 +37,36 @@ function Get-AlembicRevisionIds {
     )
 }
 
+function Get-WorkspaceSourceRevision {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    $resolvedRoot = [IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\', '/')
+    $sourceFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $resolvedRoot 'backend\src') -File -Recurse -Filter '*.py'
+        Get-ChildItem -LiteralPath (Join-Path $resolvedRoot 'backend\alembic') -File -Recurse -Filter '*.py'
+        Get-Item -LiteralPath (Join-Path $resolvedRoot 'backend\alembic.ini')
+        Get-Item -LiteralPath (Join-Path $resolvedRoot 'pyproject.toml')
+        Get-Item -LiteralPath (Join-Path $resolvedRoot 'uv.lock')
+    ) | Sort-Object FullName
+
+    $manifest = foreach ($file in $sourceFiles) {
+        $relativePath = $file.FullName.Substring($resolvedRoot.Length).TrimStart('\', '/').Replace('\', '/')
+        $fileHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$relativePath`0$fileHash"
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($manifest -join "`n"))
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
 function Get-WorkspacePortIdentity {
     param(
         [Parameter(Mandatory = $true)]

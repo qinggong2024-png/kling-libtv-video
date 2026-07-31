@@ -78,10 +78,21 @@ async def test_admin_manages_user_account_lifecycle(tmp_path: Path) -> None:
         ):
             admin_csrf = await login(admin_client, "owner", ADMIN_PASSWORD)
             await login(other_admin_client, "owner", ADMIN_PASSWORD)
-            await login(user_client, "producer-one", USER_PASSWORD)
+            user_csrf = await login(user_client, "producer-one", USER_PASSWORD)
 
             forbidden = await user_client.get("/api/v1/admin/users")
             assert forbidden.status_code == 403
+
+            user_changed_password = await user_client.post(
+                "/api/v1/auth/password",
+                headers={"X-CSRF-Token": user_csrf},
+                json={
+                    "currentPassword": USER_PASSWORD,
+                    "newPassword": "user-password-5678",
+                },
+            )
+            assert user_changed_password.status_code == 204
+            assert (await user_client.get("/api/v1/auth/me")).status_code == 200
 
             wrong_current_password = await admin_client.post(
                 "/api/v1/auth/password",

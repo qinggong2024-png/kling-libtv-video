@@ -178,6 +178,7 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "ironpandafit",
         "tokyotiger",
         "boldoversize",
+        "magicstation",
     }
     assert {profile.id for profile in profiles if profile.status == "active"} == {
         "geeksoutfit",
@@ -191,7 +192,7 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "boldoversize",
     }
     restricted = {profile.id for profile in profiles if profile.evidence_level == "restricted_site"}
-    assert restricted == {"nerdywave", "pagewings", "goodnurselife"}
+    assert restricted == {"nerdywave", "pagewings", "goodnurselife", "magicstation"}
     assert all(
         profile.status == "draft"
         for profile in profiles
@@ -525,7 +526,7 @@ async def test_site_style_profile_api_exposes_evidence_gated_status() -> None:
 
     assert response.status_code == 200
     profiles = response.json()
-    assert len(profiles) == 12
+    assert len(profiles) == 13
     assert {item["id"] for item in profiles if item["status"] == "active"} == {
         "geeksoutfit",
         "guidingcross",
@@ -629,7 +630,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
 
 
 @pytest.mark.asyncio
-async def test_catalog_editor_rejects_invalid_references_and_requires_editor_role() -> None:
+async def test_catalog_editor_rejects_invalid_references_for_regular_user() -> None:
     settings = Settings(
         app_env="test",
         database_url="sqlite+aiosqlite:///:memory:",
@@ -654,12 +655,12 @@ async def test_catalog_editor_rejects_invalid_references_and_requires_editor_rol
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            forbidden_response = await client.post(
+            invalid_template_response = await client.post(
                 "/api/v1/motion-actions",
                 headers={"X-User-Id": settings.dev_user_id},
                 json=action_payload,
             )
-            assert forbidden_response.status_code == 403
+            assert invalid_template_response.status_code == 422
 
             invalid_template_response = await client.post(
                 "/api/v1/motion-actions",
@@ -795,6 +796,7 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
                     "templateId": "ootd_walk",
                     "siteProfileId": "geeksoutfit",
                     "resultCount": result_count,
+                    "durationSeconds": 12,
                     "actionIntensity": "standard",
                     "cutMode": "explicit_cuts",
                     "paidSubmissionConsent": True,
@@ -819,6 +821,8 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
                 assert "四个版本" not in prompt
             assert task["materialValidation"]["valid"] is True
             assert task["settings"]["smartStoryboard"] is True
+            assert task["settings"]["durationSeconds"] == 12
+            assert all("12秒" in item["master_prompt"] for item in task["compiledPlan"]["variants"])
             assert task["paidSubmissionConsentAt"] is not None
         async with app.state.database.session_factory() as session:
             command_count = await session.scalar(

@@ -98,6 +98,7 @@ import {
 import { mapWithConcurrency } from './concurrency'
 import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary, WaveSpeedConfig } from './types'
 import { CustomPromptField } from './CustomPromptField'
+import { ErrorBoundary } from './ErrorBoundary'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { ImageCenter } from './ImageCenter'
 import type { ImageCenterNotificationEvent, ImageCenterVideoHandoff } from './ImageCenter'
@@ -113,6 +114,8 @@ import {
   validateSubjectReferenceFiles,
 } from './subjectFiles'
 import type { SubjectInputMode, SubjectReferenceFiles } from './subjectFiles'
+import { createWaveSpeedConfigDraft, normalizeWaveSpeedConfig } from './wavespeedConfig'
+import type { WaveSpeedConfigDraft } from './wavespeedConfig'
 import { formatRiskFlags } from './riskLabels'
 import {
   formatDurationSeconds,
@@ -750,6 +753,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(() => seed?.subjectFiles ?? createEmptySubjectReferenceFiles())
   const [elementId, setElementId] = useState('')
   const [resultCount, setResultCount] = useState(storedSettings.resultCount)
+  const [durationSeconds, setDurationSeconds] = useState(storedSettings.durationSeconds)
   const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>(storedSettings.actionIntensity)
   const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>(storedSettings.cutMode)
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -806,10 +810,11 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       generationMode,
       customPrompt,
       resultCount,
+      durationSeconds,
       actionIntensity,
       cutMode,
     })
-  }, [actionIntensity, customPrompt, cutMode, generationMode, resultCount, siteProfileId, templateId])
+  }, [actionIntensity, customPrompt, cutMode, durationSeconds, generationMode, resultCount, siteProfileId, templateId])
   useEffect(() => {
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
@@ -939,6 +944,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
           subjectUploads,
           resultCount,
+          durationSeconds,
           actionIntensity,
           cutMode,
         },
@@ -1033,6 +1039,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       </div>
     <div className="composer-submit-row" aria-live="polite">
       <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
+      <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长</span><span><input id="video-duration" type="number" min={3} max={15} step={1} value={durationSeconds} disabled={formLocked} onChange={(event) => setDurationSeconds(Math.min(15, Math.max(3, Number(event.target.value) || 3)))} /><small>秒</small></span></label>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{resultCount} 个独立任务</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
       <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
@@ -2153,34 +2160,6 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
   </form>
 }
 
-type WaveSpeedConfigDraft = {
-  enabled: boolean
-  baseUrl: string
-  maxSubmitConcurrency: number
-  maxPollConcurrency: number
-  videoModel: string
-  videoDuration: number
-  videoAspectRatio: string
-  videoSound: boolean
-  apiKey: string
-  clearApiKey: boolean
-}
-
-function waveSpeedDraft(config: WaveSpeedConfig): WaveSpeedConfigDraft {
-  return {
-    enabled: config.enabled,
-    baseUrl: config.baseUrl,
-    maxSubmitConcurrency: config.maxSubmitConcurrency,
-    maxPollConcurrency: config.maxPollConcurrency,
-    videoModel: config.videoModel,
-    videoDuration: config.videoDuration,
-    videoAspectRatio: config.videoAspectRatio,
-    videoSound: config.videoSound,
-    apiKey: '',
-    clearApiKey: false,
-  }
-}
-
 function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
   const [config, setConfig] = useState<WaveSpeedConfig | null>(null)
   const [draft, setDraft] = useState<WaveSpeedConfigDraft | null>(null)
@@ -2191,9 +2170,9 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
   const load = useCallback(async () => {
     setBusy('load')
     try {
-      const next = await getWaveSpeedConfig(adminId)
+      const next = normalizeWaveSpeedConfig(await getWaveSpeedConfig(adminId))
       setConfig(next)
-      setDraft(waveSpeedDraft(next))
+      setDraft(createWaveSpeedConfigDraft(next))
       setError('')
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : '无法读取 WaveSpeed API 配置')
@@ -2225,7 +2204,7 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
     setNotice('')
     setError('')
     try {
-      const next = await updateWaveSpeedConfig(adminId, {
+      const next = normalizeWaveSpeedConfig(await updateWaveSpeedConfig(adminId, {
         enabled: draft.enabled,
         baseUrl: draft.baseUrl.trim(),
         maxSubmitConcurrency: draft.maxSubmitConcurrency,
@@ -2236,9 +2215,9 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
         videoSound: draft.videoSound,
         ...(draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
         ...(draft.clearApiKey ? { clearApiKey: true } : {}),
-      })
+      }))
       setConfig(next)
-      setDraft(waveSpeedDraft(next))
+      setDraft(createWaveSpeedConfigDraft(next))
       setNotice('WaveSpeed API 配置已保存，后续新图片和视频任务将使用新配置。')
       await onChanged()
     } catch (cause) {
@@ -2251,7 +2230,7 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
     setNotice('')
     setError('')
     try {
-      const next = await verifyWaveSpeedConfig(adminId)
+      const next = normalizeWaveSpeedConfig(await verifyWaveSpeedConfig(adminId))
       setConfig(next)
       setDraft((current) => current ? {
         ...current,
@@ -2263,7 +2242,7 @@ function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; on
         videoDuration: next.videoDuration,
         videoAspectRatio: next.videoAspectRatio,
         videoSound: next.videoSound,
-      } : waveSpeedDraft(next))
+      } : createWaveSpeedConfigDraft(next))
       setNotice('WaveSpeed 连接状态已刷新；验证不会创建图片任务。')
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : 'WaveSpeed API 连接验证失败')
@@ -2455,6 +2434,47 @@ function PersonalPromptConfirmationSetting() {
   </section>
 }
 
+function PersonalPasswordSetting() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!currentPassword || newPassword.length < 12 || newPassword !== confirmation) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      await changePassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmation('')
+      setNotice('密码已修改，其他设备上的旧登录会话已退出。')
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === 'CURRENT_PASSWORD_INVALID') setError('当前密码不正确，请重新输入。')
+      else if (cause instanceof ApiError && cause.code === 'PASSWORD_UNCHANGED') setError('新密码不能与当前密码相同。')
+      else setError(cause instanceof ApiError ? cause.message : '密码修改失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="settings-section personal-password-section">
+    <div className="settings-section-heading"><div><span>账号安全</span><h2>修改密码</h2><p>修改当前登录账号的密码。保存后，其他设备上的旧登录会话会自动退出。</p></div></div>
+    <form className="personal-password-form" onSubmit={(event) => void save(event)}>
+      <label htmlFor="settings-current-password"><span>当前密码</span><input id="settings-current-password" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} maxLength={512} autoComplete="current-password" required /></label>
+      <label htmlFor="settings-new-password"><span>新密码</span><input id="settings-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} maxLength={512} autoComplete="new-password" placeholder="至少 12 个字符" required /></label>
+      <label htmlFor="settings-confirm-password"><span>确认新密码</span><input id="settings-confirm-password" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} minLength={12} maxLength={512} autoComplete="new-password" aria-invalid={Boolean(confirmation && confirmation !== newPassword)} required /></label>
+      <button className="primary-button" type="submit" disabled={busy || !currentPassword || newPassword.length < 12 || newPassword !== confirmation}>{busy ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{busy ? '正在保存' : '保存新密码'}</button>
+    </form>
+    <div className="account-feedback" aria-live="polite">{notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}{error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}</div>
+  </section>
+}
+
 function SettingsView({
   system,
   onLogout,
@@ -2476,6 +2496,7 @@ function SettingsView({
     ;['default-output-variants', 'video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'].forEach((key) => localStorage.removeItem(key))
   }, [])
   return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>偏好设置</h1><p>这里只保留会影响你个人工作流的选项；生成模型、API 通道与固定生产规格由管理员统一维护。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}</div></div>
+    {system?.sharedAuthentication ? <PersonalPasswordSetting /> : null}
     <PersonalPromptConfirmationSetting />
     <BrowserNotificationSetting
       enabled={browserNotificationsEnabled}
@@ -2685,6 +2706,7 @@ function AdminCenterView({
         <span>{item.icon}</span><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight size={16} />
       </button>)}
     </nav>
+    <ErrorBoundary resetKeys={[section]} onBack={() => onSectionChange('overview')} backLabel="返回运行总览">
     <div className="admin-section-content" key={section}>
       {section === 'overview' ? <>
         <section className="admin-summary-grid" aria-label="系统摘要">
@@ -2704,6 +2726,7 @@ function AdminCenterView({
         {isAdmin ? <ProviderCredentials adminId={actor!.userId} /> : <EmptyState icon={<KeyRound size={24} />} title="凭据由管理员维护" description="你仍可管理生产确认流程，但不能查看或修改服务凭据。" />}
       </> : null}
     </div>
+    </ErrorBoundary>
   </div>
 }
 
@@ -3341,7 +3364,7 @@ function App() {
     </aside>
     <div className="app-body">
       <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></header>
-      <main id="main-content">{loading ? <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载生产任务</strong></div> : <>
+      <main id="main-content"><ErrorBoundary resetKeys={[view, adminSection, selectedTask?.id]} onBack={() => navigate('make')} backLabel="返回制作页">{loading ? <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载生产任务</strong></div> : <>
       {error ? <div className="service-banner"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => void refresh()}><RefreshCw size={15} />重新连接</button></div> : null}
       {showNotificationPrompt ? <div className="notification-permission-banner" role="region" aria-label="浏览器通知">
         <Bell size={18} />
@@ -3362,7 +3385,7 @@ function App() {
       {view === 'library' ? <ContentLibraryView
         actorId={system?.sharedAuthentication ? null : actor?.userId ?? null}
         canDeleteSubjects={actor?.role === 'ADMIN'}
-        canEditCatalog={canOperate}
+        canEditCatalog={Boolean(actor)}
       /> : null}
       {view === 'admin' ? <AdminCenterView system={system} actor={actor} section={adminSection} onSectionChange={(section) => navigate('admin', null, false, section)} onKlingChanged={refresh} /> : null}
       {view === 'settings' ? <SettingsView
@@ -3373,7 +3396,7 @@ function App() {
         onEnableBrowserNotifications={enableBrowserNotifications}
         onDisableBrowserNotifications={disableBrowserNotifications}
       /> : null}
-      </>}</main>
+      </>}</ErrorBoundary></main>
     </div>
     <nav className="mobile-nav" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}>{mobileNav.map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
     <InPageTaskToasts

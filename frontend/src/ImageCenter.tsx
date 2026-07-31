@@ -225,12 +225,10 @@ function OrderedAssetUpload({ idPrefix, title, description, headerAccessory, ass
   </section>
 }
 
-function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
+function OutfitCard({ outfit, index, onChange }: {
   outfit: OutfitDraft
   index: number
-  canRemove: boolean
   onChange: (outfit: OutfitDraft) => void
-  onRemove: () => void
 }) {
   return <article className="outfit-card">
     <OrderedAssetUpload
@@ -241,7 +239,6 @@ function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
         <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
         <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} title="套装名称" onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
         <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} title="商品 SKU" placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
-        <button type="button" className="outfit-card__remove" disabled={!canRemove} onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={16} /></button>
       </div>}
       assets={outfit}
       onChange={(assets) => onChange({ ...outfit, ...assets })}
@@ -249,25 +246,30 @@ function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
   </article>
 }
 
-function OutfitNavItem({ outfit, index, selected, onSelect }: {
+function OutfitNavItem({ outfit, index, selected, canRemove, onSelect, onRemove }: {
   outfit: OutfitDraft
   index: number
   selected: boolean
+  canRemove: boolean
   onSelect: () => void
+  onRemove: () => void
 }) {
-  return <button
-    type="button"
-    id={`outfit-tab-${outfit.id}`}
-    className={`outfit-nav-item${selected ? ' is-selected' : ''}`}
-    role="tab"
-    aria-selected={selected}
-    aria-controls="active-outfit-editor"
-    onClick={onSelect}
-  >
-    <span className="outfit-nav-item__thumb"><AssetPreview file={outfit.front} alt={outfit.front ? `${outfit.name}正面图` : ''} /></span>
-    <span><strong>{outfit.name.trim() || `套装 ${String(index + 1).padStart(2, '0')}`}</strong><small>{outfit.sku.trim() || `第 ${index + 1} 套产品`}</small></span>
-    <i className={outfit.front ? 'is-ready' : ''}>{outfit.front ? <Check size={12} /> : index + 1}</i>
-  </button>
+  return <div className={`outfit-nav-entry${selected ? ' is-selected' : ''}`}>
+    <button
+      type="button"
+      id={`outfit-tab-${outfit.id}`}
+      className="outfit-nav-item"
+      role="tab"
+      aria-selected={selected}
+      aria-controls="active-outfit-editor"
+      onClick={onSelect}
+    >
+      <span className="outfit-nav-item__thumb"><AssetPreview file={outfit.front} alt={outfit.front ? `${outfit.name}正面图` : ''} /></span>
+      <span><strong>{outfit.name.trim() || `套装 ${String(index + 1).padStart(2, '0')}`}</strong><small>{outfit.sku.trim() || `第 ${index + 1} 套产品`}</small></span>
+      <i className={outfit.front ? 'is-ready' : ''}>{outfit.front ? <Check size={12} /> : index + 1}</i>
+    </button>
+    {canRemove ? <button type="button" className="outfit-nav-remove" onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={14} /></button> : null}
+  </div>
 }
 
 function SourceThumb({ file, label, onPreview }: {
@@ -756,11 +758,11 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
             <div className="outfit-workspace">
               <div className="outfit-navigator">
                 <div className="outfit-navigator__head"><strong>套装列表</strong><span>{summary.outfitCount} 套已就绪</span></div>
-                <div className="outfit-nav-list" role="tablist" aria-label="产品套装列表">{draft.outfits.map((outfit, index) => <OutfitNavItem key={outfit.id} outfit={outfit} index={index} selected={outfit.id === activeOutfit.id} onSelect={() => setActiveOutfitId(outfit.id)} />)}</div>
+                <div className="outfit-nav-list" role="tablist" aria-label="产品套装列表">{draft.outfits.map((outfit, index) => <OutfitNavItem key={outfit.id} outfit={outfit} index={index} selected={outfit.id === activeOutfit.id} canRemove={draft.outfits.length > 1} onSelect={() => setActiveOutfitId(outfit.id)} onRemove={() => removeOutfit(outfit.id)} />)}</div>
                 {draft.outfits.length < MAX_IMAGE_CENTER_OUTFITS ? <button type="button" className="outfit-nav-add" onClick={addOutfit}><Plus size={15} />添加下一套</button> : null}
               </div>
               <div id="active-outfit-editor" className="active-outfit-editor" role="tabpanel" aria-labelledby={`outfit-tab-${activeOutfit.id}`}>
-                <OutfitCard outfit={activeOutfit} index={activeOutfitIndex} canRemove={draft.outfits.length > 1} onChange={updateOutfit} onRemove={() => removeOutfit(activeOutfit.id)} />
+                <OutfitCard outfit={activeOutfit} index={activeOutfitIndex} onChange={updateOutfit} />
               </div>
             </div>
           </div>

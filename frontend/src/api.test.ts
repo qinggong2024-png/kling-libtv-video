@@ -178,6 +178,7 @@ describe('API request identity and CSRF contracts', () => {
           { id: 'subject-back' } as UploadResult,
         ],
         resultCount: 1,
+        durationSeconds: 12,
         actionIntensity: 'standard',
         cutMode: 'explicit_cuts',
       },
@@ -185,6 +186,7 @@ describe('API request identity and CSRF contracts', () => {
 
     expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toMatchObject({
       generationMode: 'automatic',
+      durationSeconds: 12,
       elementIds: [],
       subjectImages: [
         { uploadId: 'subject-front', order: 1 },
@@ -204,6 +206,7 @@ describe('API request identity and CSRF contracts', () => {
         customPrompt: '人物自然转身并展示服装背面。',
         elementIds: [],
         resultCount: 2,
+        durationSeconds: 8,
         actionIntensity: 'standard',
         cutMode: 'explicit_cuts',
       },
@@ -212,6 +215,7 @@ describe('API request identity and CSRF contracts', () => {
     const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
     expect(body.generationMode).toBe('custom')
     expect(body.customPrompt).toBe('人物自然转身并展示服装背面。')
+    expect(body.durationSeconds).toBe(8)
     expect(body.siteProfileId).toBeUndefined()
   })
 

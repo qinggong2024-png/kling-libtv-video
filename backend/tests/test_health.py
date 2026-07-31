@@ -22,6 +22,23 @@ async def test_live_health_does_not_require_infrastructure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_system_status_exposes_deployed_source_revision() -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        deployment_source_revision="abc123",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/v1/system/status")
+
+    assert response.status_code == 200
+    assert response.json()["sourceRevision"] == "abc123"
+
+
+@pytest.mark.asyncio
 async def test_ready_health_checks_database() -> None:
     settings = Settings(
         app_env="test",

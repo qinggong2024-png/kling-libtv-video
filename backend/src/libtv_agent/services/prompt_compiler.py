@@ -22,6 +22,7 @@ class PromptCompileInput:
     camera_tempo: CameraTempo
     cut_mode: CutMode
     variant_index: int
+    duration_seconds: int | None = None
     site_profile: SiteStyleProfile | None = None
     action_context: ActionContext | None = None
     action_library: Mapping[str, MotionAction] | None = None
@@ -162,7 +163,10 @@ def compile_video_plan(
         value.action_context,
         value.action_library,
     )
-    duration = float(template.duration_seconds)
+    duration_seconds = value.duration_seconds or template.duration_seconds
+    if not 3 <= duration_seconds <= 15:
+        raise ValueError("duration must be between 3 and 15 seconds")
+    duration = float(duration_seconds)
     shot_duration = duration / value.storyboard_count
     shots = tuple(
         ShotInstruction(
@@ -186,7 +190,7 @@ def compile_video_plan(
     prompt_parts = (
         (
             f"按照输入的{value.storyboard_count}张有序分镜生成一条"
-            f"{template.duration_seconds}秒、{template.ratio}的{template.name}视频"
+            f"{duration_seconds}秒、{template.ratio}的{template.name}视频"
         ),
         (
             "素材约束（最高优先级）："

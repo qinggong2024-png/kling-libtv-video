@@ -7,6 +7,18 @@ $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 Set-Location $projectRoot
 
+function Get-ProcessAncestorIds([int]$ProcessId) {
+    $ancestors = @()
+    $currentId = $ProcessId
+    for ($depth = 0; $depth -lt 12; $depth++) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $currentId" -ErrorAction SilentlyContinue
+        if (-not $process -or -not $process.ParentProcessId) { break }
+        $currentId = [int]$process.ParentProcessId
+        $ancestors += $currentId
+    }
+    return $ancestors
+}
+
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw 'uv was not found on PATH. Install uv before starting the API.'
 }
@@ -15,24 +27,72 @@ if (-not (Test-Path -LiteralPath $python)) {
 }
 
 $apiPort = 8000
+$sourceRevision = Get-WorkspaceSourceRevision -ProjectRoot $projectRoot
 $existingIdentity = Assert-WorkspacePortOwnership `
     -Port $apiPort `
     -ProjectRoot $projectRoot `
     -ServiceName 'API'
 if ($existingIdentity.Listening) {
     try {
-        $response = Invoke-WebRequest `
-            -UseBasicParsing `
-            -Uri "http://127.0.0.1:$apiPort/api/v1/health/ready" `
+        $status = Invoke-RestMethod `
+            -Uri "http://127.0.0.1:$apiPort/api/v1/system/status" `
             -TimeoutSec 3
-        if ($response.StatusCode -eq 200) {
+        if ($status.sourceRevision -eq $sourceRevision) {
             Write-Host "API from this workspace is already ready on http://127.0.0.1:$apiPort (PID $($existingIdentity.ProcessId))."
             exit 0
         }
     }
     catch { }
-    throw "Port $apiPort is owned by this workspace's PID $($existingIdentity.ProcessId), but the API readiness check failed."
+    $apiWrapperIds = @(
+        Get-ProcessAncestorIds -ProcessId $existingIdentity.ProcessId |
+            Where-Object {
+                $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId = $_" -ErrorAction SilentlyContinue
+                $ancestor -and
+                $ancestor.CommandLine -and
+                $ancestor.CommandLine.Contains($PSCommandPath) -and
+                (Test-WorkspaceProcessIdentity `
+                    -CommandLine $ancestor.CommandLine `
+                    -ExecutablePath $ancestor.ExecutablePath `
+                    -ProjectRoot $projectRoot)
+            }
+    )
+    $coupledRunnerIds = @(
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine.Contains($runnerScript) -and
+                (Test-WorkspaceProcessIdentity `
+                    -CommandLine $_.CommandLine `
+                    -ExecutablePath $_.ExecutablePath `
+                    -ProjectRoot $projectRoot)
+            } |
+            Where-Object {
+                $runnerAncestors = @(Get-ProcessAncestorIds -ProcessId $_.ProcessId)
+                @($runnerAncestors | Where-Object { $apiWrapperIds -contains $_ }).Count -gt 0
+            } |
+            Select-Object -ExpandProperty ProcessId
+    )
+    Write-Host "API source revision is stale; stopping this workspace's PID $($existingIdentity.ProcessId)."
+    Stop-Process -Id $existingIdentity.ProcessId -ErrorAction Stop
+    Wait-Process -Id $existingIdentity.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+    $deadline = [DateTimeOffset]::Now.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 200
+        $remaining = Get-WorkspacePortIdentity -Port $apiPort -ProjectRoot $projectRoot
+    } while ($remaining.Listening -and [DateTimeOffset]::Now -lt $deadline)
+    if ($remaining.Listening) {
+        throw "This workspace's stale API PID $($existingIdentity.ProcessId) did not release port $apiPort."
+    }
+    foreach ($runnerId in $coupledRunnerIds) {
+        if (Get-Process -Id $runnerId -ErrorAction SilentlyContinue) {
+            Write-Host "Stopping stale Runner PID $runnerId coupled to the old API wrapper."
+            Stop-Process -Id $runnerId -ErrorAction Stop
+            Wait-Process -Id $runnerId -Timeout 10 -ErrorAction SilentlyContinue
+        }
+    }
 }
+
+$env:DEPLOYMENT_SOURCE_REVISION = $sourceRevision
 
 $preflightCode = "import sys; sys.path.insert(0, 'backend/src'); from libtv_agent.app import create_app; create_app()"
 $previousErrorActionPreference = $ErrorActionPreference

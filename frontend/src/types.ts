@@ -238,6 +238,7 @@ export interface FixedVideoTaskOptions {
   elementIds: string[]
   subjectUploads?: UploadResult[]
   resultCount: number
+  durationSeconds: number
   actionIntensity: 'low' | 'standard' | 'high'
   cutMode: 'explicit_cuts' | 'continuous_when_possible'
 }
@@ -299,6 +300,7 @@ export interface KlingElementCreate {
 
 export interface SystemStatus {
   environment: string
+  sourceRevision: string
   libtvAdapter: string
   aiAdapter: string
   openaiModel: string

@@ -21,8 +21,8 @@ async def get_site_style_profiles(actor: Actor, session: Session) -> list[dict[s
 
 
 def _require_editor(role: UserRole) -> None:
-    if role not in {UserRole.ADMIN, UserRole.OPERATOR}:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "catalog editor role is required")
+    if role is UserRole.AUDITOR:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "auditor role is read-only")
 
 
 async def _save(

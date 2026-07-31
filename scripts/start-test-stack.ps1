@@ -31,6 +31,26 @@ function Test-Ready([string]$Uri) {
     catch { return $false }
 }
 
+function Test-RunnerReady([int]$Port) {
+    try {
+        $operations = Invoke-RestMethod `
+            -Headers @{ 'X-User-Id' = '00000000-0000-0000-0000-000000000099' } `
+            -Uri "http://127.0.0.1:$Port/api/v1/admin/operations" `
+            -TimeoutSec 3
+        $runner = @($operations.runners) |
+            Where-Object { $_.status -eq 'ONLINE' -and $_.lastHeartbeatAt } |
+            Select-Object -First 1
+        if (-not $runner) { return $false }
+        $heartbeat = [DateTimeOffset]::Parse(
+            [string]$runner.lastHeartbeatAt,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal
+        )
+        return ([DateTimeOffset]::Now - $heartbeat).TotalSeconds -le 10
+    }
+    catch { return $false }
+}
+
 function Stop-RecordedProcesses([string]$RecordedProcessFile) {
     if (-not (Test-Path -LiteralPath $RecordedProcessFile)) { return }
     $record = Get-Content -Raw -LiteralPath $RecordedProcessFile | ConvertFrom-Json
@@ -122,6 +142,18 @@ $env:OPENAI_ANALYSIS_MAX_OUTPUT_TOKENS = '4000'
 $env:OPENAI_ANALYSIS_FALLBACK_MAX_OUTPUT_TOKENS = '6000'
 $env:VITE_API_PROXY = "http://127.0.0.1:$ApiPort"
 
+# Safe is the default baseline; Full explicitly overrides the live-provider
+# settings below. Keeping these assignments unconditional also makes the
+# offline test contract easy to audit from this launcher.
+$env:AI_ADAPTER_MODE = 'fake'
+$env:LIBTV_ADAPTER_MODE = 'fake'
+$env:LIBTV_EXECUTION_MODE = 'dry-run'
+$env:PAID_GENERATION_ENABLED = 'false'
+$env:PAID_SUBMISSIONS_PAUSED = 'true'
+$env:KLING_CLI_ENABLED = 'false'
+$env:KLING_API_ENABLED = 'false'
+$env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
+
 if ($Profile -eq 'Full') {
     $sourceKlingConfig = Join-Path $projectRoot 'var\runtime\kling-config.json'
     $testKlingConfig = Join-Path $runtimeRoot 'kling-config.json'
@@ -144,15 +176,7 @@ if ($Profile -eq 'Full') {
     $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
 }
 else {
-    $env:AI_ADAPTER_MODE = 'fake'
-    $env:LIBTV_ADAPTER_MODE = 'fake'
-    $env:LIBTV_EXECUTION_MODE = 'dry-run'
-    $env:PAID_GENERATION_ENABLED = 'false'
-    $env:PAID_SUBMISSIONS_PAUSED = 'true'
-    $env:KLING_CLI_ENABLED = 'false'
-    $env:KLING_API_ENABLED = 'false'
     $env:KLING_ENABLE_PAID_INTEGRATION_TEST = 'false'
-    $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
 }
 
 Push-Location $projectRoot
@@ -223,6 +247,15 @@ try {
     $runner.Refresh()
     if ($runner.HasExited) {
         throw 'Test stack API is ready, but its workspace Runner stopped during startup.'
+    }
+    $runnerDeadline = [DateTimeOffset]::Now.AddSeconds($StartupTimeoutSeconds)
+    do {
+        if (Test-RunnerReady $ApiPort) { break }
+        if ($runner.HasExited) { break }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTimeOffset]::Now -lt $runnerDeadline)
+    if (-not (Test-RunnerReady $ApiPort)) {
+        throw "Test stack Runner did not register a recent heartbeat. See $logDir"
     }
     $apiListener = Get-NetTCPConnection -State Listen -LocalPort $ApiPort |
         Select-Object -First 1

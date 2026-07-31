@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_port: int = 8000
     app_public_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     deployment_id: str = "libtv-agent-development"
+    deployment_source_revision: str = "unknown"
     shared_authentication_enabled: bool = False
 
     database_url: str = "postgresql+asyncpg://libtv_agent:libtv_agent@localhost:5432/libtv_agent"
