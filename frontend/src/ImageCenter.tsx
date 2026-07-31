@@ -30,6 +30,12 @@ export interface ImageCenterVideoHandoff {
   task: ImageGenerationTask
   outputs: ImageGenerationOutput[]
   subjectSource: VideoSubjectSource
+  config: {
+    generationMode: 'automatic' | 'custom'
+    resultCount: number
+    actionIntensity: 'low' | 'standard' | 'high'
+    cutMode: 'explicit_cuts' | 'continuous_when_possible'
+  }
 }
 
 export interface ImageCenterProps {
@@ -333,7 +339,7 @@ function SelectionWorkbench({ tasks, selectedOutputIds, expanded, onExpandedChan
       <button type="button" className="icon-button image-selection-bar__toggle" onClick={() => onExpandedChange(!expanded)} aria-expanded={expanded} aria-controls="image-selection-details" aria-label={expanded ? '收起选片详情' : '展开选片详情'} title={expanded ? '收起详情' : '展开详情'}>{expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
       <div className="image-selection-bar__actions">
         <button type="button" className="secondary-button" onClick={onClear}><X size={16} />取消选择</button>
-        <button type="button" className="primary-button" onClick={onGenerate}><Film size={17} />一键生视频</button>
+        <button type="button" className="primary-button" onClick={onGenerate}><Film size={17} />送入视频队列</button>
       </div>
     </div>
     <div id="image-selection-details" className="image-selection-bar__details" aria-hidden={!expanded} inert={!expanded}>
@@ -379,24 +385,41 @@ function VideoPreparationSheet({ tasks, selectedOutputIds, onClose, onConfirm }:
 }) {
   const selectedTasks = useMemo(() => getOrderedSelectedTasks(tasks, selectedOutputIds), [selectedOutputIds, tasks])
   const [subjects, setSubjects] = useState<Record<string, VideoSubjectSource>>(() => Object.fromEntries(selectedTasks.map(({ task }) => [task.id, 'generated'])))
+  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>('custom')
+  const [resultCount, setResultCount] = useState(1)
+  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
+  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
   useEffect(() => {
     document.body.classList.add('modal-open')
     return () => document.body.classList.remove('modal-open')
   }, [])
-  const confirm = () => onConfirm(selectedTasks.map(({ task, outputs }) => ({ task, outputs, subjectSource: subjects[task.id] ?? 'generated' })))
+  const confirm = () => onConfirm(selectedTasks.map(({ task, outputs }) => ({
+    task,
+    outputs,
+    subjectSource: subjects[task.id] ?? 'generated',
+    config: { generationMode, resultCount, actionIntensity, cutMode },
+  })))
 
   return createPortal(<div className="image-video-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className="image-video-sheet" role="dialog" aria-modal="true" aria-labelledby="image-video-sheet-title">
-      <header><div><span>图片转视频</span><h2 id="image-video-sheet-title">创建 {selectedTasks.length} 个独立视频任务</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X size={18} /></button></header>
+      <header><div><span>视频制作</span><h2 id="image-video-sheet-title">配置 {selectedTasks.length} 个产品视频</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X size={18} /></button></header>
       <div className="image-video-sheet__body">
-        <div className="image-video-sheet__notice"><CheckCircle2 size={17} /><span>系统已按套装拆分任务，所选图片将保持当前顺序进入分镜。</span></div>
+        <section className="image-video-parameters" aria-labelledby="image-video-parameters-title">
+          <header><div><span>生成参数</span><h3 id="image-video-parameters-title">视频制作配置</h3></div><small>{selectedTasks.reduce((total, item) => total + item.outputs.length, 0)} 张分镜</small></header>
+          <div className="image-video-parameter-grid">
+            <fieldset><legend>生成路线</legend><div className="image-video-segments"><button type="button" className={generationMode === 'custom' ? 'is-selected' : ''} onClick={() => setGenerationMode('custom')}>沿用生图提示词</button><button type="button" className={generationMode === 'automatic' ? 'is-selected' : ''} onClick={() => setGenerationMode('automatic')}>自动编排</button></div></fieldset>
+            <fieldset><legend>结果数量</legend><div className="image-video-segments is-count">{[1, 2, 3, 4].map((count) => <button key={count} type="button" className={resultCount === count ? 'is-selected' : ''} onClick={() => setResultCount(count)}>{count}</button>)}</div></fieldset>
+            <fieldset><legend>动作强度</legend><div className="image-video-segments">{([['low', '克制'], ['standard', '标准'], ['high', '增强']] as const).map(([value, label]) => <button key={value} type="button" className={actionIntensity === value ? 'is-selected' : ''} onClick={() => setActionIntensity(value)}>{label}</button>)}</div></fieldset>
+            <fieldset><legend>镜头衔接</legend><div className="image-video-segments"><button type="button" className={cutMode === 'explicit_cuts' ? 'is-selected' : ''} onClick={() => setCutMode('explicit_cuts')}>明确切镜</button><button type="button" className={cutMode === 'continuous_when_possible' ? 'is-selected' : ''} onClick={() => setCutMode('continuous_when_possible')}>尽量连续</button></div></fieldset>
+          </div>
+        </section>
         <div className="image-video-draft-list">{selectedTasks.map(({ task, outputs }) => <article key={task.id}>
           <div className="image-video-draft-main"><span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品图`} /></span><div><strong>{task.outfitName}</strong><small>{outputs.length} 张分镜{task.sku ? ` · ${task.sku}` : ''}</small></div></div>
           <div className="image-video-draft-frames">{outputs.slice(0, 6).map((output, index) => <span key={output.id}><AuthenticatedAssetPreview file={output.file} url={output.url} alt={`分镜 ${index + 1}`} /><i>{index + 1}</i></span>)}</div>
           <label className="image-video-subject"><span>主体来源</span><select value={subjects[task.id] ?? 'generated'} onChange={(event) => setSubjects((current) => ({ ...current, [task.id]: event.target.value as VideoSubjectSource }))}><option value="generated">换装成功的模特图</option><option value="product-front">产品正面图</option>{task.product.back ? <option value="product-back">产品背面图</option> : null}</select></label>
         </article>)}</div>
       </div>
-      <footer><span>下一步将在视频制作中确认模板与生成参数。</span><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button primary-button--large" onClick={confirm}><Film size={18} />送入视频制作</button></footer>
+      <footer><span>{selectedTasks.length} 个产品 × {resultCount} 个结果，共 {selectedTasks.length * resultCount} 个独立任务</span><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button primary-button--large" onClick={confirm}><Film size={18} />应用参数并继续</button></footer>
     </section>
   </div>, document.body)
 }

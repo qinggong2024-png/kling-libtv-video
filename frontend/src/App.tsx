@@ -152,7 +152,17 @@ type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
-type RemixSeed = { id: string; storyboards: File[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
+type RemixSeed = {
+  id: string
+  storyboards: File[]
+  products: File[]
+  subjectFiles?: SubjectReferenceFiles
+  requirement?: string
+  generationMode?: 'automatic' | 'custom'
+  resultCount?: number
+  actionIntensity?: 'low' | 'standard' | 'high'
+  cutMode?: 'explicit_cuts' | 'continuous_when_possible'
+}
 type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 type InPageTaskToast = {
   id: string
@@ -732,14 +742,14 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [elements, setElements] = useState<KlingElement[]>([])
   const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
   const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
-  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic')
+  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.generationMode ?? (seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic'))
   const [customPrompt, setCustomPrompt] = useState(() => seed?.requirement ?? localStorage.getItem('fixed-custom-prompt') ?? '')
   const [subjectMode, setSubjectMode] = useState<SubjectInputMode>(() => seed?.subjectFiles?.frontalImage ? 'upload' : 'none')
   const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(() => seed?.subjectFiles ?? createEmptySubjectReferenceFiles())
   const [elementId, setElementId] = useState('')
-  const [resultCount, setResultCount] = useState(1)
-  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
-  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
+  const [resultCount, setResultCount] = useState(() => seed?.resultCount ?? 1)
+  const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>(() => seed?.actionIntensity ?? 'standard')
+  const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>(() => seed?.cutMode ?? 'explicit_cuts')
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [elementCatalogError, setElementCatalogError] = useState('')
@@ -3113,7 +3123,7 @@ function App() {
     if (!handoffs.length) return
     setError('')
     try {
-      const seeds = await Promise.all(handoffs.map(async ({ task, outputs, subjectSource }) => {
+      const seeds = await Promise.all(handoffs.map(async ({ task, outputs, subjectSource, config }) => {
         const storyboards = await Promise.all(outputs.slice(0, 6).map((output, index) => imageCenterOutputFile(output, task.outfitName, index)))
         const selectedSubject = subjectSource === 'product-front'
           ? task.product.front
@@ -3131,6 +3141,10 @@ function App() {
             detailImages: [],
           },
           requirement: task.prompt.storyboard || task.prompt.fusion,
+          generationMode: config.generationMode,
+          resultCount: config.resultCount,
+          actionIntensity: config.actionIntensity,
+          cutMode: config.cutMode,
         }
       }))
       pendingImageVideoSeedsRef.current = seeds.slice(1)
