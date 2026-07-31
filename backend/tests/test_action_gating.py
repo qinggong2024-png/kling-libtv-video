@@ -8,8 +8,11 @@ from libtv_agent.templates.motion_actions import (
     ACTION_LIBRARY,
     ActionCapability,
     ActionContext,
+    MotionAction,
     compatible_action_ids,
     evaluate_action,
+    evaluate_action_with_base,
+    render_action_ids,
 )
 from libtv_agent.templates.video_templates import get_video_template
 
@@ -60,6 +63,13 @@ def test_unknown_context_keeps_only_unconditional_low_risk_actions() -> None:
         ),
         ("back_reveal", {ActionCapability.BACK_REFERENCE}),
         (
+            "front_back_quarter_return",
+            {
+                ActionCapability.BACK_REFERENCE,
+                ActionCapability.OVER_SHOULDER_GAZE_SAFE,
+            },
+        ),
+        (
             "mirror_phone_hold",
             {ActionCapability.MIRROR_SELFIE, ActionCapability.PHONE_HOLD_VISIBLE},
         ),
@@ -75,6 +85,25 @@ def test_unknown_context_keeps_only_unconditional_low_risk_actions() -> None:
         (
             "existing_prop_return",
             {
+                ActionCapability.EXISTING_PROP,
+                ActionCapability.FREE_HAND,
+                ActionCapability.PROP_PICKUP_SAFE,
+            },
+        ),
+        (
+            "hair_tuck_release",
+            {
+                ActionCapability.FREE_HAND,
+                ActionCapability.SAFE_HAND_PATH,
+                ActionCapability.FACE_VISIBLE,
+                ActionCapability.HAIR_REACHABLE,
+            },
+        ),
+        (
+            "seated_prop_sip_return",
+            {
+                ActionCapability.SEATED_POSE,
+                ActionCapability.SEAT_VISIBLE,
                 ActionCapability.EXISTING_PROP,
                 ActionCapability.FREE_HAND,
                 ActionCapability.PROP_PICKUP_SAFE,
@@ -232,3 +261,32 @@ def test_public_action_shape_contains_machine_readable_requirements() -> None:
 
     assert public["requiredCapabilities"] == ["back_reference"]
     assert "required_capabilities" not in public
+
+
+def test_brand_action_inherits_general_action_instruction_and_capability_gates() -> None:
+    base = ACTION_LIBRARY["controlled_walk"]
+    variant = MotionAction(
+        id="nerdywave_controlled_walk",
+        label="暗黑受控走动",
+        category=base.category,
+        instruction="保持冷漠直视和明确肩线，让动作更有受控攻击性。",
+        purpose="在不改变走动骨架的前提下增加品牌张力。",
+        compatible_templates=base.compatible_templates,
+        library_scope="brand",
+        brand_id="nerdywave",
+        base_action_id=base.id,
+    )
+    library = {base.id: base, variant.id: variant}
+
+    eligibility = evaluate_action_with_base(variant, ActionContext(), library)
+    assert eligibility.missing == (ActionCapability.WALK_DEPTH,)
+
+    rendered = render_action_ids(
+        "ootd_walk",
+        (variant.id,),
+        context=ActionContext.from_values(confirmed=(ActionCapability.WALK_DEPTH,)),
+        library=library,
+    )
+    assert base.instruction in rendered
+    assert "品牌风格差异" in rendered
+    assert variant.instruction in rendered

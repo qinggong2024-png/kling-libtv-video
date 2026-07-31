@@ -37,6 +37,9 @@ class MotionActionWrite(ApiModel):
     required_capabilities: list[ActionCapability] | None = Field(default=None, max_length=20)
     avoid: list[str] = Field(default_factory=list, max_length=20)
     risk_level: Literal["low", "conditional"] = "low"
+    library_scope: Literal["general", "brand"] = "general"
+    brand_id: str | None = Field(default=None, min_length=2, max_length=80)
+    base_action_id: str | None = Field(default=None, min_length=2, max_length=80)
 
 
 class SiteStyleProfileWrite(ApiModel):
@@ -48,6 +51,11 @@ class SiteStyleProfileWrite(ApiModel):
     retrieved_at: date
     evidence_level: Literal["verified_site", "restricted_site"] = "restricted_site"
     tone: str = Field(min_length=8, max_length=300)
+    expression_language: str = Field(
+        default="自然、克制并服务于商品展示",
+        min_length=8,
+        max_length=500,
+    )
     audience: str = Field(min_length=6, max_length=300)
     palette: list[str] = Field(default_factory=list, max_length=20)
     typography: str = Field(min_length=2, max_length=300)
@@ -61,6 +69,8 @@ class SiteStyleProfileWrite(ApiModel):
     product_priorities: list[str] = Field(min_length=1, max_length=30)
     forbidden_mismatches: list[str] = Field(min_length=1, max_length=30)
     research_note: str = Field(min_length=8, max_length=1000)
+    library_scope: Literal["general", "brand"] = "brand"
+    brand_id: str | None = Field(default=None, min_length=2, max_length=80)
 
 
 class UploadRead(ApiModel):
@@ -145,11 +155,12 @@ class VideoTaskCreate(ApiModel):
         max_length=4,
     )
     element_ids: list[str] = Field(default_factory=list, max_length=7)
-    template_id: str = Field(min_length=1, max_length=80)
-    site_profile_id: str = Field(min_length=1, max_length=80)
+    generation_mode: Literal["automatic", "custom"] = "automatic"
+    custom_prompt: str | None = Field(default=None, max_length=2800)
+    template_id: str | None = Field(default=None, min_length=1, max_length=80)
+    site_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
     result_count: int = Field(default=1, ge=1, le=4)
     action_intensity: Literal["low", "standard", "high"] = "standard"
-    camera_tempo: Literal["slow", "standard", "fast"] = "standard"
     cut_mode: Literal["explicit_cuts", "continuous_when_possible"] = "explicit_cuts"
     paid_submission_consent: bool
     source_upload_duration_seconds: float = Field(default=0, ge=0, le=86_400)
@@ -177,8 +188,39 @@ class VideoTaskCreate(ApiModel):
                 "storyboards, subject images, and element IDs together cannot exceed "
                 "the Kling Omni 7-reference limit"
             )
+        if self.generation_mode == "automatic" and not self.site_profile_id:
+            raise ValueError("automatic generation requires a site profile")
+        if self.generation_mode == "custom":
+            prompt = (self.custom_prompt or "").strip()
+            if not prompt:
+                raise ValueError("custom generation requires a prompt")
+            self.custom_prompt = prompt
+            self.site_profile_id = None
+        else:
+            self.custom_prompt = None
         self.element_ids = normalized_element_ids
         return self
+
+
+class PromptPresetWrite(ApiModel):
+    scope: Literal["video", "image_fusion", "image_storyboard"] = "video"
+    name: str = Field(min_length=1, max_length=80)
+    content: str = Field(min_length=1, max_length=2800)
+    sort_order: int = Field(default=0, ge=0, le=10_000)
+
+    @model_validator(mode="after")
+    def normalize_values(self) -> "PromptPresetWrite":
+        self.name = self.name.strip()
+        self.content = self.content.strip()
+        if not self.name or not self.content:
+            raise ValueError("prompt preset name and content cannot be blank")
+        return self
+
+
+class PromptPresetRead(PromptPresetWrite):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
 
 
 class TaskReuseRequest(ApiModel):

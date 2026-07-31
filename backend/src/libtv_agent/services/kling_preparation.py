@@ -75,11 +75,7 @@ async def prepare_kling_task(
         key=lambda item: item.order_no,
     )
     product_reference_assets = sorted(
-        (
-            asset
-            for asset in task.assets
-            if asset.used_for_generation and asset.role == "PRODUCT"
-        ),
+        (asset for asset in task.assets if asset.used_for_generation and asset.role == "PRODUCT"),
         key=lambda item: item.order_no,
     )
     if not storyboard_assets:

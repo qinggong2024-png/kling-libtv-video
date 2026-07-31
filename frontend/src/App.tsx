@@ -18,6 +18,7 @@ import {
   Film,
   Globe2,
   HelpCircle,
+  Images,
   KeyRound,
   LayoutDashboard,
   Library,
@@ -58,6 +59,7 @@ import {
   fetchArtifactObjectUrl,
   fetchAssetFile,
   fetchAssetObjectUrl,
+  fetchImageAssetFile,
   getSystemStatus,
   getCurrentUser,
   getMotionActions,
@@ -76,11 +78,14 @@ import {
   getKlingConfig,
   getKlingElements,
   getKlingStatus,
+  getWaveSpeedConfig,
   getOperations,
   getPersonalPromptAutoConfirmation,
   updateAdminCredentials,
   updateKlingConfig,
   refreshKlingCapabilities,
+  updateWaveSpeedConfig,
+  verifyWaveSpeedConfig,
   resetAdminUserPassword,
   login,
   logout,
@@ -91,9 +96,13 @@ import {
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary, WaveSpeedConfig } from './types'
+import { CustomPromptField } from './CustomPromptField'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
+import { ImageCenter } from './ImageCenter'
+import type { ImageCenterVideoHandoff } from './ImageCenter'
 import { KlingSubjectsLibrary } from './KlingSubjectsLibrary'
+import { LoginFlowLines } from './LoginFlowLines'
 import { OperationsPanel } from './OperationsPanel'
 import { SubjectInputPanel } from './SubjectInputPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
@@ -139,11 +148,11 @@ import {
 import type { KlingConfigDraft } from './klingConfig'
 import { CatalogEditor } from './CatalogEditor'
 
-type View = 'make' | 'records' | 'library' | 'admin' | 'settings'
+type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
-type RemixSeed = { id: string; storyboards: File[]; products: File[]; requirement?: string }
+type RemixSeed = { id: string; storyboards: File[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
 type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 type InPageTaskToast = {
   id: string
@@ -171,12 +180,22 @@ function taskPrompt(task: Task, kind: VariantKind): string {
 function readAppLocation(): { view: View; detailId: string | null; adminSection: AdminSection } {
   const params = new URLSearchParams(window.location.search)
   const requestedView = params.get('view')
-  const view: View = requestedView === 'records' || requestedView === 'library' || requestedView === 'admin' || requestedView === 'settings' ? requestedView : 'make'
+  const view: View = requestedView === 'images' || requestedView === 'records' || requestedView === 'library' || requestedView === 'admin' || requestedView === 'settings' ? requestedView : 'make'
   const requestedAdminSection = params.get('section')
   const adminSection: AdminSection = requestedAdminSection === 'accounts' || requestedAdminSection === 'providers' || requestedAdminSection === 'security'
     ? requestedAdminSection
     : 'overview'
   return { view, detailId: view === 'make' ? params.get('task') : null, adminSection }
+}
+
+async function imageCenterOutputFile(
+  output: ImageCenterVideoHandoff['outputs'][number],
+  outfitName: string,
+  index: number,
+): Promise<File> {
+  if (output.file) return output.file
+  if (!output.url) throw new Error(`“${outfitName}”的分镜 ${index + 1} 暂无可用图片文件。`)
+  return fetchImageAssetFile(output.url, `${outfitName}-分镜-${index + 1}`)
 }
 
 const ACTIVE_PHASES = new Set(['DRAFT', 'ANALYZING', 'PREPARING', 'WAITING_FOR_SEAL', 'QUEUED', 'GENERATING', 'DOWNLOADING', 'VALIDATING'])
@@ -603,6 +622,7 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void>
   return <main className="login-view">
     <section className="login-shell" aria-label="衣影工坊账号登录">
       <aside className="login-brand-panel">
+        <LoginFlowLines />
         <ProductLogo />
         <div className="login-brand-copy">
           <span>KLING API PRODUCTION</span>
@@ -712,12 +732,13 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [elements, setElements] = useState<KlingElement[]>([])
   const [templateId, setTemplateId] = useState(() => localStorage.getItem('fixed-video-template') ?? '')
   const [siteProfileId, setSiteProfileId] = useState(() => localStorage.getItem('fixed-site-profile') ?? '')
-  const [subjectMode, setSubjectMode] = useState<SubjectInputMode>('none')
-  const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(createEmptySubjectReferenceFiles)
+  const [generationMode, setGenerationMode] = useState<'automatic' | 'custom'>(() => seed?.requirement || localStorage.getItem('fixed-generation-mode') === 'custom' ? 'custom' : 'automatic')
+  const [customPrompt, setCustomPrompt] = useState(() => seed?.requirement ?? localStorage.getItem('fixed-custom-prompt') ?? '')
+  const [subjectMode, setSubjectMode] = useState<SubjectInputMode>(() => seed?.subjectFiles?.frontalImage ? 'upload' : 'none')
+  const [subjectFiles, setSubjectFiles] = useState<SubjectReferenceFiles>(() => seed?.subjectFiles ?? createEmptySubjectReferenceFiles())
   const [elementId, setElementId] = useState('')
   const [resultCount, setResultCount] = useState(1)
   const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>('standard')
-  const [cameraTempo, setCameraTempo] = useState<'slow' | 'standard' | 'fast'>('standard')
   const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>('explicit_cuts')
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
@@ -744,7 +765,9 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     <= (system?.kling.imageInputLimit ?? 0)
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
   const selectedProfile = profiles.find((item) => item.id === siteProfileId) ?? null
-  const productionReady = selectedTemplate?.status === 'active' && selectedProfile?.status === 'active'
+  const customPromptReady = generationMode !== 'custom' || Boolean(customPrompt.trim())
+  const productionReady = selectedTemplate?.status === 'active'
+    && (generationMode === 'custom' || selectedProfile?.status === 'active')
   const templateAcceptsCount = Boolean(selectedTemplate && storyboards.length >= selectedTemplate.minImages && storyboards.length <= selectedTemplate.maxImages)
   const formLocked = busy || resetting
   useEffect(() => {
@@ -764,6 +787,12 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       .finally(() => { if (active) setCatalogLoading(false) })
     return () => { active = false }
   }, [])
+  useEffect(() => {
+    localStorage.setItem('fixed-generation-mode', generationMode)
+  }, [generationMode])
+  useEffect(() => {
+    localStorage.setItem('fixed-custom-prompt', customPrompt)
+  }, [customPrompt])
   useEffect(() => {
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
@@ -835,7 +864,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     addFiles(Array.from(event.dataTransfer.files))
   }
   const submit = async () => {
-    if (!storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount) return
+    if (!storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -876,7 +905,9 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           (reference) => uploadOne(reference.file, '分镜与主体素材'),
         ),
       ])
-      setStage(subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : '正在编译模板并执行可灵预检')
+      setStage(generationMode === 'custom'
+        ? '正在校验自定义提示词并执行可灵预检'
+        : subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : '正在编译自动化方案并执行可灵预检')
       setProgress(68)
       const sourceUploadDurationSeconds = (performance.now() - uploadStartedAt) / 1000
       const baseName = storyboards[0].file.name.replace(/\.[^.]+$/, '').trim().slice(0, 80) || '服装广告视频'
@@ -884,13 +915,14 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         `${baseName} · ${formatTime(new Date().toISOString())}`,
         uploads,
         {
+          generationMode,
+          customPrompt: generationMode === 'custom' ? customPrompt.trim() : undefined,
           templateId,
-          siteProfileId,
+          siteProfileId: generationMode === 'automatic' ? siteProfileId : undefined,
           elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
           subjectUploads,
           resultCount,
           actionIntensity,
-          cameraTempo,
           cutMode,
         },
         sourceUploadDurationSeconds,
@@ -915,7 +947,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         resetTimerRef.current = window.setTimeout(clearSubmittedMaterials, 220)
       }
       localStorage.setItem('fixed-video-template', templateId)
-      localStorage.setItem('fixed-site-profile', siteProfileId)
+      if (generationMode === 'automatic') localStorage.setItem('fixed-site-profile', siteProfileId)
     } catch (cause) {
       const failure = uploadFailure ?? cause
       setError(failure instanceof Error ? failure.message : '素材提交失败，请检查图片后重试')
@@ -926,11 +958,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     }
   }
 
-  return <section className={`composer${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-labelledby="composer-title" aria-busy={formLocked}>
-    <div className="composer-head">
-      <div><span className="section-kicker">固定模板生产</span><h2 id="composer-title">上传分镜，可选绑定一致性主体</h2><p>主体信息会根据上传的参考图自动创建。</p></div>
-      <span className="step-pill"><span>1</span> 配置并生成</span>
-    </div>
+  return <section className={`composer${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-label="视频制作配置" aria-busy={formLocked}>
     <div className="composer-inputs" inert={formLocked}>
       <div className="upload-panels upload-panels--with-subject">
         <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}`} onDragOver={(event) => {
@@ -957,39 +985,57 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           elementsLoading={elementsLoading}
           elementsError={elementCatalogError}
         />
-        <div className="fixed-workflow-options">
-          <label className="catalog-field"><span>视频模板</span><select value={templateId} disabled={formLocked || catalogLoading} onChange={(event) => setTemplateId(event.target.value)}>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedTemplate?.description ?? '正在加载模板'}</small></label>
-          <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
-          <fieldset className="result-count-field"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div><small>每个结果单独提交一次可灵生成并消耗对应灵感值</small></fieldset>
-          <details className="advanced-settings">
-            <summary><Settings size={16} />高级设置</summary>
-            <div>
-              <label className="catalog-field"><span>动作强度</span><select value={actionIntensity} onChange={(event) => setActionIntensity(event.target.value as typeof actionIntensity)}><option value="low">克制</option><option value="standard">标准</option><option value="high">增强</option></select></label>
-              <label className="catalog-field"><span>运镜节奏</span><select value={cameraTempo} onChange={(event) => setCameraTempo(event.target.value as typeof cameraTempo)}><option value="slow">舒缓</option><option value="standard">标准</option><option value="fast">明快</option></select></label>
-              <label className="catalog-field"><span>切镜方式</span><select value={cutMode} onChange={(event) => setCutMode(event.target.value as typeof cutMode)}><option value="explicit_cuts">明确切镜</option><option value="continuous_when_possible">尽量连续</option></select></label>
-            </div>
-          </details>
-        </div>
+        <section className="generation-workflow" aria-labelledby="generation-workflow-title">
+          <div className="generation-workflow-heading"><div><span>生成方式</span><h2 id="generation-workflow-title">选择提示词路线</h2></div><small>{generationMode === 'custom' ? '自定义提示词直达可灵' : '根据站点风格自动编排'}</small></div>
+          <div className="generation-routes" role="radiogroup" aria-label="生成方式">
+            <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
+              <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
+                <span className="generation-route-radio">{generationMode === 'custom' ? <Check size={14} /> : null}</span><span><strong>自定义提示词</strong><small>跳过动作库与站点风格</small></span>
+              </button>
+              <div className="generation-route-body">
+                <CustomPromptField scope="video" label="可灵提示词" value={customPrompt} disabled={formLocked || generationMode !== 'custom'} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
+              </div>
+            </article>
+
+            <article className={`generation-route generation-route--automatic${generationMode === 'automatic' ? ' is-active' : ' is-inactive'}`}>
+              <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'automatic'} disabled={formLocked} onClick={() => setGenerationMode('automatic')}>
+                <span className="generation-route-radio">{generationMode === 'automatic' ? <Check size={14} /> : null}</span><span><strong>自动化生成</strong><small>从风格与动作库生成方案</small></span>
+              </button>
+              <div className="generation-route-body">
+                <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading || generationMode !== 'automatic'} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
+                <details className="advanced-settings">
+                  <summary><Settings size={16} /><span>高级设置</span><ChevronRight size={15} /></summary>
+                  <div>
+                    <label className="catalog-field"><span>动作强度</span><select disabled={generationMode !== 'automatic'} value={actionIntensity} onChange={(event) => setActionIntensity(event.target.value as typeof actionIntensity)}><option value="low">克制</option><option value="standard">标准</option><option value="high">增强</option></select></label>
+                    <label className="catalog-field"><span>切镜方式</span><select disabled={generationMode !== 'automatic'} value={cutMode} onChange={(event) => setCutMode(event.target.value as typeof cutMode)}><option value="explicit_cuts">明确切镜</option><option value="continuous_when_possible">尽量连续</option></select></label>
+                  </div>
+                </details>
+              </div>
+            </article>
+          </div>
+        </section>
       </div>
       </div>
+    <div className="composer-submit-row" aria-live="polite">
+      <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{[1, 2, 3, 4].map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
+      {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
+        : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{resultCount} 个独立任务</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
+      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
+      {busy ? <div className="composer-submit-progress progress-track"><span style={{ width: `${progress}%` }} /></div> : null}
+    </div>
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>
         : catalogError ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{catalogError}</span></div>
           : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{klingApiStatusPresentation(system?.kling.status, system?.kling.enabled, system?.kling.reason).message} 请让管理员配置 API Key、启用通道并验证连接。</div>
-          : !productionReady && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>当前模板或站点风格为待生产验收状态，验收并激活后才能提交付费生成。</span></div>
+          : !productionReady && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{generationMode === 'automatic' ? '当前站点风格尚未通过生产验收。' : '默认生产规格当前不可用。'}</span></div>
           : !subjectReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。'}</span></div>
           : !klingInputsSupported ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />当前可灵模型最多接收 {system?.kling.imageInputLimit ?? 0} 张图片；系统不会静默丢弃分镜。</div>
             : submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div>
               : notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div>
                 : !storyboards.length ? <div className="inline-alert"><CircleAlert size={17} /><span>请至少上传 1 张分镜图</span></div>
                   : !templateAcceptsCount ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>当前模板接受 {selectedTemplate?.minImages}–{selectedTemplate?.maxImages} 张分镜图</span></div>
+                    : !customPromptReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>请输入自定义提示词，或切换到自动化生成。</span></div>
                   : null}
-    </div>
-    <div className="composer-submit-row" aria-live="polite">
-      {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
-        : <span><LockKeyhole size={14} />点击“开始生成”即确认提交 {resultCount} 个付费可灵生成任务</span>}
-      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
-      {busy ? <div className="composer-submit-progress progress-track"><span style={{ width: `${progress}%` }} /></div> : null}
     </div>
     {preview ? <ImagePreview file={preview.file} label={preview.label} onClose={() => setPreview(null)} /> : null}
   </section>
@@ -1235,7 +1281,7 @@ function PlanPanel({
   const shots = plan?.shots ?? []
   const first = shots[0]
   return <section className={`plan-panel ${stable ? 'plan-panel--stable' : 'plan-panel--dynamic'}`}>
-    <header><span className={`variant-label ${stable ? 'variant-label--a' : 'variant-label--b'}`}>{variantKindShortLabel(kind)}</span><div><h3>{variantKindDisplayName(kind)}</h3><p>{stable ? '保持人物稳定与服装结构准确，清晰展示印花和版型' : '强化广告开场、动作变化和节奏，同时保持服装准确'}</p></div></header>
+    <header><span className={`variant-label ${stable ? 'variant-label--a' : 'variant-label--b'}`}>{variantKindShortLabel(kind)}</span><div><h3>{variantKindDisplayName(kind)}</h3><p>{stable ? '保持人物稳定与服装结构准确，清晰展示印花和版型' : '强化广告开场和动作变化，同时保持服装准确'}</p></div></header>
     <div className="plan-facts"><div><span>{stable ? '视频开场' : '开场钩子'}</span><strong>{first?.shotFunction ?? (stable ? '清晰产品开场' : '强动态广告开场')}</strong></div><div><span>人物动作</span><strong>{first?.action ?? '自然动作'}</strong></div><div><span>镜头运动</span><strong>{first?.camera ?? '稳定运镜'}</strong></div><div><span>展示重点</span><strong>{first?.productDisplay ?? '服装轮廓与细节'}</strong></div></div>
     {shots.length > 1 ? <div className="shot-strip">{shots.map((shot, index) => <span key={`${shot.shotFunction}-${index}`}><strong>动作段 {index + 1}</strong><small>{[shot.entryState, shot.action, shot.exitState].filter(Boolean).join(' → ')}</small></span>)}</div> : null}
     <div className={`risk-line ${risks.length ? 'risk-line--warning' : ''}`}>{risks.length ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}<span>{risks.length ? `风险提示：${formatRiskFlags(risks)}` : '未发现明显的产品准确性风险'}</span></div>
@@ -1299,7 +1345,7 @@ function HistoricalPrompt({
   return <article className={`history-prompt${selected ? ' is-selected' : ''}`}>
     <header>
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
-      <span><strong>{variantDisplayName(variant)}</strong><small>{task.workflowKind === 'FIXED_TEMPLATE' ? '固定模板编译快照' : selected ? '将复用此提示词' : '本次不复用'}</small></span>
+      <span><strong>{variantDisplayName(variant)}</strong><small>{task.workflowKind === 'FIXED_TEMPLATE' ? task.settings?.generationMode === 'custom' ? '自定义直达快照' : '自动化编译快照' : selected ? '将复用此提示词' : '本次不复用'}</small></span>
       <button className="compact-button" type="button" onClick={() => void copy()}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? '已复制' : '复制'}</button>
     </header>
     <p>{variant.promptText}</p>
@@ -1352,6 +1398,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
   const analysis = task.analysisResult as AnalysisResult | null
   const provider = providerPresentation(task.generationProvider)
   const isFixedWorkflow = task.workflowKind === 'FIXED_TEMPLATE'
+  const isCustomWorkflow = isFixedWorkflow && task.settings?.generationMode === 'custom'
   const stable = task.variants.find((variant) => variant.kind === 'STABLE')
   const dynamic = task.variants.find((variant) => variant.kind === 'DYNAMIC')
   const savePrompts = async (sourceTask = task) => {
@@ -1371,7 +1418,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
     }
     const instruction = mode === 'MODIFY'
       ? typedInstruction
-      : `重新生成${kind === 'STABLE' ? '稳定展示' : '动态广告'}方案，在不改变服装事实和方案定位的前提下优化动作、镜头和节奏。`
+      : `重新生成${kind === 'STABLE' ? '稳定展示' : '动态广告'}方案，在不改变服装事实和方案定位的前提下优化动作和镜头。`
     setBusy(true)
     setActiveRevision({ kind, mode })
     setError('')
@@ -1447,7 +1494,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
       </header>
       <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', '可灵生成', '结果'] : ['素材', '分析', '方案', provider.kind === 'kling' ? '可灵生成' : '历史任务生成', '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
       <div className="drawer-content">
-        <section className="source-summary"><div className="source-assets">{[...task.assets].sort((a, b) => a.order - b.order).map((asset, index) => <figure key={asset.id}><AuthenticatedImage src={asset.thumbnailUrl} alt={asset.originalFilename} /><figcaption>{asset.role === 'PRODUCT' || asset.usedForGeneration === false ? '产品图' : `分镜 ${index + 1}`}</figcaption></figure>)}</div><div className="garment-summary"><span>{isFixedWorkflow ? '固定模板快照' : '服装识别摘要'}</span><strong>{isFixedWorkflow ? `${task.templateId ?? '未知模板'} · ${task.siteProfileId ?? '未知站点'}` : [analysis?.garmentFacts?.category, analysis?.garmentFacts?.mainColor, analysis?.garmentFacts?.fit].filter(Boolean).join(' · ') || '正在整理服装信息'}</strong><p>{isFixedWorkflow ? `动作 ${String(task.settings?.actionIntensity ?? 'standard')} · 运镜 ${String(task.settings?.cameraTempo ?? 'standard')} · ${task.variants.length} 个结果` : analysis?.consistencyObservations?.summary ?? '系统将优先保持服装结构、颜色、印花和文字准确。'}</p></div></section>
+        <section className="source-summary"><div className="source-assets">{[...task.assets].sort((a, b) => a.order - b.order).map((asset, index) => <figure key={asset.id}><AuthenticatedImage src={asset.thumbnailUrl} alt={asset.originalFilename} /><figcaption>{asset.role === 'PRODUCT' || asset.usedForGeneration === false ? '产品图' : `分镜 ${index + 1}`}</figcaption></figure>)}</div><div className="garment-summary"><span>{isCustomWorkflow ? '自定义直达快照' : isFixedWorkflow ? '自动化生成快照' : '服装识别摘要'}</span><strong>{isCustomWorkflow ? '自定义提示词 · 默认生产规格' : isFixedWorkflow ? `${task.siteProfileId ?? '未知站点'} · 自动编排` : [analysis?.garmentFacts?.category, analysis?.garmentFacts?.mainColor, analysis?.garmentFacts?.fit].filter(Boolean).join(' · ') || '正在整理服装信息'}</strong><p>{isCustomWorkflow ? `提示词原文直达 · ${task.variants.length} 个结果` : isFixedWorkflow ? `动作 ${String(task.settings?.actionIntensity ?? 'standard')} · ${task.variants.length} 个结果` : analysis?.consistencyObservations?.summary ?? '系统将优先保持服装结构、颜色、印花和文字准确。'}</p></div></section>
         {analysisFailure ? <section className="analysis-recovery" role="alert">
           <span className="analysis-recovery-icon"><AlertTriangle size={22} /></span>
           <div><span>方案尚未生成</span><h2>{taskStatus(task).label}</h2><p>{taskFailureMessage(task)} 重新分析会继续使用当前素材，并按素材数量重新计算等待时间。</p></div>
@@ -1564,7 +1611,7 @@ function HomeView({ tasks, seed, system, actorId, onCreated, onOpen, onView, onP
     })
   }
   return <div className="home-view">
-    <div className="home-title"><div><span className="page-eyebrow">Creative Production</span><h1>开始制作</h1><p>上传素材，创建一条服装广告视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
+    <div className="home-title"><div><h1>视频制作</h1><p>上传分镜与主体素材，选择自定义或自动化路线生成视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
       <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} />
     </div>
@@ -1621,7 +1668,8 @@ function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, 
   </div>
 }
 
-type ContentLibraryTab = 'actions' | 'styles' | 'subjects'
+type ContentLibraryScope = 'general' | 'brand' | 'subjects'
+type ContentLibraryKind = 'actions' | 'styles'
 type ActionCategoryFilter = MotionActionSummary['category'] | 'all'
 
 const ACTION_CATEGORY_LABELS: Record<MotionActionSummary['category'], string> = {
@@ -1637,10 +1685,13 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
   canDeleteSubjects: boolean
   canEditCatalog: boolean
 }) {
-  const [tab, setTab] = useState<ContentLibraryTab>('actions')
+  const [scope, setScope] = useState<ContentLibraryScope>('general')
+  const [kind, setKind] = useState<ContentLibraryKind>('actions')
+  const tab = scope === 'subjects' ? 'subjects' : kind
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const [category, setCategory] = useState<ActionCategoryFilter>('all')
+  const [brandFilter, setBrandFilter] = useState('all')
   const [actions, setActions] = useState<MotionActionSummary[]>([])
   const [profiles, setProfiles] = useState<SiteStyleProfileSummary[]>([])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
@@ -1648,8 +1699,8 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
   const [error, setError] = useState('')
   const [copiedActionId, setCopiedActionId] = useState('')
   const [editor, setEditor] = useState<
-    | { kind: 'action'; item?: MotionActionSummary }
-    | { kind: 'style'; item?: SiteStyleProfileSummary }
+    | { kind: 'action'; item?: MotionActionSummary; initialScope?: 'general' | 'brand' }
+    | { kind: 'style'; item?: SiteStyleProfileSummary; initialScope?: 'general' | 'brand' }
     | null
   >(null)
 
@@ -1679,6 +1730,8 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     [actions],
   )
   const visibleActions = useMemo(() => actions.filter((action) => {
+    if (action.libraryScope !== scope) return false
+    if (scope === 'brand' && brandFilter !== 'all' && action.brandId !== brandFilter) return false
     if (category !== 'all' && action.category !== category) return false
     if (!deferredQuery) return true
     return [
@@ -1690,12 +1743,15 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
       ...action.requirements,
       ...action.avoid,
     ].join(' ').toLowerCase().includes(deferredQuery)
-  }), [actions, category, deferredQuery])
+  }), [actions, brandFilter, category, deferredQuery, scope])
   const visibleProfiles = useMemo(() => profiles.filter((profile) => {
+    if (profile.libraryScope !== scope) return false
+    if (scope === 'brand' && brandFilter !== 'all' && profile.brandId !== brandFilter) return false
     if (!deferredQuery) return true
     return [
       profile.name,
       profile.tone,
+      profile.expressionLanguage,
       profile.audience,
       profile.cameraLanguage,
       profile.openingRule,
@@ -1705,8 +1761,18 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
       ...profile.productPriorities,
       ...profile.preferredActions.map((id) => actionNames.get(id) ?? id),
     ].join(' ').toLowerCase().includes(deferredQuery)
-  }), [actionNames, deferredQuery, profiles])
-  const verifiedCount = profiles.filter((profile) => profile.evidenceLevel === 'verified_site').length
+  }), [actionNames, brandFilter, deferredQuery, profiles, scope])
+  const generalActionCount = actions.filter((action) => action.libraryScope === 'general').length
+  const generalStyleCount = profiles.filter((profile) => profile.libraryScope === 'general').length
+  const brandActionCount = actions.filter((action) => action.libraryScope === 'brand').length
+  const brandStyleCount = profiles.filter((profile) => profile.libraryScope === 'brand').length
+  const brandNames = useMemo(
+    () => new Map(profiles.filter((profile) => profile.libraryScope === 'brand').map((profile) => [profile.id, profile.name])),
+    [profiles],
+  )
+  const hasActiveLibraryFilters = Boolean(deferredQuery)
+    || (scope === 'brand' && brandFilter !== 'all')
+    || (tab === 'actions' && category !== 'all')
 
   const copyAction = async (action: MotionActionSummary) => {
     await navigator.clipboard.writeText(action.instruction)
@@ -1734,27 +1800,34 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
 
   return <div className="page-view content-library-view">
     <div className="page-title content-library-title">
-      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>统一管理动作提示、站点风格与可复用的可灵主体。</p></div>
-      {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索站点、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作提示词' : '搜索站点视频风格'} /></label> : null}
+      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p></div>
+      {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} /></label> : null}
     </div>
 
     <section className="library-overview" aria-label="内容库概览">
-      <div><span className="library-overview-icon library-overview-icon--blue"><Activity size={20} /></span><span><small>动作原子</small><strong>{actions.length}</strong><em>5 类可组合动作</em></span></div>
-      <div><span className="library-overview-icon library-overview-icon--violet"><Clapperboard size={20} /></span><span><small>站点风格</small><strong>{profiles.length}</strong><em>独立版本与证据状态</em></span></div>
-      <div><span className="library-overview-icon library-overview-icon--green"><ShieldCheck size={20} /></span><span><small>站点已验证</small><strong>{verifiedCount}</strong><em>{Math.max(0, profiles.length - verifiedCount)} 个仍需补充证据</em></span></div>
+      <div><span className="library-overview-icon library-overview-icon--blue"><Activity size={20} /></span><span><small>通用动作</small><strong>{generalActionCount}</strong><em>跨品牌复用</em></span></div>
+      <div><span className="library-overview-icon library-overview-icon--green"><Clapperboard size={20} /></span><span><small>通用风格</small><strong>{generalStyleCount}</strong><em>不绑定品牌</em></span></div>
+      <div><span className="library-overview-icon library-overview-icon--violet"><LockKeyhole size={20} /></span><span><small>品牌风格</small><strong>{brandStyleCount}</strong><em>独立版本与证据</em></span></div>
+      <div><span className="library-overview-icon library-overview-icon--orange"><WandSparkles size={20} /></span><span><small>品牌动作</small><strong>{brandActionCount}</strong><em>仅限所属品牌</em></span></div>
     </section>
 
-    <div className="library-toolbar">
-      <div className="library-tabs" role="tablist" aria-label="内容库类型">
-        <button type="button" role="tab" aria-selected={tab === 'actions'} className={tab === 'actions' ? 'is-active' : ''} onClick={() => setTab('actions')}><Activity size={17} />动作提示词<span>{actions.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === 'styles'} className={tab === 'styles' ? 'is-active' : ''} onClick={() => setTab('styles')}><Clapperboard size={17} />站点视频风格<span>{profiles.length}</span></button>
-        <button type="button" role="tab" aria-selected={tab === 'subjects'} className={tab === 'subjects' ? 'is-active' : ''} onClick={() => setTab('subjects')}><Package size={17} />历史主体</button>
+    <div className="library-scope-tabs" role="tablist" aria-label="内容库归属">
+      <button type="button" role="tab" aria-selected={scope === 'general'} className={scope === 'general' ? 'is-active' : ''} onClick={() => { setScope('general'); setBrandFilter('all') }}><Globe2 size={18} /><span><strong>通用内容</strong><small>所有品牌可复用</small></span></button>
+      <button type="button" role="tab" aria-selected={scope === 'brand'} className={scope === 'brand' ? 'is-active' : ''} onClick={() => setScope('brand')}><LockKeyhole size={18} /><span><strong>品牌专属</strong><small>按品牌隔离使用</small></span></button>
+      <button type="button" role="tab" aria-selected={scope === 'subjects'} className={scope === 'subjects' ? 'is-active' : ''} onClick={() => setScope('subjects')}><Package size={18} /><span><strong>历史主体</strong><small>可灵主体资产</small></span></button>
+    </div>
+
+    {scope !== 'subjects' ? <div className="library-toolbar">
+      <div className="library-tabs" role="tablist" aria-label={`${scope === 'general' ? '通用' : '品牌专属'}内容类型`}>
+        <button type="button" role="tab" aria-selected={kind === 'actions'} className={kind === 'actions' ? 'is-active' : ''} onClick={() => setKind('actions')}><Activity size={17} />动作库<span>{scope === 'general' ? generalActionCount : brandActionCount}</span></button>
+        <button type="button" role="tab" aria-selected={kind === 'styles'} className={kind === 'styles' ? 'is-active' : ''} onClick={() => setKind('styles')}><Clapperboard size={17} />风格库<span>{scope === 'general' ? generalStyleCount : brandStyleCount}</span></button>
       </div>
       <div className="library-toolbar-actions">
-        {tab === 'actions' ? <label className="library-filter"><span>动作分类</span><select value={category} onChange={(event) => setCategory(event.target.value as ActionCategoryFilter)}><option value="all">全部分类</option>{Object.entries(ACTION_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : tab === 'styles' ? <span className="library-safety-note"><ShieldCheck size={16} />研究版风格不会自动进入付费生产</span> : null}
-        {canEditCatalog && tab !== 'subjects' ? <button type="button" className="primary-button library-add-button" onClick={() => setEditor({ kind: tab === 'actions' ? 'action' : 'style' })}><Plus size={16} />新增{tab === 'actions' ? '动作' : '风格'}</button> : null}
+        {scope === 'brand' ? <label className="library-filter"><span>品牌</span><select value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}><option value="all">全部品牌</option>{[...brandNames].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label> : null}
+        {tab === 'actions' ? <label className="library-filter"><span>分类</span><select value={category} onChange={(event) => setCategory(event.target.value as ActionCategoryFilter)}><option value="all">全部分类</option>{Object.entries(ACTION_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label> : <span className="library-safety-note"><ShieldCheck size={16} />草稿风格不会自动进入付费生产</span>}
+        {canEditCatalog ? <button type="button" className="primary-button library-add-button" onClick={() => setEditor({ kind: tab === 'actions' ? 'action' : 'style', initialScope: scope })}><Plus size={16} />新增{scope === 'brand' ? '品牌' : '通用'}{tab === 'actions' ? '动作' : '风格'}</button> : null}
       </div>
-    </div>
+    </div> : null}
 
     {tab !== 'subjects' && loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
     {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
@@ -1762,10 +1835,11 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     {!loading && !error && tab === 'actions' ? <section className="action-library-grid" aria-label="动作提示词列表">
       {visibleActions.map((action) => <article className="action-library-card" key={action.id}>
         <header>
-          <span className={`action-category action-category--${action.category}`}>{ACTION_CATEGORY_LABELS[action.category]}</span>
+          <div className="library-card-labels"><span className={`action-category action-category--${action.category}`}>{ACTION_CATEGORY_LABELS[action.category]}</span>{action.brandId ? <span className="library-brand-label"><LockKeyhole size={11} />{brandNames.get(action.brandId) ?? action.brandId}</span> : null}</div>
           <span className={action.riskLevel === 'conditional' ? 'library-status library-status--warning' : 'library-status'}>{action.riskLevel === 'conditional' ? '需满足前提' : '低风险'}</span>
         </header>
         <div className="action-card-title"><div><h2>{action.label}</h2><code>{action.id}</code></div><span className="library-card-actions">{canEditCatalog ? <button type="button" className="icon-button" onClick={() => setEditor({ kind: 'action', item: action })} aria-label={`编辑${action.label}`} title="编辑动作"><Pencil size={16} /></button> : null}<button type="button" className="icon-button" onClick={() => void copyAction(action)} aria-label={`复制${action.label}提示词`} title="复制提示词">{copiedActionId === action.id ? <Check size={17} /> : <Copy size={17} />}</button></span></div>
+        {action.baseActionId ? <p className="library-inheritance"><ChevronRight size={14} />基于通用动作：{actionNames.get(action.baseActionId) ?? action.baseActionId}</p> : null}
         <p className="action-instruction">{action.instruction}</p>
         <div className="action-purpose"><span>商品目的</span><p>{action.purpose}</p></div>
         <div className="library-chip-group"><span>适用模板</span><div>{action.compatibleTemplates.map((id) => <i key={id}>{templateNames.get(id) ?? id}</i>)}</div></div>
@@ -1776,10 +1850,11 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     {!loading && !error && tab === 'styles' ? <section className="style-library-grid" aria-label="站点视频风格列表">
       {visibleProfiles.map((profile) => <article className="style-library-card" key={profile.id}>
         <header>
-          <div><span className={profile.evidenceLevel === 'verified_site' ? 'library-status library-status--verified' : 'library-status library-status--warning'}>{profile.evidenceLevel === 'verified_site' ? '站点已验证' : '证据受限'}</span><span className="library-version">{profile.version}</span></div>
+          <div><span className={profile.evidenceLevel === 'verified_site' ? 'library-status library-status--verified' : 'library-status library-status--warning'}>{profile.evidenceLevel === 'verified_site' ? (profile.libraryScope === 'brand' ? '站点已验证' : '规则已验证') : '证据受限'}</span><span className="library-version">{profile.version}</span></div>
           {canEditCatalog ? <button type="button" className="secondary-button library-edit-button" onClick={() => setEditor({ kind: 'style', item: profile })}><Pencil size={15} />编辑风格</button> : null}
         </header>
         <div className="style-card-title"><div><h2>{profile.name}</h2><p>{profile.tone}</p></div><span className="style-card-mark"><Clapperboard size={20} /></span></div>
+        <div className="style-expression"><span title="人物表达"><UserRound size={15} /></span><p>{profile.expressionLanguage}</p></div>
         <div className="style-grammar">
           <div><span>开</span><p>{profile.openingRule}</p></div>
           <div><span>承</span><p>{profile.middleRule}</p></div>
@@ -1798,8 +1873,8 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
 
     {tab === 'subjects' ? <KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /> : null}
 
-    {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={<Search size={24} />} title="没有匹配内容" description="换一个关键词或清除分类筛选后再试。" /> : null}
-    {editor ? <CatalogEditor target={editor} actions={actions} templates={templates} onClose={() => setEditor(null)} onSaved={catalogSaved} /> : null}
+    {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={scope === 'brand' ? <LockKeyhole size={24} /> : <Search size={24} />} title={hasActiveLibraryFilters ? '没有匹配内容' : `还没有${scope === 'brand' ? '品牌专属' : '通用'}${tab === 'actions' ? '动作' : '风格'}`} description={hasActiveLibraryFilters ? '换一个关键词或清除筛选后再试。' : canEditCatalog ? `使用右上角按钮新增第一条${tab === 'actions' ? '动作' : '风格'}。` : '当前库尚未录入内容。'} /> : null}
+    {editor ? <CatalogEditor target={editor} actions={actions} profiles={profiles} templates={templates} onClose={() => setEditor(null)} onSaved={catalogSaved} /> : null}
   </div>
 }
 
@@ -2032,6 +2107,149 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
         <label htmlFor="kling-submit-concurrency"><strong>提交并发</strong><input id="kling-submit-concurrency" type="number" min={1} max={20} step={1} value={draft.maxSubmitConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxSubmitConcurrency', Number(event.target.value))} /><small>允许范围 1–20</small></label>
         <label htmlFor="kling-poll-concurrency"><strong>查询并发</strong><input id="kling-poll-concurrency" type="number" min={1} max={50} step={1} value={draft.maxPollConcurrency} disabled={busy !== null} onChange={(event) => updateDraft('maxPollConcurrency', Number(event.target.value))} /><small>允许范围 1–50</small></label>
         <label className="kling-inline-switch"><span><strong>多镜头</strong><small>允许模型在一次生成中规划多个镜头</small></span><span className="settings-switch"><input type="checkbox" checked={draft.multiShot} disabled={busy !== null} aria-label="启用可灵多镜头" onChange={(event) => updateDraft('multiShot', event.target.checked)} /><span aria-hidden="true" /></span></label>
+      </div>
+    </> : null}
+
+    <div className="kling-provider-feedback" aria-live="polite" aria-atomic="true">
+      {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
+      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
+    </div>
+  </form>
+}
+
+type WaveSpeedConfigDraft = {
+  enabled: boolean
+  baseUrl: string
+  apiKey: string
+  clearApiKey: boolean
+}
+
+function waveSpeedDraft(config: WaveSpeedConfig): WaveSpeedConfigDraft {
+  return { enabled: config.enabled, baseUrl: config.baseUrl, apiKey: '', clearApiKey: false }
+}
+
+function WaveSpeedProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
+  const [config, setConfig] = useState<WaveSpeedConfig | null>(null)
+  const [draft, setDraft] = useState<WaveSpeedConfigDraft | null>(null)
+  const [busy, setBusy] = useState<'load' | 'save' | 'verify' | null>(null)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy('load')
+    try {
+      const next = await getWaveSpeedConfig(adminId)
+      setConfig(next)
+      setDraft(waveSpeedDraft(next))
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取 WaveSpeed API 配置')
+    } finally { setBusy(null) }
+  }, [adminId])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const updateDraft = <K extends keyof WaveSpeedConfigDraft>(key: K, value: WaveSpeedConfigDraft[K]) => {
+    setDraft((current) => current ? { ...current, [key]: value } : current)
+    setNotice('')
+    setError('')
+  }
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!config || !draft) return
+    let parsedUrl: URL
+    try { parsedUrl = new URL(draft.baseUrl.trim()) } catch { setError('请输入有效的 WaveSpeed API 根地址。'); return }
+    if (!['https:', 'http:'].includes(parsedUrl.protocol)) { setError('WaveSpeed API 地址必须使用 HTTP 或 HTTPS。'); return }
+    setBusy('save')
+    setNotice('')
+    setError('')
+    try {
+      const next = await updateWaveSpeedConfig(adminId, {
+        enabled: draft.enabled,
+        baseUrl: draft.baseUrl.trim(),
+        ...(draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
+        ...(draft.clearApiKey ? { clearApiKey: true } : {}),
+      })
+      setConfig(next)
+      setDraft(waveSpeedDraft(next))
+      setNotice('WaveSpeed API 配置已保存，后续新生图任务将使用新配置。')
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : 'WaveSpeed API 配置保存失败')
+    } finally { setBusy(null) }
+  }
+
+  const verify = async () => {
+    setBusy('verify')
+    setNotice('')
+    setError('')
+    try {
+      const next = await verifyWaveSpeedConfig(adminId)
+      setConfig(next)
+      setDraft((current) => current ? { ...current, enabled: next.enabled, baseUrl: next.baseUrl } : waveSpeedDraft(next))
+      setNotice('WaveSpeed 连接状态已刷新；验证不会创建图片任务。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : 'WaveSpeed API 连接验证失败')
+    } finally { setBusy(null) }
+  }
+
+  const credentialLabel = config?.credentialSource === 'admin'
+    ? '管理员安全配置'
+    : config?.credentialSource === 'environment'
+      ? '环境变量配置'
+      : '未配置'
+  const statusLabel = config?.available ? '连接可用' : config?.enabled ? '等待验证' : '已停用'
+  const apiKeyWillExist = Boolean(draft?.apiKey.trim()) || Boolean(config?.apiKeyConfigured && !draft?.clearApiKey)
+  const hasChanges = Boolean(config && draft && (
+    config.enabled !== draft.enabled
+    || config.baseUrl !== draft.baseUrl.trim()
+    || draft.apiKey.trim()
+    || draft.clearApiKey
+  ))
+
+  return <form className="settings-section wavespeed-provider-section" onSubmit={(event) => void save(event)}>
+    <div className="settings-section-heading">
+      <div><span>WaveSpeed AI</span><h2>图片生成 API</h2><p>为图片中心提供 GPT Image 2 和 Nano Banana 2。密钥保存后不会在页面回显。</p></div>
+      <div className="provider-actions">
+        <button className="secondary-button" type="button" disabled={busy !== null || !config?.enabled || !config.apiKeyConfigured} onClick={() => void verify()}><RefreshCw className={busy === 'verify' ? 'spin' : ''} size={16} />验证 API 状态</button>
+        <button className="primary-button" type="submit" disabled={busy !== null || !hasChanges}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在保存' : '保存 API 配置'}</button>
+      </div>
+    </div>
+
+    {busy === 'load' && !draft ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取 WaveSpeed 配置…</div> : null}
+    {draft ? <>
+      <div className="kling-provider-toolbar">
+        <div className="api-status-card">
+          <div className="api-status-card-icon"><Images size={20} /></div>
+          <div><small>WaveSpeed API 状态</small><strong>{statusLabel}</strong><span>{config?.reason || `凭据来源：${credentialLabel}`}</span></div>
+          <span className={`api-status-state is-${config?.available ? 'success' : config?.enabled ? 'warning' : 'neutral'}`}>{busy === 'verify' ? <LoaderCircle className="spin" size={13} /> : config?.available ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{statusLabel}</span>
+        </div>
+        <div className="kling-enabled-control">
+          <span><strong>启用 WaveSpeed</strong><small>{draft.enabled ? '验证通过后允许图片中心提交付费任务' : '图片中心不会提交新的 WaveSpeed 任务'}</small></span>
+          <label className="settings-switch"><input type="checkbox" checked={draft.enabled} disabled={busy !== null} aria-label="启用 WaveSpeed Provider" onChange={(event) => updateDraft('enabled', event.target.checked)} /><span aria-hidden="true" /></label>
+        </div>
+      </div>
+
+      <div className="kling-config-block">
+        <div className="kling-config-heading"><div><strong>API 凭据</strong><small>新 Key 仅发送到服务端加密保存，GET 和 PATCH 响应均不包含密钥原文。</small></div><span className={apiKeyWillExist ? 'is-configured' : 'is-missing'}>{credentialLabel}</span></div>
+        <div className="kling-api-key-row">
+          <div className="credential-field">
+            <label htmlFor="wavespeed-api-key"><strong>WaveSpeed API Key</strong><small>{config?.apiKeyConfigured && !draft.clearApiKey ? '输入新 Key 将替换当前配置' : '保存后输入框自动清空'}</small></label>
+            <div className="secret-input"><LockKeyhole size={16} /><input id="wavespeed-api-key" type="password" value={draft.apiKey} disabled={busy !== null} onChange={(event) => setDraft((current) => current ? { ...current, apiKey: event.target.value, clearApiKey: false } : current)} placeholder={config?.apiKeyConfigured && !draft.clearApiKey ? '已配置 · 输入新 Key 进行替换' : '输入 WaveSpeed API Key'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} aria-describedby="wavespeed-api-key-help" /></div>
+            <small id="wavespeed-api-key-help">留空不会覆盖现有 Key；已保存的 Key 永不回显。</small>
+          </div>
+          <button className="danger-button" type="button" disabled={busy !== null || (config?.credentialSource !== 'admin' && !draft.apiKey)} onClick={() => setDraft((current) => current ? { ...current, apiKey: '', clearApiKey: !current.clearApiKey } : current)}>{draft.clearApiKey ? <RotateCcw size={15} /> : <X size={15} />}{draft.clearApiKey ? '取消清除' : '清除后台 Key'}</button>
+        </div>
+        {draft.clearApiKey ? <div className="inline-alert inline-alert--warning"><AlertTriangle size={16} />保存后将清除管理员配置的 Key。环境变量存在时将自动切换到环境变量。</div> : null}
+      </div>
+
+      <div className="wavespeed-endpoint-row">
+        <label htmlFor="wavespeed-base-url"><strong>API 根地址</strong><div className="secret-input"><Globe2 size={16} /><input id="wavespeed-base-url" type="url" value={draft.baseUrl} disabled={busy !== null} onChange={(event) => updateDraft('baseUrl', event.target.value)} placeholder="https://api.wavespeed.ai/api/v3" autoComplete="url" spellCheck={false} maxLength={2048} /></div><small>由服务端校验并用于后续新任务；已提交任务不受影响。</small></label>
+        <dl><dt>凭据来源</dt><dd>{credentialLabel}</dd><dt>服务状态</dt><dd>{config?.status || 'UNKNOWN'}</dd><dt>最近验证</dt><dd>{config?.checkedAt ? new Date(config.checkedAt).toLocaleString('zh-CN') : '尚未验证'}</dd></dl>
       </div>
     </> : null}
 
@@ -2362,7 +2580,7 @@ function AdminCenterView({
   const sections: Array<{ value: AdminSection; label: string; description: string; icon: React.ReactNode }> = [
     { value: 'overview', label: '运行总览', description: '生产开关、队列与告警', icon: <Activity size={17} /> },
     ...(isAdmin ? [{ value: 'accounts' as const, label: '成员账号', description: '创建、重置与停用', icon: <UserRound size={17} /> }] : []),
-    { value: 'providers', label: '可灵官方 API', description: '密钥、端点与能力验证', icon: <Clapperboard size={17} /> },
+    { value: 'providers', label: '生成提供商', description: '视频与图片 API 配置', icon: <Clapperboard size={17} /> },
     { value: 'security', label: '流程与分析', description: '确认策略和分析服务', icon: <KeyRound size={17} /> },
   ]
   if (!canOperate) return <div className="page-view"><EmptyState icon={<ShieldCheck size={24} />} title="没有管理中心权限" description="请联系管理员为当前账号分配运营或管理员角色。" /></div>
@@ -2388,7 +2606,8 @@ function AdminCenterView({
       {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
         <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
-      </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="可灵官方 API 密钥、端点与能力验证仅允许管理员修改。" /> : null}
+        <WaveSpeedProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
+      </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="生成提供商的密钥、端点与连接验证仅允许管理员修改。" /> : null}
       {section === 'security' ? <>
         <PromptConfirmationSetting adminId={actor!.userId} />
         {isAdmin ? <ProviderCredentials adminId={actor!.userId} /> : <EmptyState icon={<KeyRound size={24} />} title="凭据由管理员维护" description="你仍可管理生产确认流程，但不能查看或修改服务凭据。" />}
@@ -2490,6 +2709,7 @@ function App() {
   const notificationBaselineReadyRef = useRef(false)
   const activeNotificationsRef = useRef<Map<string, Notification>>(new Map())
   const notificationAudioContextRef = useRef<AudioContext | null>(null)
+  const pendingImageVideoSeedsRef = useRef<RemixSeed[]>([])
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -2889,14 +3109,48 @@ function App() {
       setRemixStage(null)
     }
   }
+  const prepareImageCenterVideos = async (handoffs: ImageCenterVideoHandoff[]) => {
+    if (!handoffs.length) return
+    setError('')
+    try {
+      const seeds = await Promise.all(handoffs.map(async ({ task, outputs, subjectSource }) => {
+        const storyboards = await Promise.all(outputs.slice(0, 6).map((output, index) => imageCenterOutputFile(output, task.outfitName, index)))
+        const selectedSubject = subjectSource === 'product-front'
+          ? task.product.front
+          : subjectSource === 'product-back'
+            ? task.product.back
+            : storyboards[0]
+        if (!selectedSubject) throw new Error(`“${task.outfitName}”缺少可用主体图。`)
+        return {
+          id: createUuid(),
+          storyboards,
+          products: [task.product.front, task.product.back].filter((file): file is File => Boolean(file)),
+          subjectFiles: {
+            frontalImage: selectedSubject,
+            backImage: null,
+            detailImages: [],
+          },
+          requirement: task.prompt.storyboard || task.prompt.fusion,
+        }
+      }))
+      pendingImageVideoSeedsRef.current = seeds.slice(1)
+      setSeed(seeds[0])
+      navigate('make')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '无法准备图片中心的视频素材')
+    }
+  }
   const play = (task: Task, variant: Variant) => {
     if (!variant.downloadArtifactId) { navigate('make', task.id); return }
     setVideo({ artifactId: variant.downloadArtifactId, title: `${task.title} · ${variantDisplayName(variant)}` })
   }
   const created = useCallback((task: Task, open = false) => {
     setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)])
-    setSeed(null)
+    const nextSeed = pendingImageVideoSeedsRef.current.shift() ?? null
+    setSeed(nextSeed)
     if (open) navigate('make', task.id)
+    else if (nextSeed) navigate('make')
   }, [navigate])
   const feedbackChanged = useCallback((changed: Task) => {
     setTasks((current) => current.map((task) => task.id === changed.id ? changed : task))
@@ -2917,14 +3171,20 @@ function App() {
     setAuthRequired(true)
   }
 
+  if (loading && !actor && !authRequired) {
+    return <main className="app-boot-screen"><div role="status" aria-label="正在连接生产服务"><LoaderCircle className="spin" size={22} /></div></main>
+  }
+
   const canOperate = actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'
   const nav: Array<{ value: View; label: string; icon: React.ReactNode; badge?: number }> = [
-    { value: 'make', label: '制作', icon: <Plus size={18} /> },
+    { value: 'images', label: '图片中心', icon: <Images size={18} /> },
+    { value: 'make', label: '视频制作', icon: <Plus size={18} /> },
     { value: 'records', label: '任务', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
     { value: 'library', label: '内容库', icon: <Library size={18} /> },
     ...(canOperate ? [{ value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
     { value: 'settings', label: '设置', icon: <Settings size={18} /> },
   ]
+  const mobileNav = nav.filter((item) => item.value !== 'admin')
   if (system?.sharedAuthentication && authRequired) {
     return <LoginScreen onAuthenticated={async () => { setLoading(true); await refresh() }} />
   }
@@ -2950,6 +3210,7 @@ function App() {
         <button className="secondary-button" type="button" onClick={() => void enableBrowserNotifications()}>开启通知</button>
         <button className="icon-button" type="button" aria-label="暂不开启通知" title="暂不开启" onClick={() => setNotificationPromptDismissed(true)}><X size={17} /></button>
       </div> : null}
+      {view === 'images' ? <ImageCenter onPrepareVideos={(handoffs) => void prepareImageCenterVideos(handoffs)} /> : null}
       {view === 'make' && !selectedTask ? <HomeView tasks={tasks} seed={seed} system={system} actorId={system?.sharedAuthentication ? null : actor?.userId ?? null} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
       {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} /> : null}
@@ -2969,7 +3230,7 @@ function App() {
       /> : null}
       </>}</main>
     </div>
-    <nav className="mobile-nav" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>{nav.map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
+    <nav className="mobile-nav" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}>{mobileNav.map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
     <InPageTaskToasts
       toasts={inPageTaskToasts}
       onOpen={(toast) => {

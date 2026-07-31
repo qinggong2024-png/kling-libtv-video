@@ -14,9 +14,7 @@ async def test_recovery_reschedules_future_retry_and_resets_interrupted_job(
     tmp_path,
     monkeypatch,
 ) -> None:
-    database = Database(
-        f"sqlite+aiosqlite:///{(tmp_path / 'subject-recovery.db').as_posix()}"
-    )
+    database = Database(f"sqlite+aiosqlite:///{(tmp_path / 'subject-recovery.db').as_posix()}")
     async with database.engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
 
@@ -70,10 +68,7 @@ async def test_recovery_reschedules_future_retry_and_resets_interrupted_job(
         (interrupted_task_id, user_id),
     }
     async with database.session_factory() as session:
-        jobs = {
-            job.parent_task_id: job
-            for job in await session.scalars(select(SubjectElementJob))
-        }
+        jobs = {job.parent_task_id: job for job in await session.scalars(select(SubjectElementJob))}
     assert jobs[future_retry_task_id].status == "FAILED"
     assert jobs[future_retry_task_id].next_attempt_at is not None
     assert jobs[interrupted_task_id].status == "PENDING"

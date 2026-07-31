@@ -79,6 +79,32 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PromptPreset(Base):
+    __tablename__ = "prompt_preset"
+    __table_args__ = (
+        UniqueConstraint("user_id", "scope", "name", name="uq_prompt_preset_user_scope_name"),
+        Index(
+            "ix_prompt_preset_user_scope_order",
+            "user_id",
+            "scope",
+            "sort_order",
+            "created_at",
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    scope: Mapped[str] = mapped_column(String(32), default="video")
+    name: Mapped[str] = mapped_column(String(80))
+    content: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CatalogEntry(Base):
     __tablename__ = "catalog_entry"
     __table_args__ = (
@@ -89,12 +115,8 @@ class CatalogEntry(Base):
     entry_type: Mapped[str] = mapped_column(String(32))
     entry_id: Mapped[str] = mapped_column(String(80))
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
-    updated_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("app_user.id", ondelete="RESTRICT")
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id", ondelete="RESTRICT"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -671,6 +693,99 @@ class SubjectElementJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class ImageGenerationBatch(Base):
+    """A user-owned, idempotent collection of paid WaveSpeed predictions."""
+
+    __tablename__ = "image_generation_batch"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_image_batch_user_idempotency"),
+        Index("ix_image_batch_user_created", "user_id", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    client_batch_id: Mapped[str] = mapped_column(String(160))
+    idempotency_key: Mapped[str] = mapped_column(String(200))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(160))
+    provider: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="CREATED", index=True)
+    expected_generation_count: Mapped[int] = mapped_column(Integer)
+    paid_submission_consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    request_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    error_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    items: Mapped[list["ImageGenerationItem"]] = relationship(
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ImageGenerationItem.order_no",
+    )
+
+
+class ImageGenerationItem(Base):
+    __tablename__ = "image_generation_item"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "order_no", name="uq_image_item_batch_order"),
+        Index("ix_image_item_provider_task", "provider_task_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("image_generation_batch.id", ondelete="CASCADE"), index=True
+    )
+    order_no: Mapped[int] = mapped_column(Integer)
+    client_task_id: Mapped[str] = mapped_column(String(160))
+    outfit_id: Mapped[str] = mapped_column(String(160))
+    outfit_name: Mapped[str] = mapped_column(String(160))
+    sku: Mapped[str] = mapped_column(String(160), default="")
+    kind: Mapped[str] = mapped_column(String(24))
+    view: Mapped[str] = mapped_column(String(24))
+    label: Mapped[str] = mapped_column(String(160))
+    prompt: Mapped[str] = mapped_column(Text)
+    model_id: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", index=True)
+    provider_task_id: Mapped[str | None] = mapped_column(String(160))
+    provider_result_url: Mapped[str | None] = mapped_column(Text)
+    request_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    raw_response_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    batch: Mapped[ImageGenerationBatch] = relationship(back_populates="items")
+    outputs: Mapped[list["ImageGenerationOutput"]] = relationship(
+        back_populates="item",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ImageGenerationOutput.order_no",
+    )
+
+
+class ImageGenerationOutput(Base):
+    __tablename__ = "image_generation_output"
+    __table_args__ = (UniqueConstraint("item_id", "order_no", name="uq_image_output_item_order"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("image_generation_item.id", ondelete="CASCADE"), index=True
+    )
+    order_no: Mapped[int] = mapped_column(Integer)
+    remote_url: Mapped[str] = mapped_column(Text)
+    object_key: Mapped[str | None] = mapped_column(String(500))
+    content_type: Mapped[str | None] = mapped_column(String(80))
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    item: Mapped[ImageGenerationItem] = relationship(back_populates="outputs")
 
 
 class VisualFactCache(Base):

@@ -187,11 +187,7 @@ async def create_element(adapter: Any, payload: dict[str, Any]) -> dict[str, Any
         frontal_image=image_references[0] if image_references else None,
         # Kling's element API still requires at least one supporting reference.
         # Reuse the frontal image when the user only supplied a single image.
-        refer_images=(
-            image_references[1:]
-            if len(image_references) > 1
-            else image_references
-        ),
+        refer_images=(image_references[1:] if len(image_references) > 1 else image_references),
         refer_videos=video_references,
         element_voice_id=payload.get("voiceId"),
         tag_ids=tuple(payload.get("tagIds") or ()),
@@ -251,11 +247,7 @@ async def list_elements(
             status_code=502,
         )
     items, expanded_count = _normalize_list_items(items_value)
-    total = (
-        int(response_total) + expanded_count
-        if response_total is not None
-        else len(items)
-    )
+    total = int(response_total) + expanded_count if response_total is not None else len(items)
     return {
         "items": items,
         "pageNum": page_num,

@@ -147,6 +147,42 @@ uv run python scripts/kling_api_dry_run.py --storyboard-dir C:\path\to\storyboar
 官方任务查询端点执行一次只读鉴权校验；它不创建媒体，也不消耗生成额度。只有该校验成功后才
 显示 `KLING_API_READY` 并允许新任务通过预检。
 
+### WaveSpeed 图片生成
+
+图片中心通过 WaveSpeed 接入 GPT Image 2 和 Nano Banana 2。管理员在“管理中心 →
+可灵官方 API → WaveSpeed 图片生成 API”中保存、替换或清除 API Key，并启用通道及执行
+只读连接验证。密钥沿用 Windows DPAPI 与受限 ACL 保存，浏览器只能读取配置状态，不能读取
+密钥明文。后台安全配置优先于环境变量；清除后台覆盖后会回退到环境变量并显示凭据来源。
+
+首次启动可使用以下后备配置：
+
+```dotenv
+WAVESPEED_ENABLED=false
+WAVESPEED_API_KEY=
+WAVESPEED_API_BASE_URL=https://api.wavespeed.ai/api/v3
+WAVESPEED_MAX_SUBMIT_CONCURRENCY=1
+WAVESPEED_MAX_POLL_CONCURRENCY=4
+```
+
+图片中心提交前会显示模型和预计生成张数并要求二次确认。服务端保存用户归属、幂等键、远端
+prediction ID、状态和输出文件；浏览器只轮询本地批次 ID，不能用任意远端 ID 查询其他用户
+的结果。单批最多创建 40 个 prediction；创建接口会同步完成参考图上传和远端任务提交，但不
+等待图片生成完成。当前版本尚未使用跨进程持久提交队列，部署时应保留付费暂停开关，并避免
+在多个 API worker 上同时放大付费提交并发。真实付费接口验收还需要显式确认：
+
+```powershell
+uv run python scripts/test_wavespeed.py `
+  --model nano-banana-2 `
+  --mode edit `
+  --prompt-file .\prompt.txt `
+  --image .\references\model.jpg `
+  --image .\references\product.png `
+  --aspect-ratio 9:16 `
+  --resolution 2k `
+  --execute-paid `
+  --confirm I_ACCEPT_WAVESPEED_CHARGES
+```
+
 以下 CLI 路径仅为历史 attempt 恢复保留。
 
 官方 Skill 已安装到 `.agents/skills/kling-cli`。安装 CLI 前必须先确认账号区域，不能混装：

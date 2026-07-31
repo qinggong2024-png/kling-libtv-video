@@ -6,6 +6,7 @@ from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.enums import UserRole
 from libtv_agent.domain.models import AuditEvent, User, UserSession
 from libtv_agent.services.auth import PasswordService
+from libtv_agent.services.prompt_presets import add_default_prompt_presets
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -118,8 +119,12 @@ async def create_user(
         is_active=True,
     )
     session.add(user)
-    session.add(audit_event(actor.id, "CREATE_USER", user, "administrator created user account"))
     try:
+        await session.flush()
+        add_default_prompt_presets(session, user.id)
+        session.add(
+            audit_event(actor.id, "CREATE_USER", user, "administrator created user account")
+        )
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()

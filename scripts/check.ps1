@@ -5,6 +5,7 @@ New-Item -ItemType Directory -Force -Path $reportRoot | Out-Null
 $junitPath = Join-Path $reportRoot 'pytest-junit.xml'
 $alembicSqlPath = Join-Path $reportRoot 'alembic-phase2.sql'
 $alembicLogPath = Join-Path $reportRoot 'alembic-phase2.stderr.log'
+$alembicFreshSqlitePath = Join-Path $reportRoot 'alembic-fresh.sqlite'
 $startedAt = [DateTimeOffset]::UtcNow
 $steps = [ordered]@{}
 
@@ -64,6 +65,34 @@ try {
             $env:DATABASE_URL = $previousDatabaseUrl
         }
     }
+    Invoke-CheckStep 'alembicFreshSqlite' {
+        $previousAppEnv = $env:APP_ENV
+        $previousDatabaseUrl = $env:DATABASE_URL
+        $previousPaidGeneration = $env:PAID_GENERATION_ENABLED
+        $previousLibtvExecution = $env:LIBTV_EXECUTION_MODE
+        $previousKlingPaid = $env:KLING_ENABLE_PAID_INTEGRATION_TEST
+        $previousKlingApiPaid = $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST
+        try {
+            Remove-Item -LiteralPath $alembicFreshSqlitePath -Force -ErrorAction SilentlyContinue
+            $databasePath = $alembicFreshSqlitePath.Replace('\', '/')
+            $env:APP_ENV = 'test'
+            $env:DATABASE_URL = "sqlite+aiosqlite:///$databasePath"
+            $env:PAID_GENERATION_ENABLED = 'false'
+            $env:LIBTV_EXECUTION_MODE = 'dry-run'
+            $env:KLING_ENABLE_PAID_INTEGRATION_TEST = 'false'
+            $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
+            uv run alembic -c backend/alembic.ini upgrade head
+        }
+        finally {
+            $env:APP_ENV = $previousAppEnv
+            $env:DATABASE_URL = $previousDatabaseUrl
+            $env:PAID_GENERATION_ENABLED = $previousPaidGeneration
+            $env:LIBTV_EXECUTION_MODE = $previousLibtvExecution
+            $env:KLING_ENABLE_PAID_INTEGRATION_TEST = $previousKlingPaid
+            $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = $previousKlingApiPaid
+            Remove-Item -LiteralPath $alembicFreshSqlitePath -Force -ErrorAction SilentlyContinue
+        }
+    }
     Push-Location (Join-Path $projectRoot 'frontend')
     try {
         Invoke-CheckStep 'frontendLint' { npm.cmd run lint }
@@ -91,6 +120,7 @@ $report = [ordered]@{
     evidence = [ordered]@{
         pytestJunit = 'var/reports/pytest-junit.xml'
         alembicOfflineSql = 'var/reports/alembic-phase2.sql'
+        alembicFreshSqlite = 'ephemeral fresh database verified by scripts/check.ps1'
         alembicStderr = 'var/reports/alembic-phase2.stderr.log'
         generatedBy = 'scripts/check.ps1'
     }

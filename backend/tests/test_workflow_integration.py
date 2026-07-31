@@ -28,6 +28,7 @@ from libtv_agent.domain.models import (
     GenerationVariant,
     ParentTask,
     PointsLedger,
+    StagedUpload,
     User,
     VisualFactCache,
 )
@@ -193,6 +194,30 @@ async def create_draft_task(
 
 
 @pytest.mark.asyncio
+async def test_missing_staged_thumbnail_returns_not_found(tmp_path: Path) -> None:
+    async with running_app(tmp_path) as (client, app):
+        uploaded = await client.post(
+            "/api/v1/uploads",
+            headers=user_headers("missing-thumbnail"),
+            files={"file": ("shot.png", png_bytes("#217a58"), "image/png")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+
+        upload_id = uuid.UUID(uploaded.json()["id"])
+        async with app.state.database.session_factory() as session:
+            staged = await session.get(StagedUpload, upload_id)
+            assert staged is not None
+            await app.state.object_store.delete(staged.thumbnail_key)
+
+        response = await client.get(
+            uploaded.json()["thumbnailUrl"],
+            headers=user_headers(),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "thumbnail file was not found"
+
+
+@pytest.mark.asyncio
 async def test_generation_feedback_persists_and_guides_matching_future_prompts(
     tmp_path: Path,
 ) -> None:
@@ -333,10 +358,7 @@ async def test_task_list_is_sorted_by_latest_update_and_cursor_paginates_without
     tmp_path: Path,
 ) -> None:
     async with running_app(tmp_path) as (client, app):
-        tasks = [
-            await create_draft_task(client, f"cursor-{index}")
-            for index in range(3)
-        ]
+        tasks = [await create_draft_task(client, f"cursor-{index}") for index in range(3)]
         base_time = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
         async with app.state.database.session_factory() as session:
             for index, task in enumerate(tasks):

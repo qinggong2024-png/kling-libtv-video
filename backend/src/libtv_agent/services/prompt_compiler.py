@@ -50,30 +50,26 @@ class CompiledVideoPlan:
 
 _MAX_KLING_PROMPT_CHARS = 3072
 
-_VARIANT_MODIFIERS: tuple[tuple[str, str, str, str], ...] = (
+_VARIANT_MODIFIERS: tuple[tuple[str, str, str], ...] = (
     (
-        "开场静止半秒，中段完整执行模板主动作一次，结尾正面自然定姿",
+        "模板主动作完整执行一次，结束时回到对应输入分镜支持的稳定姿态",
         "放松、自然的轻微微笑，视线稳定",
-        "生活化UGC轻手持跟拍，镜头有极轻微呼吸感",
-        "均衡节奏；开场短停、中段连贯、结尾停留一秒",
+        "生活化UGC记录感，画面保留极轻微的自然呼吸",
     ),
     (
-        "开场轻移重心，中段把模板主动作拆成两个克制的小幅阶段，结尾三分之四定姿",
+        "把模板主动作拆成两个克制的小幅阶段，结束时保持对应输入分镜支持的稳定姿态",
         "平静、自信，嘴角放松，视线短暂离镜后回到镜头",
-        "干净的日常lookbook式UGC，平稳轻跟拍",
-        "舒缓节奏；动作之间各保留一次清楚停顿，结尾稳定停留",
+        "干净的日常lookbook式UGC，构图稳定",
     ),
     (
-        "开场视线先落在商品再回到镜头，中段连续执行模板主动作并短暂停顿，结尾放松定姿",
+        "模板主动作中加入一次短暂停顿，结束时放松定姿",
         "轻松、专注，表情自然变化一次后恢复放松",
-        "近距离朋友视角UGC，轻微手持横移，不使用广告式炫技运镜",
-        "前缓后紧；前段建立商品，中段动作稍快，结尾回到稳定",
+        "近距离朋友视角UGC，不呈现广告式炫技",
     ),
     (
-        "开场直接进入模板主动作，中段完成一次动作后回正，结尾克制定姿",
+        "模板主动作完成后回到起始稳定姿态，结束时克制定姿",
         "克制、略带酷感，视线坚定，不做夸张表情",
-        "简洁编辑感UGC，使用一次干净切镜和有限推进",
-        "紧凑节奏；快速建立、中段完整执行、结尾明确停住",
+        "简洁编辑感UGC，构图克制，商品始终清晰",
     ),
 )
 
@@ -113,16 +109,15 @@ def _style_instruction(
     )
     return "；".join(
         (
-            f"站点风格：{profile.tone}",
-            f"镜头触感：{profile.camera_language}",
+            "站点表达只作用于已有素材支持的动作、神态和拍摄触感，不新增或改写场景、道具、服装面与商品细节",
+            f"站点风格：{profile.tone.rstrip('。；')}",
+            (f"人物表达（仅在面部清晰可见时执行）：{profile.expression_language.rstrip('。；')}"),
+            f"镜头触感：{profile.camera_language.rstrip('。；')}",
+            f"可用动作：{preferred_actions}",
             (
-                f"视频结构：开场 {profile.opening_rule}；"
-                f"中段 {profile.middle_rule}；结尾 {profile.ending_rule}"
+                f"站点节奏：{profile.pacing.rstrip('。；')}；"
+                "涉及输入未提供的商品面或场景时忽略对应描述"
             ),
-            f"优先镜头：{'、'.join(profile.preferred_shots)}",
-            f"优先动作：{preferred_actions}",
-            f"节奏：{profile.pacing}",
-            f"商品呈现重点：{'、'.join(profile.product_priorities)}",
         )
     )
 
@@ -151,17 +146,13 @@ def compile_video_plan(
         raise ValueError("variant index must be between 1 and result count")
 
     action = template.action_presets[value.action_intensity]
-    camera = template.camera_presets[value.camera_tempo]
-    tempo = template.tempo_presets[value.camera_tempo]
-    variant_action, variant_expression, variant_style, variant_rhythm = _VARIANT_MODIFIERS[
-        value.variant_index - 1
-    ]
+    camera = template.camera_presets["standard"]
+    variant_action, variant_expression, variant_style = _VARIANT_MODIFIERS[value.variant_index - 1]
     variant_modifier = "；".join(
         (
             f"动作变化：{variant_action}",
-            f"神态变化：{variant_expression}",
+            f"神态变化：仅在面部清晰可见时执行，{variant_expression}",
             f"视频风格变化：{variant_style}",
-            f"节奏变化：{variant_rhythm}",
         )
     )
     cut_instruction = _cut_instruction(value.cut_mode)
@@ -192,35 +183,27 @@ def compile_video_plan(
         (f"{shot.start_seconds:g}-{shot.end_seconds:g}秒（输入图{shot.order}）：{shot.instruction}")
         for shot in shots
     )
-    result_scope = (
-        "当前结果相对输入"
-        if value.result_count == 1
-        else f"本次生成的{value.result_count}个结果相对输入都"
-    )
-    master_prompt = "。".join(
+    prompt_parts = (
         (
-            (
-                f"按照输入的{value.storyboard_count}张有序分镜生成一条"
-                f"{template.duration_seconds}秒、{template.ratio}的{template.name}视频"
-            ),
-            cut_instruction,
-            f"时间轴：{timeline}",
-            action.instruction,
-            camera.instruction,
-            tempo.instruction,
-            style_instruction,
-            variant_modifier,
-            (
-                "所有未明确允许变化的输入事实永久不变；"
-                f"{result_scope}只允许改变动作、神态、视频风格和节奏"
-            ),
-            "皮肤保留真实纹理和自然细节，避免过度磨皮、塑料感和蜡感",
-            "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
-            "；".join(invariants),
-            f"禁止项：{negative_prompt}",
-            "无声音，无字幕",
-        )
+            f"按照输入的{value.storyboard_count}张有序分镜生成一条"
+            f"{template.duration_seconds}秒、{template.ratio}的{template.name}视频"
+        ),
+        (
+            "素材约束（最高优先级）："
+            f"{'；'.join(invariants)}；所有未明确允许变化的输入事实保持不变；"
+            "当前结果相对输入只允许改变动作细节、神态和拍摄表达"
+        ),
+        f"分镜与切镜：{cut_instruction}；时间轴：{timeline}",
+        f"动作幅度：{action.instruction}",
+        camera.instruction if value.site_profile is None else "",
+        style_instruction,
+        f"本结果差异：{variant_modifier}",
+        "皮肤保留真实纹理和自然细节，避免过度磨皮、塑料感和蜡感",
+        "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
+        f"禁止项：{negative_prompt}",
+        "无声音，无字幕",
     )
+    master_prompt = "。".join(part for part in prompt_parts if part)
     if len(master_prompt) > _MAX_KLING_PROMPT_CHARS:
         raise ValueError(
             f"compiled prompt exceeds Kling limit: {len(master_prompt)} > {_MAX_KLING_PROMPT_CHARS}"
@@ -235,9 +218,9 @@ def compile_video_plan(
         variant_seed={
             "variantIndex": value.variant_index,
             "actionIntensity": value.action_intensity,
-            "cameraTempo": value.camera_tempo,
             "cutMode": value.cut_mode,
             "modifier": variant_modifier,
+            "pacingSource": "site-profile" if value.site_profile else "template-default",
             "siteProfileId": value.site_profile.id if value.site_profile else "none",
         },
         site_profile_id=value.site_profile.id if value.site_profile else None,

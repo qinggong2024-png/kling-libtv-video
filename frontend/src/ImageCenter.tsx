@@ -1,0 +1,684 @@
+import {
+  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Clock3, Film, GripVertical,
+  Download, Image as ImageIcon, Images, Layers3, LoaderCircle, Package, Plus, RotateCcw, Save, Shirt,
+  Sparkles, UploadCloud, UserRound, WandSparkles, X,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
+import { createPortal } from 'react-dom'
+
+import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
+import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset } from './api'
+import { CustomPromptField } from './CustomPromptField'
+import {
+  IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
+  buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
+  createImageCenterDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
+  moveImageAssetSlot, normalizeImageGenerationModes, outfitCanGenerateBack, parseStoryboardPrompt, validateImageCenterDraft,
+} from './imageCenterModel'
+import type { ImageGenerationBatch, ImageGenerationBatchItem } from './types'
+import type {
+  ImageAssetSet, ImageCenterDraft, ImageGenerationMode, ImageGenerationOutput,
+  ImageGenerationTask, ImageProvider, OutfitDraft,
+} from './imageCenterModel'
+import { loadImageCenterDraft, saveImageCenterDraft } from './imageCenterStore'
+import { createUuid } from './uuid'
+
+export type VideoSubjectSource = 'generated' | 'product-front' | 'product-back'
+
+export interface ImageCenterVideoHandoff {
+  task: ImageGenerationTask
+  outputs: ImageGenerationOutput[]
+  subjectSource: VideoSubjectSource
+}
+
+export interface ImageCenterProps {
+  onPrepareVideos: (handoffs: ImageCenterVideoHandoff[]) => void
+}
+
+const taskStatusPresentation = {
+  uploading: { label: '上传素材', tone: 'active' },
+  submitting: { label: '正在提交', tone: 'active' },
+  queued: { label: '排队中', tone: 'active' },
+  running: { label: '生成中', tone: 'active' },
+  completed: { label: '已完成', tone: 'success' },
+  failed: { label: '生成失败', tone: 'danger' },
+  write_uncertain: { label: '提交待确认', tone: 'danger' },
+} as const
+const ASSET_SLOT_DRAG_TYPE = 'application/x-image-center-slot'
+const IMAGE_OUTPUT_DRAG_TYPE = 'application/x-image-center-output'
+const TERMINAL_IMAGE_STATUSES = new Set(['completed', 'failed', 'write_uncertain'])
+
+function localTaskStatus(status: ImageGenerationBatchItem['status']) {
+  return status
+}
+
+function mergeBatchIntoTasks(tasks: ImageGenerationTask[], batch: ImageGenerationBatch): ImageGenerationTask[] {
+  const items = new Map(batch.items.map((item) => [item.clientTaskId, item]))
+  return tasks.map((task) => {
+    if (task.batchId !== batch.id && !items.has(task.id)) return task
+    const item = items.get(task.id)
+    if (!item) return task
+    return {
+      ...task,
+      batchId: batch.id,
+      providerTaskId: item.providerTaskId,
+      providerTaskIds: item.providerTaskIds ?? (item.providerTaskId ? [item.providerTaskId] : []),
+      modelId: item.modelId || task.modelId,
+      status: localTaskStatus(item.status),
+      outputs: item.outputs.map((output) => ({
+        ...output,
+        file: null,
+        url: output.downloadUrl || output.url,
+      })),
+      error: item.error?.message ?? '',
+      errorCode: item.error?.code ?? null,
+      retryable: item.error?.retryable ?? null,
+      errorDetails: item.error?.details,
+    }
+  })
+}
+
+function useFileUrl(file: File | null): string {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    let active = true
+    if (!file) {
+      queueMicrotask(() => { if (active) setUrl('') })
+      return () => { active = false }
+    }
+    const nextUrl = URL.createObjectURL(file)
+    queueMicrotask(() => { if (active) setUrl(nextUrl) })
+    return () => {
+      active = false
+      URL.revokeObjectURL(nextUrl)
+    }
+  }, [file])
+  return url
+}
+
+function AssetPreview({ file, url = '', alt }: { file: File | null; url?: string; alt: string }) {
+  const source = useFileUrl(file) || url
+  return source ? <img src={source} alt={alt} draggable={false} /> : <ImageIcon aria-hidden="true" size={22} />
+}
+
+function AuthenticatedAssetPreview({ file, url, alt }: { file: File | null; url: string; alt: string }) {
+  const [authenticatedUrl, setAuthenticatedUrl] = useState('')
+  useEffect(() => {
+    let active = true
+    let objectUrl = ''
+    if (!url || file) {
+      queueMicrotask(() => { if (active) setAuthenticatedUrl('') })
+      return () => { active = false }
+    }
+    void fetchAssetObjectUrl(url).then((nextUrl) => {
+      objectUrl = nextUrl
+      if (active) setAuthenticatedUrl(nextUrl)
+      else URL.revokeObjectURL(nextUrl)
+    }).catch(() => {
+      if (active) setAuthenticatedUrl('')
+    })
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [file, url])
+  return <AssetPreview file={file} url={authenticatedUrl} alt={alt} />
+}
+
+function OrderedAssetUpload({ idPrefix, title, description, assets, onChange }: {
+  idPrefix: string
+  title: string
+  description: string
+  assets: ImageAssetSet
+  onChange: (assets: ImageAssetSet) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const files = getImageAssetSlots(assets).filter((file): file is File => file !== null)
+  const count = files.length
+  const receive = (files: File[]) => {
+    const accepted = files.filter(isSupportedImageFile)
+    if (!accepted.length) return
+    onChange(imageAssetSetFromSlots([...getImageAssetSlots(assets).filter((file): file is File => file !== null), ...accepted].slice(0, 3)))
+  }
+  const change = (event: ChangeEvent<HTMLInputElement>) => {
+    receive(Array.from(event.currentTarget.files ?? []))
+    event.currentTarget.value = ''
+  }
+  const remove = (index: number) => {
+    onChange(imageAssetSetFromSlots(files.filter((_, fileIndex) => fileIndex !== index)))
+  }
+  const move = (from: number, to: number) => onChange(moveImageAssetSlot(assets, from, to))
+  const handleDrop = (event: DragEvent, target: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const slotPayload = event.dataTransfer.getData(ASSET_SLOT_DRAG_TYPE)
+    if (slotPayload) {
+      try {
+        const source = JSON.parse(slotPayload) as { owner?: string; index?: number }
+        if (source.owner === idPrefix && source.index !== undefined && Number.isInteger(source.index)) move(source.index, target)
+      } catch {
+        // Ignore malformed drag data from outside this uploader.
+      }
+      return
+    }
+    receive(Array.from(event.dataTransfer.files))
+  }
+
+  return <section
+    className={`ordered-asset-upload asset-count-${count}${count ? ' has-files' : ''}`}
+    aria-label={title}
+    onDragOver={(event) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = event.dataTransfer.types.includes(ASSET_SLOT_DRAG_TYPE) ? 'move' : 'copy'
+    }}
+    onDrop={(event) => {
+      handleDrop(event, files.length)
+    }}
+  >
+    <header>
+      <div><strong>{title}</strong><small>{description}</small></div>
+      <span>{count}/3</span>
+    </header>
+    <button type="button" className="ordered-asset-dropzone" disabled={count >= 3} onClick={() => inputRef.current?.click()}>
+      <span><UploadCloud size={20} /></span>
+      <span><strong>{count ? '继续添加图片' : '拖拽或点击批量上传'}</strong><small>JPG、PNG、WEBP，最多 3 张</small></span>
+    </button>
+    {files.length ? <div className="ordered-asset-list" aria-label={`${title}排序列表`}>
+      {files.map((file, index) => <article
+        key={`${idPrefix}-${index}-${file.name}-${file.size}-${file.lastModified}`}
+        className="ordered-asset-card"
+        title={`${IMAGE_ASSET_SLOT_LABELS[index]}：${file.name}`}
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData(ASSET_SLOT_DRAG_TYPE, JSON.stringify({ owner: idPrefix, index }))
+          event.currentTarget.classList.add('is-dragging')
+        }}
+        onDragEnd={(event) => event.currentTarget.classList.remove('is-dragging')}
+        onDragOver={(event) => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = event.dataTransfer.types.includes(ASSET_SLOT_DRAG_TYPE) ? 'move' : 'copy'
+        }}
+        onDrop={(event) => handleDrop(event, index)}
+      >
+        <span className="ordered-asset-card__media"><AssetPreview file={file} alt={`${IMAGE_ASSET_SLOT_LABELS[index]}：${file.name}`} /></span>
+        <span className="ordered-asset-card__role"><i>{index + 1}</i>{IMAGE_ASSET_SLOT_LABELS[index]}{index === 0 ? <small>必填</small> : null}</span>
+        <button type="button" className="ordered-asset-card__remove" onClick={(event) => { event.stopPropagation(); remove(index) }} onPointerDown={(event) => event.stopPropagation()} aria-label={`移除${IMAGE_ASSET_SLOT_LABELS[index]}`} title="删除图片"><X size={14} /></button>
+      </article>)}
+    </div> : null}
+    <input ref={inputRef} id={`${idPrefix}-files`} className="sr-only" type="file" multiple accept={IMAGE_FILE_ACCEPT} disabled={count >= 3} onChange={change} />
+  </section>
+}
+
+function OutfitCard({ outfit, index, canRemove, onChange, onRemove }: {
+  outfit: OutfitDraft
+  index: number
+  canRemove: boolean
+  onChange: (outfit: OutfitDraft) => void
+  onRemove: () => void
+}) {
+  return <article className="outfit-card">
+    <header>
+      <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
+      <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
+      <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
+      <button type="button" className="outfit-card__remove" disabled={!canRemove} onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={16} /></button>
+    </header>
+    <OrderedAssetUpload idPrefix={outfit.id} title="产品图片" description="图二固定为球衣正面，图三固定为球衣背面；侧面为补充参考" assets={outfit} onChange={(assets) => onChange({ ...outfit, ...assets })} />
+    <details className="outfit-card__override"><summary>套装补充要求<ChevronRight size={14} /></summary><textarea value={outfit.promptOverride} maxLength={2800} placeholder="可选，将追加到本套装的融合与分镜提示词" onChange={(event) => onChange({ ...outfit, promptOverride: event.target.value })} /></details>
+  </article>
+}
+
+function OutfitNavItem({ outfit, index, selected, onSelect }: {
+  outfit: OutfitDraft
+  index: number
+  selected: boolean
+  onSelect: () => void
+}) {
+  return <button
+    type="button"
+    id={`outfit-tab-${outfit.id}`}
+    className={`outfit-nav-item${selected ? ' is-selected' : ''}`}
+    role="tab"
+    aria-selected={selected}
+    aria-controls="active-outfit-editor"
+    onClick={onSelect}
+  >
+    <span className="outfit-nav-item__thumb"><AssetPreview file={outfit.front} alt={outfit.front ? `${outfit.name}正面图` : ''} /></span>
+    <span><strong>{outfit.name.trim() || `套装 ${String(index + 1).padStart(2, '0')}`}</strong><small>{outfit.sku.trim() || `第 ${index + 1} 套产品`}</small></span>
+    <i className={outfit.front ? 'is-ready' : ''}>{outfit.front ? <Check size={12} /> : index + 1}</i>
+  </button>
+}
+
+function SourceThumb({ file, label }: { file: File | null; label: string }) {
+  return <figure className="image-task-source"><span><AssetPreview file={file} alt={file ? `${label}：${file.name}` : ''} /></span><figcaption>{label}</figcaption></figure>
+}
+
+function OutputCard({ taskId, output, selected, onToggle }: { taskId: string; output: ImageGenerationOutput; selected: boolean; onToggle: () => void }) {
+  const download = () => {
+    if (output.url) void saveAsset(output.downloadUrl || output.url, `${output.label}.png`)
+  }
+  return <article
+    className={`image-output-card${selected ? ' is-selected' : ''}`}
+    draggable
+    onDragStart={(event) => {
+      event.dataTransfer.effectAllowed = 'copyMove'
+      event.dataTransfer.setData(IMAGE_OUTPUT_DRAG_TYPE, JSON.stringify({ taskId, outputId: output.id }))
+      event.currentTarget.classList.add('is-dragging')
+    }}
+    onDragEnd={(event) => event.currentTarget.classList.remove('is-dragging')}
+    title="拖入选片工作台"
+  >
+    <button type="button" className="image-output-card__select" aria-pressed={selected} onClick={onToggle}>
+      <span className="image-output-card__media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></span>
+      <span><strong>{output.label}</strong><small>{output.kind === 'fusion' ? '多图融合' : '分镜图'}</small></span>
+      <i>{selected ? <Check size={15} /> : null}</i>
+    </button>
+    {output.url ? <button type="button" className="image-output-card__download" onClick={download} title="下载图片" aria-label={`下载${output.label}`}><Download size={14} /></button> : null}
+  </article>
+}
+
+function SelectionWorkbench({ tasks, selectedOutputIds, expanded, onExpandedChange, onClear, onRemove, onPlaceOutput, onGenerate }: {
+  tasks: ImageGenerationTask[]
+  selectedOutputIds: string[]
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
+  onClear: () => void
+  onRemove: (outputId: string) => void
+  onPlaceOutput: (taskId: string, outputId: string, beforeOutputId?: string) => void
+  onGenerate: () => void
+}) {
+  const selectedTasks = useMemo(() => getOrderedSelectedTasks(tasks, selectedOutputIds), [selectedOutputIds, tasks])
+  const [dropActive, setDropActive] = useState(false)
+  const parseOutputDrop = (event: DragEvent) => {
+    const payload = event.dataTransfer.getData(IMAGE_OUTPUT_DRAG_TYPE)
+    if (!payload) return null
+    try {
+      const parsed = JSON.parse(payload) as { taskId?: string; outputId?: string }
+      return parsed.taskId && parsed.outputId ? { taskId: parsed.taskId, outputId: parsed.outputId } : null
+    } catch { return null }
+  }
+  const dropOutput = (event: DragEvent, beforeOutputId?: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDropActive(false)
+    const payload = parseOutputDrop(event)
+    if (payload) onPlaceOutput(payload.taskId, payload.outputId, beforeOutputId)
+  }
+
+  return <section
+    className={`image-selection-bar${expanded ? ' is-expanded' : ''}${dropActive ? ' is-drop-active' : ''}`}
+    aria-label="选片工作台"
+    onDragEnter={(event) => {
+      if (!event.dataTransfer.types.includes(IMAGE_OUTPUT_DRAG_TYPE)) return
+      event.preventDefault()
+      setDropActive(true)
+    }}
+    onDragOver={(event) => {
+      if (!event.dataTransfer.types.includes(IMAGE_OUTPUT_DRAG_TYPE)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+    }}
+    onDragLeave={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropActive(false)
+    }}
+    onDrop={(event) => dropOutput(event)}
+  >
+    <div className="image-selection-bar__header" role="toolbar" aria-label="已选图片操作">
+      <div className="image-selection-bar__summary" aria-live="polite">
+        <span className="image-selection-bar__count" aria-hidden="true">{selectedOutputIds.length}</span>
+        <span className="image-selection-bar__copy"><strong>已选择 {selectedOutputIds.length} 张图片</strong><small>{selectedTasks.length} 套产品可生成视频</small></span>
+      </div>
+      <button type="button" className="icon-button image-selection-bar__toggle" onClick={() => onExpandedChange(!expanded)} aria-expanded={expanded} aria-controls="image-selection-details" aria-label={expanded ? '收起选片详情' : '展开选片详情'} title={expanded ? '收起详情' : '展开详情'}>{expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
+      <div className="image-selection-bar__actions">
+        <button type="button" className="secondary-button" onClick={onClear}><X size={16} />取消选择</button>
+        <button type="button" className="primary-button" onClick={onGenerate}><Film size={17} />一键生视频</button>
+      </div>
+    </div>
+    <div id="image-selection-details" className="image-selection-bar__details" aria-hidden={!expanded} inert={!expanded}>
+      <div className="image-selection-bar__details-inner">
+        <header><div><strong>分镜编排</strong><small>共 {selectedTasks.length} 个产品视频</small></div><span>{selectedOutputIds.length} / {selectedTasks.length * 6} 张</span></header>
+        <div className="image-selection-groups">{selectedTasks.map(({ task, outputs }) => <article key={task.id} className="image-selection-group">
+          <div className="image-selection-product">
+            <span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品正面图`} /><i>产品</i></span>
+            <div><strong>{task.outfitName}</strong><small>{task.sku || '未填写 SKU'}</small></div>
+            <em>{outputs.length}/6</em>
+          </div>
+          <div className="image-selection-frames" role="list" aria-label={`${task.outfitName}分镜顺序`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOutput(event)}>
+            {outputs.map((output, index) => <article
+              key={output.id}
+              className="image-selection-frame"
+              role="listitem"
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData(IMAGE_OUTPUT_DRAG_TYPE, JSON.stringify({ taskId: task.id, outputId: output.id }))
+              }}
+              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'move' }}
+              onDrop={(event) => dropOutput(event, output.id)}
+            >
+              <span><AuthenticatedAssetPreview file={output.file} url={output.url} alt={`${task.outfitName}分镜 ${index + 1}`} /></span>
+              <i>{index + 1}</i>
+              <button type="button" onClick={() => onRemove(output.id)} aria-label={`移除分镜 ${index + 1}`} title="移除分镜"><X size={12} /></button>
+              <GripVertical size={13} aria-hidden="true" />
+            </article>)}
+            {outputs.length < 6 ? <div className="image-selection-drop-slot" aria-hidden="true"><Plus size={17} /><span>{outputs.length ? '添加分镜' : '暂无分镜'}</span></div> : null}
+          </div>
+        </article>)}</div>
+      </div>
+    </div>
+  </section>
+}
+
+function VideoPreparationSheet({ tasks, selectedOutputIds, onClose, onConfirm }: {
+  tasks: ImageGenerationTask[]
+  selectedOutputIds: string[]
+  onClose: () => void
+  onConfirm: (handoffs: ImageCenterVideoHandoff[]) => void
+}) {
+  const selectedTasks = useMemo(() => getOrderedSelectedTasks(tasks, selectedOutputIds), [selectedOutputIds, tasks])
+  const [subjects, setSubjects] = useState<Record<string, VideoSubjectSource>>(() => Object.fromEntries(selectedTasks.map(({ task }) => [task.id, 'generated'])))
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    return () => document.body.classList.remove('modal-open')
+  }, [])
+  const confirm = () => onConfirm(selectedTasks.map(({ task, outputs }) => ({ task, outputs, subjectSource: subjects[task.id] ?? 'generated' })))
+
+  return createPortal(<div className="image-video-sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="image-video-sheet" role="dialog" aria-modal="true" aria-labelledby="image-video-sheet-title">
+      <header><div><span>图片转视频</span><h2 id="image-video-sheet-title">创建 {selectedTasks.length} 个独立视频任务</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X size={18} /></button></header>
+      <div className="image-video-sheet__body">
+        <div className="image-video-sheet__notice"><CheckCircle2 size={17} /><span>系统已按套装拆分任务，所选图片将保持当前顺序进入分镜。</span></div>
+        <div className="image-video-draft-list">{selectedTasks.map(({ task, outputs }) => <article key={task.id}>
+          <div className="image-video-draft-main"><span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品图`} /></span><div><strong>{task.outfitName}</strong><small>{outputs.length} 张分镜{task.sku ? ` · ${task.sku}` : ''}</small></div></div>
+          <div className="image-video-draft-frames">{outputs.slice(0, 6).map((output, index) => <span key={output.id}><AuthenticatedAssetPreview file={output.file} url={output.url} alt={`分镜 ${index + 1}`} /><i>{index + 1}</i></span>)}</div>
+          <label className="image-video-subject"><span>主体来源</span><select value={subjects[task.id] ?? 'generated'} onChange={(event) => setSubjects((current) => ({ ...current, [task.id]: event.target.value as VideoSubjectSource }))}><option value="generated">换装成功的模特图</option><option value="product-front">产品正面图</option>{task.product.back ? <option value="product-back">产品背面图</option> : null}</select></label>
+        </article>)}</div>
+      </div>
+      <footer><span>下一步将在视频制作中确认模板与生成参数。</span><button type="button" className="secondary-button" onClick={onClose}>取消</button><button type="button" className="primary-button primary-button--large" onClick={confirm}><Film size={18} />送入视频制作</button></footer>
+    </section>
+  </div>, document.body)
+}
+
+export function ImageCenter({ onPrepareVideos }: ImageCenterProps) {
+  const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
+  const [activeOutfitId, setActiveOutfitId] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const [notice, setNotice] = useState('')
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [selectionBarExpanded, setSelectionBarExpanded] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const saveTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void loadImageCenterDraft().then((stored) => {
+      if (!active || stored?.version !== 1) return
+      const defaults = createImageCenterDraft(stored.id, stored.outfits[0]?.id ?? createUuid(), stored.updatedAt)
+      setDraft({
+        ...stored,
+        model: compactImageAssetSet(stored.model),
+        outfits: stored.outfits.map((outfit) => ({ ...outfit, ...compactImageAssetSet(outfit) })),
+        config: {
+          ...defaults.config,
+          ...stored.config,
+          modes: normalizeImageGenerationModes(stored.config.modes),
+          quality: 'medium',
+          outputFormat: 'png',
+        },
+        tasks: stored.tasks.map((task) => ({
+          ...task,
+          status: (task.status as string) === 'waiting_api' ? 'failed' : task.status,
+          batchId: task.batchId ?? null,
+          providerTaskId: task.providerTaskId ?? null,
+          providerTaskIds: task.providerTaskIds ?? (task.providerTaskId ? [task.providerTaskId] : []),
+          modelId: task.modelId ?? (task.provider === 'gpt' ? 'openai/gpt-image-2/edit' : 'google/nano-banana-2/edit'),
+          aspectRatio: task.aspectRatio ?? defaults.config.aspectRatio,
+          resolution: task.resolution ?? defaults.config.resolution,
+          quality: task.quality ?? defaults.config.quality,
+          outputFormat: 'png',
+          allowBackInference: task.allowBackInference ?? true,
+          storyboardShots: task.storyboardShots ?? parseStoryboardPrompt(task.prompt.storyboard),
+          error: (task.status as string) === 'waiting_api' ? '此任务创建于 API 接入前，请重新生成。' : task.error,
+          errorCode: task.errorCode ?? ((task.status as string) === 'waiting_api' ? 'LEGACY_DRAFT_TASK' : null),
+          retryable: task.retryable ?? true,
+        })),
+      })
+    }).catch(() => { if (active) setSaveState('error') }).finally(() => { if (active) setLoaded(true) })
+    return () => { active = false }
+  }, [])
+  useEffect(() => {
+    if (!loaded) return
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => { void saveImageCenterDraft(draft).then(() => setSaveState('saved')).catch(() => setSaveState('error')) }, 450)
+    return () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current) }
+  }, [draft, loaded])
+
+  const pollingBatchIds = useMemo(() => Array.from(new Set(draft.tasks
+    .filter((task) => task.batchId && !TERMINAL_IMAGE_STATUSES.has(task.status))
+    .map((task) => task.batchId!))).join('|'), [draft.tasks])
+  useEffect(() => {
+    if (!pollingBatchIds) return
+    const batchIds = pollingBatchIds.split('|')
+    const controller = new AbortController()
+    let polling = false
+    const poll = async () => {
+      if (polling) return
+      polling = true
+      try {
+        const batches = await Promise.all(batchIds.map((batchId) => getImageGenerationBatch(batchId, controller.signal)))
+        setDraft((current) => ({
+          ...current,
+          tasks: batches.reduce(mergeBatchIntoTasks, current.tasks),
+          updatedAt: new Date().toISOString(),
+        }))
+      } catch (cause) {
+        if (!controller.signal.aborted) setNotice(cause instanceof ApiError ? cause.message : '生图任务状态刷新失败，稍后将自动重试。')
+      } finally { polling = false }
+    }
+    void poll()
+    const timer = window.setInterval(() => void poll(), 2500)
+    return () => { controller.abort(); window.clearInterval(timer) }
+  }, [pollingBatchIds])
+
+  const updateDraft = (updater: (current: ImageCenterDraft) => ImageCenterDraft) => {
+    setSaveState('saving')
+    setDraft((current) => ({ ...updater(current), updatedAt: new Date().toISOString() }))
+  }
+  const summary = useMemo(() => calculateImageTaskSummary(draft), [draft])
+  const errors = useMemo(() => validateImageCenterDraft(draft), [draft])
+  const storyboardShots = useMemo(() => parseStoryboardPrompt(draft.config.storyboardPrompt), [draft.config.storyboardPrompt])
+  const selectedIds = useMemo(() => new Set(draft.selectedOutputIds), [draft.selectedOutputIds])
+  useEffect(() => {
+    if (!draft.selectedOutputIds.length) setSelectionBarExpanded(false)
+  }, [draft.selectedOutputIds.length])
+  const activeOutfit = draft.outfits.find((outfit) => outfit.id === activeOutfitId) ?? draft.outfits[0]
+  const activeOutfitIndex = Math.max(0, draft.outfits.findIndex((outfit) => outfit.id === activeOutfit.id))
+  const errorTarget = errors[0]?.includes('上传') ? '#asset-composer-title' : '#generation-config-title'
+  const updateOutfit = (changed: OutfitDraft) => updateDraft((current) => ({ ...current, outfits: current.outfits.map((item) => item.id === changed.id ? changed : item) }))
+  const addOutfit = () => {
+    if (draft.outfits.length >= MAX_IMAGE_CENTER_OUTFITS) return
+    const id = createUuid()
+    setActiveOutfitId(id)
+    updateDraft((current) => ({ ...current, outfits: [...current.outfits, createOutfit(id, current.outfits.length + 1)] }))
+  }
+  const removeOutfit = (id: string) => {
+    if (draft.outfits.length <= 1) return
+    const removedIndex = draft.outfits.findIndex((outfit) => outfit.id === id)
+    const nextActive = draft.outfits[removedIndex + 1] ?? draft.outfits[removedIndex - 1]
+    if (activeOutfit.id === id) setActiveOutfitId(nextActive?.id ?? '')
+    updateDraft((current) => ({ ...current, outfits: current.outfits.filter((item) => item.id !== id) }))
+  }
+  const updateConfig = (changes: Partial<ImageCenterDraft['config']>) => updateDraft((current) => ({ ...current, config: { ...current.config, ...changes } }))
+  const selectMode = (mode: ImageGenerationMode) => updateConfig({ modes: [mode] })
+  const submitTaskSet = async (tasks: ImageGenerationTask[], expectedGenerationCount: number) => {
+    if (!tasks.length) return
+    const { manifest, files } = buildImageGenerationBatchRequest({
+      clientBatchId: createUuid(),
+      name: draft.name,
+      expectedGenerationCount,
+      tasks,
+    })
+
+    setSubmitting(true)
+    updateDraft((current) => ({ ...current, activeTab: 'results', tasks: [...tasks, ...current.tasks], selectedOutputIds: [] }))
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? { ...task, status: 'submitting' } : task) }))
+    try {
+      const batch = await createImageGenerationBatch(manifest, files)
+      updateDraft((current) => ({ ...current, tasks: mergeBatchIntoTasks(current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? { ...task, batchId: batch.id } : task), batch) }))
+      setNotice(`批次已提交，正在处理 ${expectedGenerationCount} 张图片。`)
+    } catch (cause) {
+      const uncertain = !(cause instanceof ApiError) || cause.code === 'REQUEST_TIMEOUT' || cause.code === 'WRITE_UNCERTAIN'
+      const message = cause instanceof ApiError ? cause.message : '提交结果未知，请勿重复提交；稍后由管理员核对远端记录。'
+      updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? {
+        ...task,
+        status: uncertain ? 'write_uncertain' : 'failed',
+        error: message,
+        errorCode: cause instanceof ApiError ? cause.code : 'WRITE_UNCERTAIN',
+        retryable: uncertain ? false : cause instanceof ApiError ? cause.retryable : false,
+        errorDetails: cause instanceof ApiError ? cause.details : null,
+      } : task) }))
+      setNotice(message)
+    } finally { setSubmitting(false) }
+  }
+  const submit = () => {
+    if (errors.length) { setNotice(errors[0]); return }
+    const tasks = buildWaitingTasks(draft, createUuid)
+    const modelLabel = draft.config.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'
+    if (!window.confirm(`即将通过 ${modelLabel} 生成 ${summary.totalImages} 张图片，此操作可能产生费用。确认提交？`)) return
+    void submitTaskSet(tasks, summary.totalImages)
+  }
+  const regenerate = (source: ImageGenerationTask) => {
+    const task: ImageGenerationTask = {
+      ...source,
+      id: createUuid(),
+      status: 'uploading',
+      batchId: null,
+      providerTaskId: null,
+      providerTaskIds: [],
+      outputs: [],
+      error: '',
+      errorCode: null,
+      retryable: null,
+      errorDetails: null,
+      createdAt: new Date().toISOString(),
+    }
+    const fusionCount = task.modes.includes('fusion')
+      ? (1 + Number(outfitCanGenerateBack(task.model, task.product, task.allowBackInference))) * task.resultCount
+      : 0
+    const expectedCount = fusionCount + (task.modes.includes('storyboard') ? task.storyboardShots.length * task.resultCount : 0)
+    if (!window.confirm(`即将重新提交 ${task.outfitName}，预计生成 ${expectedCount} 张图片并可能产生费用。确认继续？`)) return
+    void submitTaskSet([task], expectedCount)
+  }
+  const toggleOutput = (id: string) => {
+    const owner = draft.tasks.find((task) => task.outputs.some((output) => output.id === id))
+    const alreadySelected = selectedIds.has(id)
+    const selectedFromOwner = owner?.outputs.filter((output) => selectedIds.has(output.id)).length ?? 0
+    if (!alreadySelected && selectedFromOwner >= 6) { setNotice('每套视频最多选择 6 张分镜，另保留 1 个主体引用名额。'); return }
+    updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.includes(id) ? current.selectedOutputIds.filter((item) => item !== id) : [...current.selectedOutputIds, id] }))
+  }
+  const placeOutput = (taskId: string, outputId: string, beforeOutputId?: string) => {
+    const owner = draft.tasks.find((task) => task.id === taskId && task.outputs.some((output) => output.id === outputId))
+    if (!owner) return
+    const alreadySelected = selectedIds.has(outputId)
+    const selectedFromOwner = owner.outputs.filter((output) => selectedIds.has(output.id)).length
+    if (!alreadySelected && selectedFromOwner >= 6) { setNotice('每套视频最多选择 6 张分镜，另保留 1 个主体引用名额。'); return }
+    updateDraft((current) => {
+      const nextIds = current.selectedOutputIds.filter((id) => id !== outputId)
+      const targetIndex = beforeOutputId ? nextIds.indexOf(beforeOutputId) : -1
+      if (targetIndex >= 0) nextIds.splice(targetIndex, 0, outputId)
+      else {
+        const currentOwner = current.tasks.find((task) => task.id === taskId)
+        const ownerIds = new Set(currentOwner?.outputs.map((output) => output.id) ?? [])
+        let insertionIndex = nextIds.length
+        for (let index = nextIds.length - 1; index >= 0; index -= 1) {
+          if (ownerIds.has(nextIds[index])) { insertionIndex = index + 1; break }
+        }
+        nextIds.splice(insertionIndex, 0, outputId)
+      }
+      return { ...current, selectedOutputIds: nextIds }
+    })
+  }
+  const clearDraft = () => {
+    if (!window.confirm('确定新建批次？当前素材和未提交配置将被清空。')) return
+    setActiveOutfitId('')
+    setDraft(createImageCenterDraft(createUuid(), createUuid()))
+    setNotice('已新建空白批次。')
+  }
+
+  if (!loaded) return <div className="image-center-loading"><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
+
+  return <div className="image-center page-view">
+    <header className="image-center-title"><div><span>批量换装工作台</span><h1>图片中心</h1><p>一个模特对应多套产品，集中完成生图、挑图和视频衔接。</p></div><div className="image-center-title__actions"><span className={`image-center-save-state is-${saveState}`}><Save size={14} />{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</span><button type="button" className="secondary-button" onClick={clearDraft}><RotateCcw size={16} />新建批次</button></div></header>
+    <nav className="image-center-tabs" aria-label="图片中心视图"><button type="button" className={draft.activeTab === 'create' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Layers3 size={17} />批量创作</button><button type="button" className={draft.activeTab === 'results' ? 'is-active' : ''} onClick={() => updateDraft((current) => ({ ...current, activeTab: 'results' }))}><Images size={17} />生成结果{draft.tasks.length ? <i>{draft.tasks.length}</i> : null}</button></nav>
+    {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
+
+    {draft.activeTab === 'create' ? <div className="image-center-create">
+      <section className="image-center-section asset-composer" aria-labelledby="asset-composer-title">
+        <div className="image-center-section__heading"><div><span className="section-number">01</span><div><h2 id="asset-composer-title">素材编排</h2><p>左侧模特复用到全部套装，右侧每套产品独立生成。</p></div></div><div className="asset-composer-toolbar"><span className="section-state"><Shirt size={15} />{summary.outfitCount}/{draft.outfits.length} 套已就绪</span><a className="image-center-jump" href="#generation-config-title"><WandSparkles size={15} />生成配置</a></div></div>
+        <div className="asset-composer-grid">
+          <aside className="model-pack-column">
+            <div className="asset-pack-heading"><span><UserRound size={18} /></span><div><h3>本批次模特</h3><p>正面必填，背面和侧面可选</p></div><i className={draft.model.front ? 'is-ready' : ''}>{draft.model.front ? '已就绪' : '待上传'}</i></div>
+            <OrderedAssetUpload idPrefix="image-center-model" title="模特图片" description="图一固定为人物与环境；背面、侧面为补充参考" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
+          </aside>
+          <div className="outfit-pack-column" aria-labelledby="outfits-title">
+            <div className="asset-pack-heading"><span><Package size={18} /></span><div><h3 id="outfits-title">产品套装</h3><p>每套正面必填，背面和侧面可选</p></div><div className="outfits-heading-actions"><strong>{draft.outfits.length}/{MAX_IMAGE_CENTER_OUTFITS}</strong><button type="button" className="primary-button outfit-add-button" disabled={draft.outfits.length >= MAX_IMAGE_CENTER_OUTFITS} onClick={addOutfit}><Plus size={16} />添加套装</button></div></div>
+            <div className="outfit-workspace">
+              <div className="outfit-navigator">
+                <div className="outfit-navigator__head"><strong>套装列表</strong><span>{summary.outfitCount} 套已就绪</span></div>
+                <div className="outfit-nav-list" role="tablist" aria-label="产品套装列表">{draft.outfits.map((outfit, index) => <OutfitNavItem key={outfit.id} outfit={outfit} index={index} selected={outfit.id === activeOutfit.id} onSelect={() => setActiveOutfitId(outfit.id)} />)}</div>
+                {draft.outfits.length < MAX_IMAGE_CENTER_OUTFITS ? <button type="button" className="outfit-nav-add" onClick={addOutfit}><Plus size={15} />添加下一套</button> : null}
+              </div>
+              <div id="active-outfit-editor" className="active-outfit-editor" role="tabpanel" aria-labelledby={`outfit-tab-${activeOutfit.id}`}>
+                <OutfitCard outfit={activeOutfit} index={activeOutfitIndex} canRemove={draft.outfits.length > 1} onChange={updateOutfit} onRemove={() => removeOutfit(activeOutfit.id)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="image-center-section generation-config" aria-labelledby="generation-config-title">
+        <div className="image-center-section__heading"><div><span className="section-number">02</span><div><h2 id="generation-config-title">生成配置</h2><p>统一配置会应用到全部已就绪套装。</p></div></div><span className="section-state"><WandSparkles size={15} />预计 {summary.totalImages} 张</span></div>
+        <div className="image-config-grid">
+          <fieldset className="image-config-block"><legend>生成引擎</legend><div className="image-provider-control">{(['gpt', 'nanobanana'] as ImageProvider[]).map((provider) => <button key={provider} type="button" className={draft.config.provider === provider ? 'is-selected' : ''} onClick={() => updateConfig({ provider })}><span>{provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><small>WaveSpeed API</small>{draft.config.provider === provider ? <Check size={14} /> : null}</button>)}</div></fieldset>
+          <fieldset className="image-config-block image-config-select"><legend>画面比例</legend><select aria-label="画面比例" value={draft.config.aspectRatio} onChange={(event) => updateConfig({ aspectRatio: event.target.value })}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option></select></fieldset>
+          <fieldset className="image-config-block image-config-select"><legend>分辨率</legend><select aria-label="分辨率" value={draft.config.resolution} onChange={(event) => updateConfig({ resolution: event.target.value })}><option value="1k">1K</option><option value="2k">2K</option><option value="4k">4K</option></select></fieldset>
+          <fieldset className="image-config-block"><legend>统一结果数量</legend><div className="image-result-count">{([1, 2, 3, 4] as const).map((count) => <button key={count} type="button" className={draft.config.resultCount === count ? 'is-selected' : ''} onClick={() => updateConfig({ resultCount: count })}>{count}</button>)}</div><small>应用于当前任务的每个视角或镜头</small></fieldset>
+        </div>
+        <div className="image-prompt-grid" role="radiogroup" aria-label="生成任务">
+          <section className={draft.config.modes.includes('fusion') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('fusion')} onClick={() => selectMode('fusion')}><span><Sparkles size={17} /></span><span><strong>多图融合</strong><small>按现有视角生成换装基准图</small></span><i>{draft.config.modes.includes('fusion') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_fusion" label="自定义提示词" value={draft.config.fusionPrompt} disabled={!draft.config.modes.includes('fusion')} onChange={(fusionPrompt) => updateConfig({ fusionPrompt })} placeholder="描述人物一致性、服装还原和画面要求" /></section>
+          <section className={draft.config.modes.includes('storyboard') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('storyboard')} onClick={() => selectMode('storyboard')}><span><Images size={17} /></span><span><strong>分镜图生成</strong><small>从一段提示词扩展有序镜头</small></span><i>{draft.config.modes.includes('storyboard') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_storyboard" label="自定义提示词" value={draft.config.storyboardPrompt} disabled={!draft.config.modes.includes('storyboard')} onChange={(storyboardPrompt) => updateConfig({ storyboardPrompt })} placeholder="用一整段文字描述镜头顺序和展示重点" />{draft.config.modes.includes('storyboard') && storyboardShots.length ? <div className="storyboard-shot-preview"><strong>已解析 {storyboardShots.length} 个镜头</strong><ol>{storyboardShots.map((shot) => <li key={shot.id}><span>{String(shot.order).padStart(2, '0')}</span><p>{shot.instruction}</p></li>)}</ol></div> : null}</section>
+        </div>
+        <label className="back-inference-toggle"><input type="checkbox" checked={draft.config.allowBackInference} onChange={(event) => updateConfig({ allowBackInference: event.target.checked })} /><span><i>{draft.config.allowBackInference ? <Check size={13} /> : null}</i><strong>允许推测缺失的背面</strong><small>只有模特或产品一方提供背面时继续生成，并给结果添加风险标签。</small></span></label>
+        <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><button type="button" className="primary-button primary-button--large" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={18} /> : <WandSparkles size={18} />}{submitting ? '正在提交' : '创建生图任务'}</button></div></div>
+        {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
+      </section>
+    </div> : <section className="image-results" aria-labelledby="image-results-title">
+      <div className="image-results-heading"><div><h2 id="image-results-title">生成结果</h2><p>任务按套装归组，完成后可在结果中直接挑选分镜。</p></div><button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div>
+      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图任务</h3><p>完成模特、产品和提示词配置后，在这里按套装查看生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
+        const status = taskStatusPresentation[task.status]
+        const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
+        return <article key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" /><SourceThumb file={task.product.front} label="产品正面" /><SourceThumb file={task.product.back} label="产品背面" /><SourceThumb file={task.model.back} label="模特背面" /><SourceThumb file={task.product.side} label="产品侧面" /><SourceThumb file={task.model.side} label="模特侧面" /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div>{task.status === 'failed' ? <button type="button" className="secondary-button" disabled={submitting} onClick={() => regenerate(task)}><RotateCcw size={15} />重新生成</button> : null}</div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
+      })}</div>}
+    </section>}
+    {draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
+      <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
+      {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : <span className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
+      <button type="button" className="primary-button" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : '创建生图任务'}</button>
+    </div>, document.body) : null}
+    {draft.activeTab === 'results' && selectedIds.size ? createPortal(<SelectionWorkbench
+      tasks={draft.tasks}
+      selectedOutputIds={draft.selectedOutputIds}
+      expanded={selectionBarExpanded}
+      onExpandedChange={setSelectionBarExpanded}
+      onClear={() => updateDraft((current) => ({ ...current, selectedOutputIds: [] }))}
+      onRemove={(outputId) => updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((id) => id !== outputId) }))}
+      onPlaceOutput={placeOutput}
+      onGenerate={() => setSheetOpen(true)}
+    />, document.body) : null}
+    {sheetOpen ? <VideoPreparationSheet tasks={draft.tasks} selectedOutputIds={draft.selectedOutputIds} onClose={() => setSheetOpen(false)} onConfirm={(handoffs) => { setSheetOpen(false); onPrepareVideos(handoffs) }} /> : null}
+  </div>
+}

@@ -28,6 +28,7 @@ frontend/.vite/
 
 # Real inputs, captured Replay payloads, and runtime persistence
 uploads/
+outputs/
 real-data/
 replay/
 backend/replay/

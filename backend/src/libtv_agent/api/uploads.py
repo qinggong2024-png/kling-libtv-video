@@ -145,10 +145,13 @@ async def staged_thumbnail(
     )
     if upload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "upload was not found")
-    local = await request.app.state.object_store.localize(
-        upload.thumbnail_key,
-        request.app.state.settings.artifact_root / "cache" / "thumbnails" / f"{upload.id}.jpg",
-    )
+    try:
+        local = await request.app.state.object_store.localize(
+            upload.thumbnail_key,
+            request.app.state.settings.artifact_root / "cache" / "thumbnails" / f"{upload.id}.jpg",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "thumbnail file was not found") from exc
     return FileResponse(local, media_type="image/jpeg")
 
 
@@ -163,8 +166,11 @@ async def asset_thumbnail(
     )
     if asset is None or not asset.thumbnail_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "asset was not found")
-    local = await request.app.state.object_store.localize(
-        asset.thumbnail_key,
-        request.app.state.settings.artifact_root / "cache" / "thumbnails" / f"{asset.id}.jpg",
-    )
+    try:
+        local = await request.app.state.object_store.localize(
+            asset.thumbnail_key,
+            request.app.state.settings.artifact_root / "cache" / "thumbnails" / f"{asset.id}.jpg",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "thumbnail file was not found") from exc
     return FileResponse(local, media_type="image/jpeg")

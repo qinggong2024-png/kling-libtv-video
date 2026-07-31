@@ -17,6 +17,10 @@ from libtv_agent.domain.models import (
     SubjectElementJob,
 )
 from libtv_agent.domain.schemas import VideoTaskCreate
+from libtv_agent.services.fixed_video_tasks import (
+    FixedVideoTaskValidationError,
+    _validate_final_prompt_length,
+)
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
 from libtv_agent.templates.motion_actions import (
@@ -94,12 +98,10 @@ def test_video_task_subject_images_are_optional_ordered_and_exclusive_with_eleme
             {
                 **common,
                 "storyboards": [
-                    {"uploadId": str(uuid.uuid4()), "order": order}
-                    for order in range(1, 5)
+                    {"uploadId": str(uuid.uuid4()), "order": order} for order in range(1, 5)
                 ],
                 "subjectImages": [
-                    {"uploadId": str(uuid.uuid4()), "order": order}
-                    for order in range(1, 5)
+                    {"uploadId": str(uuid.uuid4()), "order": order} for order in range(1, 5)
                 ],
             }
         )
@@ -236,6 +238,9 @@ def test_motion_action_library_has_structured_execution_and_risk_metadata() -> N
         "lean_release",
         "stand_from_seat_settle",
         "existing_prop_return",
+        "front_back_quarter_return",
+        "hair_tuck_release",
+        "seated_prop_sip_return",
     }.issubset({action.id for action in actions})
 
 
@@ -294,6 +299,8 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
     assert "切镜" in compiled.master_prompt
     assert "保持人物身份、面部特征和体型一致" in compiled.master_prompt
     assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
+    assert "布料真实的厚度、重量、体积、垂坠、褶皱、包裹关系与接触阴影" in compiled.master_prompt
+    assert "避免服装出现贴图感、漂浮感和不自然反光" in compiled.master_prompt
     assert "场景、背景陈设和光线条件不变" in compiled.master_prompt
     assert "分镜结构、镜头对应关系及素材先后顺序" in compiled.master_prompt
     assert "皮肤保留真实纹理和自然细节" in compiled.master_prompt
@@ -324,9 +331,70 @@ def test_prompt_compiler_injects_site_style_without_rewriting_image_facts() -> N
     assert compiled.site_profile_id == "classyoutlaw"
     assert compiled.site_profile_version == profile.version
     assert "叛逆、超现实、强图形" in compiled.master_prompt
+    assert profile.expression_language.rstrip("。；") in compiled.master_prompt
     assert "肩胯错位停格" in compiled.master_prompt
     assert "身体变形" in compiled.negative_prompt
     assert "发型" not in compiled.master_prompt
+
+
+def test_prompt_compiler_keeps_cut_mode_authoritative_and_ignores_legacy_tempo() -> None:
+    common = {
+        "template": get_video_template("ootd_walk"),
+        "storyboard_count": 3,
+        "result_count": 4,
+        "action_intensity": "standard",
+        "cut_mode": "explicit_cuts",
+        "variant_index": 4,
+        "site_profile": get_site_style_profile("ironpandafit"),
+    }
+    slow = compile_video_plan(PromptCompileInput(camera_tempo="slow", **common))
+    fast = compile_video_plan(PromptCompileInput(camera_tempo="fast", **common))
+
+    assert slow.master_prompt == fast.master_prompt
+    assert "按照输入分镜顺序允许明确、干净的切镜" in slow.master_prompt
+    assert "一次干净切镜" not in slow.master_prompt
+    assert "节奏变化：" not in slow.master_prompt
+
+
+def test_site_style_does_not_inject_unverified_shots_or_product_faces() -> None:
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("garment_detail"),
+            storyboard_count=1,
+            result_count=1,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=1,
+            site_profile=get_site_style_profile("orionride"),
+        )
+    )
+
+    assert "站点表达只作用于已有素材支持" in compiled.master_prompt
+    assert "视频结构：" not in compiled.master_prompt
+    assert "优先镜头：" not in compiled.master_prompt
+    assert "商品呈现重点：" not in compiled.master_prompt
+    assert "背面图形" not in compiled.master_prompt
+    assert "背面中近景" not in compiled.master_prompt
+
+
+def test_final_prompt_length_includes_reference_role_text() -> None:
+    accepted = _validate_final_prompt_length("x" * 3072, code="TOO_LONG", message="too long")
+    assert len(accepted) == 3072
+
+    with pytest.raises(FixedVideoTaskValidationError) as exc_info:
+        _validate_final_prompt_length("x" * 3073, code="TOO_LONG", message="too long")
+
+    assert exc_info.value.code == "TOO_LONG"
+    assert exc_info.value.details == {"finalLength": 3073, "limit": 3072}
+
+
+def test_all_site_profiles_define_distinct_character_expression_language() -> None:
+    profiles = list_site_style_profiles()
+    expressions = {profile.expression_language for profile in profiles}
+
+    assert len(expressions) == len(profiles)
+    assert all(expression != "自然、克制并服务于商品展示" for expression in expressions)
 
 
 def test_variants_have_limited_differences_without_changing_invariants() -> None:
@@ -358,10 +426,8 @@ def test_variants_have_limited_differences_without_changing_invariants() -> None
     assert len(normalized_prompts) == 1
     for item in variants:
         modifier = str(item.variant_seed["modifier"])
-        assert all(
-            label in modifier
-            for label in ("动作变化：", "神态变化：", "视频风格变化：", "节奏变化：")
-        )
+        assert all(label in modifier for label in ("动作变化：", "神态变化：", "视频风格变化："))
+        assert "节奏变化：" not in modifier
         assert "自行调整" not in modifier
         assert "轻微动作组合" not in modifier
         assert "有限运镜方式" not in modifier
@@ -529,9 +595,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
             actions_response = await client.get("/api/v1/motion-actions", headers=headers)
             assert actions_response.status_code == 200
             action = next(
-                item
-                for item in actions_response.json()
-                if item["id"] == "one_step_settle"
+                item for item in actions_response.json() if item["id"] == "one_step_settle"
             )
             assert action.pop("requiredCapabilities") == ["forward_step_space"]
             action["label"] = f"{action['label']} edited"
@@ -542,9 +606,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
                 json=action,
             )
             assert update_action_response.status_code == 200, update_action_response.text
-            assert update_action_response.json()["requiredCapabilities"] == [
-                "forward_step_space"
-            ]
+            assert update_action_response.json()["requiredCapabilities"] == ["forward_step_space"]
 
             profiles_response = await client.get(
                 "/api/v1/site-style-profiles",
@@ -552,9 +614,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
             )
             assert profiles_response.status_code == 200
             profile = next(
-                item
-                for item in profiles_response.json()
-                if item["id"] == "goodnurselife"
+                item for item in profiles_response.json() if item["id"] == "goodnurselife"
             )
             assert profile.pop("version") == "0.1.0-research"
             profile["researchNote"] = f"{profile['researchNote']} edited"
@@ -614,9 +674,7 @@ async def test_catalog_editor_rejects_invalid_references_and_requires_editor_rol
                 headers={"X-User-Id": settings.dev_admin_id},
             )
             profile = next(
-                item
-                for item in profiles_response.json()
-                if item["id"] == "goodnurselife"
+                item for item in profiles_response.json() if item["id"] == "goodnurselife"
             )
             profile.pop("version")
             profile["preferredActions"] = ["missing_action"]
@@ -738,7 +796,6 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
                     "siteProfileId": "geeksoutfit",
                     "resultCount": result_count,
                     "actionIntensity": "standard",
-                    "cameraTempo": "standard",
                     "cutMode": "explicit_cuts",
                     "paidSubmissionConsent": True,
                 },
@@ -754,17 +811,11 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             )
             assert {variant["kind"] for variant in task["variants"]} == {"STABLE"}
             assert len(task["compiledPlan"]["variants"]) == result_count
-            expected_scope = (
-                "当前结果相对输入只允许改变动作、神态、视频风格和节奏"
-                if result_count == 1
-                else (
-                    f"本次生成的{result_count}个结果相对输入都只允许改变动作、神态、视频风格和节奏"
-                )
-            )
             for compiled_variant in task["compiledPlan"]["variants"]:
                 prompt = compiled_variant["master_prompt"]
-                assert "所有未明确允许变化的输入事实永久不变" in prompt
-                assert expected_scope in prompt
+                assert "所有未明确允许变化的输入事实保持不变" in prompt
+                assert "当前结果相对输入只允许改变动作细节、神态和拍摄表达" in prompt
+                assert "本次生成的" not in prompt
                 assert "四个版本" not in prompt
             assert task["materialValidation"]["valid"] is True
             assert task["settings"]["smartStoryboard"] is True
@@ -774,6 +825,74 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
                 select(func.count()).select_from(GenerationCommand)
             )
             assert command_count == 0
+
+
+@pytest.mark.asyncio
+async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_compilation(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        object_store_mode="local",
+        artifact_root=tmp_path / "artifacts-custom",
+        runner_root=tmp_path / "runner-custom",
+        kling_admin_config_file=tmp_path / "kling-custom.json",
+        kling_cli_enabled=False,
+        _env_file=None,
+    )
+    app = create_app(settings)
+    user_prompt = "人物自然转身并停留，完整展示服装背面。"
+    async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            uploaded = await client.post(
+                "/api/v1/uploads",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "custom-direct-upload",
+                },
+                files={"file": ("shot.png", png_bytes(), "image/png")},
+            )
+            assert uploaded.status_code == 201, uploaded.text
+            response = await client.post(
+                "/api/v1/video-tasks",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "custom-direct-create",
+                },
+                json={
+                    "clientTaskId": "custom-direct",
+                    "title": "Custom direct",
+                    "storyboards": [
+                        {"uploadId": uploaded.json()["id"], "order": 1, "required": True}
+                    ],
+                    "generationMode": "custom",
+                    "customPrompt": user_prompt,
+                    "resultCount": 2,
+                    "paidSubmissionConsent": True,
+                },
+            )
+
+    assert response.status_code == 201, response.text
+    task = response.json()
+    assert task["templateId"] == "ootd_walk"
+    assert task["siteProfileId"] is None
+    assert task["settings"]["generationMode"] == "custom"
+    assert task["compiledPlan"]["compiler"] == "custom-direct-v1"
+    assert task["compiledPlan"]["userPrompt"] == user_prompt
+    assert len(task["variants"]) == 2
+    assert {variant["promptText"] for variant in task["variants"]} == {
+        f"{user_prompt} Reference roles: @image_1 are ordered storyboards and control "
+        "scene, action, composition, and camera order."
+    }
+    assert all(
+        variant["promptText"].startswith(user_prompt)
+        and "站点风格" not in variant["promptText"]
+        and "动作变化" not in variant["promptText"]
+        for variant in task["variants"]
+    )
 
 
 @pytest.mark.asyncio

@@ -151,6 +151,7 @@ export interface SiteStyleProfileSummary {
   retrievedAt: string
   evidenceLevel: 'verified_site' | 'restricted_site'
   tone: string
+  expressionLanguage: string
   audience: string
   palette: string[]
   typography: string
@@ -164,6 +165,8 @@ export interface SiteStyleProfileSummary {
   productPriorities: string[]
   forbiddenMismatches: string[]
   researchNote: string
+  libraryScope: 'general' | 'brand'
+  brandId: string | null
 }
 
 export interface MotionActionSummary {
@@ -176,6 +179,9 @@ export interface MotionActionSummary {
   requirements: string[]
   avoid: string[]
   riskLevel: 'low' | 'conditional'
+  libraryScope: 'general' | 'brand'
+  brandId: string | null
+  baseActionId: string | null
 }
 
 export type MotionActionWrite = MotionActionSummary
@@ -225,14 +231,34 @@ export interface UploadResult {
 }
 
 export interface FixedVideoTaskOptions {
-  templateId: string
-  siteProfileId: string
+  generationMode: 'automatic' | 'custom'
+  customPrompt?: string
+  templateId?: string
+  siteProfileId?: string
   elementIds: string[]
   subjectUploads?: UploadResult[]
   resultCount: number
   actionIntensity: 'low' | 'standard' | 'high'
-  cameraTempo: 'slow' | 'standard' | 'fast'
   cutMode: 'explicit_cuts' | 'continuous_when_possible'
+}
+
+export interface PromptPreset {
+  id: string
+  scope: PromptPresetScope
+  name: string
+  content: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type PromptPresetScope = 'video' | 'image_fusion' | 'image_storyboard'
+
+export interface PromptPresetWrite {
+  scope: PromptPresetScope
+  name: string
+  content: string
+  sortOrder: number
 }
 
 export interface KlingElement {
@@ -358,6 +384,104 @@ export interface KlingConfigPatch {
   maxSubmitConcurrency?: number
   maxPollConcurrency?: number
   enabled?: boolean
+}
+
+export type WaveSpeedCredentialSource = 'admin' | 'environment' | 'none'
+
+export interface WaveSpeedConfig {
+  enabled: boolean
+  apiKeyConfigured: boolean
+  credentialSource: WaveSpeedCredentialSource
+  baseUrl: string
+  maxSubmitConcurrency: number
+  maxPollConcurrency: number
+  provider: string
+  status: string
+  available: boolean
+  checkedAt: string | null
+  reason: string | null
+  updatedAt: string | null
+  verificationMode: 'prediction_read_only_lookup'
+  verificationMayGenerateOrCharge: false
+}
+
+export interface WaveSpeedConfigPatch {
+  enabled?: boolean
+  apiKey?: string
+  clearApiKey?: boolean
+  baseUrl?: string
+  maxSubmitConcurrency?: number
+  maxPollConcurrency?: number
+}
+
+export type ImageGenerationBatchStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'write_uncertain'
+
+export interface ImageGenerationBatchOutput {
+  id: string
+  kind: 'fusion' | 'storyboard'
+  view: 'front' | 'back' | 'shot'
+  label: string
+  url: string
+  downloadUrl?: string | null
+  artifactId?: string | null
+}
+
+export interface ImageGenerationBatchItem {
+  id: string
+  clientTaskId: string
+  outfitId: string
+  status: ImageGenerationBatchStatus
+  providerTaskId: string | null
+  providerTaskIds: string[]
+  modelId: string
+  outputs: ImageGenerationBatchOutput[]
+  error?: {
+    code: string
+    message: string
+    retryable: boolean | null
+    details?: unknown
+  } | null
+}
+
+export interface ImageGenerationBatch {
+  id: string
+  status: ImageGenerationBatchStatus
+  items: ImageGenerationBatchItem[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ImageGenerationClientManifest {
+  clientBatchId: string
+  name: string
+  provider: 'gpt' | 'nanobanana'
+  modes: Array<'fusion' | 'storyboard'>
+  resultCount: 1 | 2 | 3 | 4
+  aspectRatio: string
+  resolution: string
+  quality?: string
+  outputFormat: 'png'
+  allowBackInference: boolean
+  paidSubmissionConsent: true
+  expectedGenerationCount: number
+  items: Array<{
+    clientTaskId: string
+    outfitId: string
+    outfitName: string
+    sku: string
+    prompts: { fusion: string; storyboard: string }
+    storyboardShots: Array<{ order: number; instruction: string }>
+    referenceFileIndexes: number[]
+    referenceRoles: Array<{
+      fileIndex: number
+      role: 'model.front' | 'product.front' | 'product.back' | 'model.back' | 'product.side' | 'model.side'
+    }>
+  }>
 }
 
 export interface AdminCredentialsStatus {

@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 $logDir = Join-Path $projectRoot 'var\test\logs'
 $databasePath = (Join-Path $projectRoot 'var\test\development.db').Replace('\', '/')
 $artifactRoot = Join-Path $projectRoot 'var\test\artifacts'
@@ -13,6 +14,7 @@ $runnerRoot = Join-Path $projectRoot 'var\test\runner'
 $runtimeRoot = Join-Path $projectRoot 'var\test\runtime'
 $processFile = Join-Path $runtimeRoot 'stack-processes.json'
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$appDir = Join-Path $projectRoot 'backend\src'
 
 New-Item -ItemType Directory -Force -Path $logDir, $artifactRoot, $runnerRoot, $runtimeRoot | Out-Null
 
@@ -27,9 +29,19 @@ function Test-Ready([string]$Uri) {
 function Stop-RecordedProcesses {
     if (-not (Test-Path -LiteralPath $processFile)) { return }
     $record = Get-Content -Raw -LiteralPath $processFile | ConvertFrom-Json
-    foreach ($processId in @($record.apiPid, $record.frontendPid)) {
-        if ($processId -and (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
-            Stop-Process -Id $processId -Force
+    $targets = @(
+        [pscustomobject]@{ processId = $record.apiPid; port = $ApiPort; name = 'API' },
+        [pscustomobject]@{ processId = $record.frontendPid; port = $FrontendPort; name = 'frontend' }
+    )
+    foreach ($target in $targets) {
+        if (-not $target.processId) { continue }
+        $identity = Get-WorkspacePortIdentity -Port $target.port -ProjectRoot $projectRoot
+        if ($identity.Listening -and $identity.OwnedByWorkspace -and
+            $identity.ProcessId -eq $target.processId) {
+            Stop-Process -Id $target.processId -Force
+        }
+        elseif (Get-Process -Id $target.processId -ErrorAction SilentlyContinue) {
+            Write-Warning "Ignoring stale $($target.name) PID $($target.processId); ownership could not be verified."
         }
     }
     Remove-Item -LiteralPath $processFile -Force
@@ -71,9 +83,18 @@ $env:SHARED_AUTHENTICATION_ENABLED = 'false'
 $env:SESSION_COOKIE_NAME = 'libtv_test_session'
 $env:CSRF_COOKIE_NAME = 'libtv_test_csrf'
 $env:SESSION_COOKIE_SECURE = 'false'
+$env:AI_ADAPTER_MODE = 'fake'
+$env:LIBTV_ADAPTER_MODE = 'fake'
 $env:LIBTV_EXECUTION_MODE = 'dry-run'
 $env:PAID_GENERATION_ENABLED = 'false'
+$env:PAID_SUBMISSIONS_PAUSED = 'true'
+$env:KLING_CLI_ENABLED = 'false'
+$env:KLING_API_ENABLED = 'false'
+$env:KLING_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'kling-config.json'
 $env:KLING_ENABLE_PAID_INTEGRATION_TEST = 'false'
+$env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
+$env:WAVESPEED_ENABLED = 'false'
+$env:WAVESPEED_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'wavespeed-config.json'
 $env:OPENAI_MODEL = 'gpt-5.6-luna'
 $env:OPENAI_ANALYSIS_FALLBACK_MODEL = 'gpt-5.6-terra'
 $env:OPENAI_REASONING_EFFORT = 'none'
@@ -89,7 +110,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Test database migration failed.' }
 
     $api = Start-Process -FilePath $python `
-        -ArgumentList @('-m', 'uvicorn', 'libtv_agent.app:create_app', '--factory', '--app-dir', 'backend/src', '--port', $ApiPort) `
+        -ArgumentList @('-m', 'uvicorn', 'libtv_agent.app:create_app', '--factory', '--app-dir', $appDir, '--port', $ApiPort) `
         -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logDir 'api.log') `
         -RedirectStandardError (Join-Path $logDir 'api.error.log')
