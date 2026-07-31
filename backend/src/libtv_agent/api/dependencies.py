@@ -7,6 +7,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from libtv_agent.db import get_session
 from libtv_agent.domain.enums import UserRole
 from libtv_agent.domain.models import User, UserSession
+from libtv_agent.services.prompt_presets import add_default_prompt_presets
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +67,7 @@ async def get_actor(
         session.add(user)
         try:
             await session.flush()
+            add_default_prompt_presets(session, user.id)
             await session.commit()
         except IntegrityError:
             await session.rollback()

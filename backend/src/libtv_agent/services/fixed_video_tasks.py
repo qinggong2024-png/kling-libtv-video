@@ -41,12 +41,26 @@ from libtv_agent.templates.video_templates import get_video_template
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
+CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
+MAX_KLING_PROMPT_CHARS = 3072
+
 
 class FixedVideoTaskValidationError(ValueError):
     def __init__(self, code: str, message: str, *, details: dict[str, Any] | None = None):
         super().__init__(message)
         self.code = code
         self.details = details or {}
+
+
+def _validate_final_prompt_length(prompt: str, *, code: str, message: str) -> str:
+    if len(prompt) > MAX_KLING_PROMPT_CHARS:
+        raise FixedVideoTaskValidationError(
+            code,
+            message,
+            details={"finalLength": len(prompt), "limit": MAX_KLING_PROMPT_CHARS},
+        )
+    return prompt
 
 
 def _paid_boundary(provider: str, settings: Settings) -> str:
@@ -147,24 +161,27 @@ async def create_fixed_video_task(
         )
 
     try:
-        template = get_video_template(payload.template_id, require_active=True)
-    except ValueError as exc:
-        raise FixedVideoTaskValidationError("VIDEO_TEMPLATE_NOT_ACTIVE", str(exc)) from exc
-    try:
-        site_profile = await get_merged_site_style_profile(
-            session,
-            payload.site_profile_id,
+        template = get_video_template(
+            payload.template_id or DEFAULT_VIDEO_TEMPLATE_ID,
             require_active=True,
         )
     except ValueError as exc:
-        raise FixedVideoTaskValidationError("SITE_PROFILE_NOT_ACTIVE", str(exc)) from exc
-
-    actions = await motion_action_library(session)
+        raise FixedVideoTaskValidationError("VIDEO_TEMPLATE_NOT_ACTIVE", str(exc)) from exc
+    site_profile = None
+    actions = {}
+    if payload.generation_mode == "automatic":
+        try:
+            site_profile = await get_merged_site_style_profile(
+                session,
+                payload.site_profile_id or "",
+                require_active=True,
+            )
+        except ValueError as exc:
+            raise FixedVideoTaskValidationError("SITE_PROFILE_NOT_ACTIVE", str(exc)) from exc
+        actions = await motion_action_library(session)
     ordered_inputs = sorted(payload.storyboards, key=lambda item: item.order)
     ordered_subject_inputs = sorted(payload.subject_images, key=lambda item: item.order)
-    upload_ids = [
-        item.upload_id for item in [*ordered_inputs, *ordered_subject_inputs]
-    ]
+    upload_ids = [item.upload_id for item in [*ordered_inputs, *ordered_subject_inputs]]
     uploads = list(
         await session.scalars(
             select(StagedUpload).where(
@@ -200,9 +217,9 @@ async def create_fixed_video_task(
         template=template,
         variant_count=payload.result_count,
         action_intensity=payload.action_intensity,
-        camera_tempo=payload.camera_tempo,
+        camera_tempo="standard",
         cut_mode=payload.cut_mode,
-        requested_action_ids=site_profile.preferred_actions,
+        requested_action_ids=site_profile.preferred_actions if site_profile else (),
         action_library=actions,
         max_file_bytes=settings.max_input_image_bytes,
     )
@@ -214,43 +231,73 @@ async def create_fixed_video_task(
             details=validation_json,
         )
 
-    plans = [
-        compile_video_plan(
-            PromptCompileInput(
-                template=template,
-                storyboard_count=len(ordered_inputs),
-                result_count=payload.result_count,
-                action_intensity=payload.action_intensity,
-                camera_tempo=payload.camera_tempo,
-                cut_mode=payload.cut_mode,
-                variant_index=index,
-                site_profile=site_profile,
-                action_context=validation.action_context,
-                action_library=actions,
-            )
-        )
-        for index in range(1, payload.result_count + 1)
-    ]
     role_prompt = _reference_role_prompt(
         storyboard_count=len(ordered_inputs),
         subject_image_count=len(ordered_subject_inputs),
         element_count=len(payload.element_ids),
     )
-    plan_json = {
-        "compiler": "fixed-template-v1",
-        "variants": [
-            {**asdict(plan), "master_prompt": f"{plan.master_prompt} {role_prompt}"}
+    if payload.generation_mode == "automatic":
+        plans = [
+            compile_video_plan(
+                PromptCompileInput(
+                    template=template,
+                    storyboard_count=len(ordered_inputs),
+                    result_count=payload.result_count,
+                    action_intensity=payload.action_intensity,
+                    camera_tempo="standard",
+                    cut_mode=payload.cut_mode,
+                    variant_index=index,
+                    site_profile=site_profile,
+                    action_context=validation.action_context,
+                    action_library=actions,
+                )
+            )
+            for index in range(1, payload.result_count + 1)
+        ]
+        prompt_texts = [
+            _validate_final_prompt_length(
+                f"{role_prompt} {plan.master_prompt}",
+                code="COMPILED_PROMPT_TOO_LONG",
+                message="自动提示词加素材角色说明后不能超过 3072 个字符",
+            )
             for plan in plans
-        ],
-    }
+        ]
+        variant_seeds = [plan.variant_seed for plan in plans]
+        plan_json = {
+            "compiler": "fixed-template-v1",
+            "variants": [
+                {**asdict(plan), "master_prompt": prompt_text}
+                for plan, prompt_text in zip(plans, prompt_texts, strict=True)
+            ],
+        }
+    else:
+        custom_prompt = payload.custom_prompt or ""
+        final_prompt = f"{custom_prompt} {role_prompt}"
+        final_prompt = _validate_final_prompt_length(
+            final_prompt,
+            code="CUSTOM_PROMPT_TOO_LONG",
+            message="自定义提示词加素材角色说明后不能超过 3072 个字符",
+        )
+        prompt_texts = [final_prompt for _ in range(payload.result_count)]
+        variant_seeds = [
+            {"variantIndex": index, "mode": "custom", "promptMutated": False}
+            for index in range(1, payload.result_count + 1)
+        ]
+        plan_json = {
+            "compiler": CUSTOM_PROMPT_COMPILER_VERSION,
+            "userPrompt": custom_prompt,
+            "referenceRolePrompt": role_prompt,
+            "finalPrompt": final_prompt,
+            "resultCount": payload.result_count,
+        }
     task_id = uuid.uuid4()
     consent_at = datetime.now(UTC)
     settings_json = {
         "generationProvider": "kling",
+        "generationMode": payload.generation_mode,
         "elementIds": list(payload.element_ids),
         "resultCount": payload.result_count,
         "actionIntensity": payload.action_intensity,
-        "cameraTempo": payload.camera_tempo,
         "cutMode": payload.cut_mode,
         "durationSeconds": template.duration_seconds,
         "aspectRatio": template.ratio,
@@ -276,15 +323,15 @@ async def create_fixed_video_task(
         workflow_kind="FIXED_TEMPLATE",
         template_id=template.id,
         template_version=template.version,
-        site_profile_id=site_profile.id,
-        site_profile_version=site_profile.version,
+        site_profile_id=site_profile.id if site_profile else None,
+        site_profile_version=site_profile.version if site_profile else None,
         settings_json=settings_json,
         compiled_plan_json=plan_json,
         material_validation_json=validation_json,
         paid_submission_consent_at=consent_at,
         source_upload_duration_seconds=payload.source_upload_duration_seconds,
-        user_requirement_raw="",
-        user_requirement_normalized="",
+        user_requirement_raw=payload.custom_prompt or "",
+        user_requirement_normalized=payload.custom_prompt or "",
     )
     task.assets = []
     for item in ordered_inputs:
@@ -329,24 +376,27 @@ async def create_fixed_video_task(
             )
         )
         upload.claimed_task_id = task_id
-    prompt_texts = [f"{plan.master_prompt} {role_prompt}" for plan in plans]
     task.variants = [
         GenerationVariant(
             variant_type=VariantKind.STABLE,
             revision=index,
             variant_index=index,
             variant_key=f"result-{index}",
-            variant_seed_json=plan.variant_seed,
+            variant_seed_json=variant_seed,
             prompt_text=prompt_text,
             prompt_hash=sha256_json(prompt_text),
-            prompt_template_version=template.version,
+            prompt_template_version=(
+                template.version
+                if payload.generation_mode == "automatic"
+                else CUSTOM_PROMPT_COMPILER_VERSION
+            ),
             generation_config_json={**settings_json, "variantIndex": index},
             generation_config_hash=sha256_json({**settings_json, "variantIndex": index}),
             ordered_storyboard_assets_hash=asset_hash,
             confirmed_at=consent_at,
         )
-        for index, (plan, prompt_text) in enumerate(
-            zip(plans, prompt_texts, strict=True),
+        for index, (variant_seed, prompt_text) in enumerate(
+            zip(variant_seeds, prompt_texts, strict=True),
             start=1,
         )
     ]

@@ -36,10 +36,14 @@ def _motion_action(payload: Mapping[str, Any]) -> MotionAction:
         ),
         avoid=tuple(payload.get("avoid", ())),
         risk_level=payload.get("riskLevel", "low"),
+        library_scope=payload.get("libraryScope", "general"),
+        brand_id=payload.get("brandId"),
+        base_action_id=payload.get("baseActionId"),
     )
 
 
 def _site_style_profile(payload: Mapping[str, Any]) -> SiteStyleProfile:
+    library_scope = payload.get("libraryScope", "brand")
     return SiteStyleProfile(
         id=str(payload["id"]),
         version=str(payload["version"]),
@@ -63,6 +67,11 @@ def _site_style_profile(payload: Mapping[str, Any]) -> SiteStyleProfile:
         product_priorities=tuple(payload.get("productPriorities", ())),
         forbidden_mismatches=tuple(payload.get("forbiddenMismatches", ())),
         research_note=str(payload["researchNote"]),
+        expression_language=str(payload.get("expressionLanguage") or payload["tone"]),
+        library_scope=library_scope,
+        brand_id=(payload.get("brandId") or str(payload["id"]))
+        if library_scope == "brand"
+        else None,
     )
 
 
@@ -100,9 +109,7 @@ async def list_merged_site_style_profiles(
     include_retired: bool = False,
 ) -> tuple[SiteStyleProfile, ...]:
     profiles = (await site_style_profile_library(session)).values()
-    return tuple(
-        profile for profile in profiles if include_retired or profile.status != "retired"
-    )
+    return tuple(profile for profile in profiles if include_retired or profile.status != "retired")
 
 
 async def get_merged_site_style_profile(

@@ -47,6 +47,7 @@ $env:SESSION_COOKIE_SECURE = 'false'
 $env:SESSION_SECRET = $sessionSecret
 $env:APP_PUBLIC_ORIGINS = "http://$LanAddress`:5173,http://127.0.0.1:5173,http://localhost:5173"
 $env:VITE_API_PROXY = 'http://127.0.0.1:8000'
+$env:VITE_HOST = '0.0.0.0'
 
 & $startScript -StartupTimeoutSeconds $StartupTimeoutSeconds
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -7,6 +7,7 @@ from typing import Literal
 
 ActionCategory = Literal["outfit", "detail", "back", "interaction", "product"]
 ActionRiskLevel = Literal["low", "conditional"]
+LibraryScope = Literal["general", "brand"]
 
 
 class ActionCapability(StrEnum):
@@ -28,6 +29,7 @@ class ActionCapability(StrEnum):
     SAFE_FABRIC_AREA = "safe_fabric_area"
     SLEEVE_OR_SHOULDER_VISIBLE = "sleeve_or_shoulder_visible"
     FACE_GAZE_ADJUSTABLE = "face_gaze_adjustable"
+    HAIR_REACHABLE = "hair_reachable"
     COLLAR_VISIBLE = "collar_visible"
     OPENABLE_OUTER_LAYER = "openable_outer_layer"
     INNER_LAYER_VISIBLE = "inner_layer_visible"
@@ -112,6 +114,9 @@ class MotionAction:
     required_capabilities: tuple[ActionCapability, ...] = ()
     avoid: tuple[str, ...] = ()
     risk_level: ActionRiskLevel = "low"
+    library_scope: LibraryScope = "general"
+    brand_id: str | None = None
+    base_action_id: str | None = None
 
     def to_public_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -121,6 +126,9 @@ class MotionAction:
         ]
         value.pop("required_capabilities")
         value["riskLevel"] = value.pop("risk_level")
+        value["libraryScope"] = value.pop("library_scope")
+        value["brandId"] = value.pop("brand_id")
+        value["baseActionId"] = value.pop("base_action_id")
         return value
 
 
@@ -448,6 +456,21 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         avoid=("头部过度扭转", "肩部抬起遮挡图案"),
         risk_level="conditional",
     ),
+    "front_back_quarter_return": MotionAction(
+        "front_back_quarter_return",
+        "正背短停回望",
+        "back",
+        "从正面稳定站姿开始，自然转到背面并短暂停留，背面展示不超过动作总时长的四分之一；随后小幅越肩回看镜头并自然回到三分之四侧面，服装随转身自然摆动且全程连续。",
+        "在一个连贯动作中展示正面、背面结构与人镜交流，同时避免背面停留喧宾夺主。",
+        ("ootd_walk", "mood_model"),
+        requirements=("输入包含可靠的背面分镜", "头肩关系允许自然回望"),
+        required_capabilities=(
+            ActionCapability.BACK_REFERENCE,
+            ActionCapability.OVER_SHOULDER_GAZE_SAFE,
+        ),
+        avoid=("无背面参考时凭空生成", "整圈旋转", "转身跳变", "背面停留过久"),
+        risk_level="conditional",
+    ),
     "controlled_gaze": MotionAction(
         "controlled_gaze",
         "视线移回镜头",
@@ -507,6 +530,23 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "用低风险姿态变化增加人物表现力。",
         ("mood_model", "ootd_walk"),
         avoid=("颈部过度弯折", "头肩反向剧烈摆动"),
+    ),
+    "hair_tuck_release": MotionAction(
+        "hair_tuck_release",
+        "轻整发丝后复位",
+        "interaction",
+        "从自然手位开始，用一只手轻整理脸侧已有发丝或将其轻拨到耳后，随即放下手臂并回到放松姿态；脸部身份、发型轮廓和服装始终保持稳定。",
+        "增加日常 UGC 的自然交流感，并避免大幅手势遮挡脸部或服装。",
+        ("ootd_walk", "mood_model"),
+        requirements=("输入中脸侧发丝与可用手位清晰", "手部到发丝的路径不会遮挡主要商品区域"),
+        required_capabilities=(
+            ActionCapability.FREE_HAND,
+            ActionCapability.SAFE_HAND_PATH,
+            ActionCapability.FACE_VISIBLE,
+            ActionCapability.HAIR_REACHABLE,
+        ),
+        avoid=("改变发型或发色", "手掌遮住脸部", "反复拨弄头发", "手臂遮挡主要印花"),
+        risk_level="conditional",
     ),
     "mirror_phone_hold": MotionAction(
         "mirror_phone_hold",
@@ -611,6 +651,24 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         avoid=("凭空新增或替换道具", "将物件递出画面", "物件遮挡主要服装图案"),
         risk_level="conditional",
     ),
+    "seated_prop_sip_return": MotionAction(
+        "seated_prop_sip_return",
+        "坐姿饮用后放回",
+        "interaction",
+        "保持输入中的稳定坐姿，单手拿起手边已有的杯子或饮品，小口饮用一次后沿原路径放回原位；全程不站起、不掀动衣摆，结束时回到放松坐姿并保持服装清晰。",
+        "为海边、咖啡馆或日常坐姿场景增加可信的生活化互动，同时保护服装与坐姿连续性。",
+        ("mood_model",),
+        requirements=("输入中已有可饮用物件、稳定座位和安全拿取路径", "手部与物件清晰可见"),
+        required_capabilities=(
+            ActionCapability.SEATED_POSE,
+            ActionCapability.SEAT_VISIBLE,
+            ActionCapability.EXISTING_PROP,
+            ActionCapability.FREE_HAND,
+            ActionCapability.PROP_PICKUP_SAFE,
+        ),
+        avoid=("凭空新增或替换饮品", "站起或离开座位", "掀动裙摆或衣摆", "饮品遮挡主要服装图案"),
+        risk_level="conditional",
+    ),
 }
 
 
@@ -643,6 +701,31 @@ def evaluate_action(
     return ActionEligibility(allowed=not denied and not missing, missing=missing, denied=denied)
 
 
+def evaluate_action_with_base(
+    action: MotionAction,
+    context: ActionContext | None,
+    library: Mapping[str, MotionAction],
+) -> ActionEligibility:
+    if action.base_action_id is None:
+        return evaluate_action(action, context)
+    base_action = library.get(action.base_action_id)
+    if base_action is None:
+        return ActionEligibility(allowed=False)
+    capabilities = tuple(
+        dict.fromkeys((*base_action.required_capabilities, *action.required_capabilities))
+    )
+    inherited = MotionAction(
+        id=action.id,
+        label=action.label,
+        category=action.category,
+        instruction=action.instruction,
+        purpose=action.purpose,
+        compatible_templates=action.compatible_templates,
+        required_capabilities=capabilities,
+    )
+    return evaluate_action(inherited, context)
+
+
 def compatible_action_ids(
     template_id: str,
     action_ids: tuple[str, ...],
@@ -656,7 +739,14 @@ def compatible_action_ids(
         for action_id in action_ids
         if action_id in actions
         and template_id in actions[action_id].compatible_templates
-        and evaluate_action(actions[action_id], context).allowed
+        and (
+            actions[action_id].base_action_id is None
+            or (
+                actions[action_id].base_action_id in actions
+                and template_id in actions[actions[action_id].base_action_id].compatible_templates
+            )
+        )
+        and evaluate_action_with_base(actions[action_id], context, actions).allowed
     )
 
 
@@ -676,4 +766,12 @@ def render_action_ids(
     )
     if not compatible:
         return "不额外添加站点专属动作，保持模板动作骨架"
-    return "；".join(actions[action_id].instruction for action_id in compatible)
+    rendered: list[str] = []
+    for action_id in compatible:
+        action = actions[action_id]
+        if action.base_action_id is None:
+            rendered.append(action.instruction)
+            continue
+        base_action = actions[action.base_action_id]
+        rendered.append(f"{base_action.instruction}；品牌风格差异：{action.instruction}")
+    return "；".join(rendered)

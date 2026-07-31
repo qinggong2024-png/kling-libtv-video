@@ -16,6 +16,7 @@ from libtv_agent.adapters.kling_official_cli import (
 from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import create_libtv_adapter
 from libtv_agent.adapters.object_store import create_object_store
+from libtv_agent.adapters.wavespeed import WaveSpeedAdapter
 from libtv_agent.api.router import api_router
 from libtv_agent.config import Settings, get_settings
 from libtv_agent.db import Database
@@ -29,6 +30,10 @@ from libtv_agent.services.kling_config import (
 from libtv_agent.services.libtv_login import LibTVLoginManager
 from libtv_agent.services.materialization_lifecycle import recover_stale_materializations
 from libtv_agent.services.subject_elements import recover_subject_element_jobs
+from libtv_agent.services.wavespeed_config import (
+    load_wavespeed_admin_config,
+    wavespeed_admin_config_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings.validate_shared_environment()
     load_admin_credentials(app_settings)
     load_kling_admin_config(app_settings)
+    load_wavespeed_admin_config(app_settings)
     configure_logging()
 
     @asynccontextmanager
@@ -169,6 +175,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "Kling Provider capability refresh failed at startup: %s",
                     exc.code,
                 )
+        if app_settings.wavespeed_enabled:
+            availability = await app.state.wavespeed_adapter.verify_credentials()
+            if not availability.available:
+                logger.warning(
+                    "WaveSpeed read-only verification failed at startup: %s",
+                    availability.status,
+                )
         recovery_task = asyncio.create_task(_analysis_recovery_loop(app))
         try:
             yield
@@ -191,10 +204,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.libtv_adapter = create_libtv_adapter(app_settings)
     app.state.kling_adapter = create_kling_adapter(app_settings)
+    app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
     app.state.libtv_login_manager = LibTVLoginManager()
     app.state.object_store = create_object_store(app_settings)
     app.state.settings = app_settings
     app.state.kling_config_signature = kling_admin_config_signature(app_settings)
+    app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
     app.state.analysis_jobs = set()
     app.state.confirmation_jobs = set()
     app.state.subject_element_jobs = set()
@@ -261,6 +276,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             load_kling_admin_config(app_settings)
             app.state.kling_adapter = create_kling_adapter(app_settings)
             app.state.kling_config_signature = kling_admin_config_signature(app_settings)
+        wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
+        if wavespeed_config_signature != app.state.wavespeed_config_signature:
+            load_wavespeed_admin_config(app_settings)
+            app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
+            app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
         shared = app_settings.shared_authentication
         unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
         login_path = request.url.path == "/api/v1/auth/login"

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, cancelTask, changePassword, confirmTask, createAdminUser, createKlingElement, createTask, createVideoTask, deactivateAdminUser, deleteKlingElement, getAdminUsers, getKlingConfig, getKlingElements, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveArtifact, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig } from './api'
+import { ApiError, cancelTask, changePassword, confirmTask, createAdminUser, createKlingElement, createPromptPreset, createTask, createVideoTask, deactivateAdminUser, deleteKlingElement, fetchImageAssetFile, getAdminUsers, getKlingConfig, getKlingElements, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getPromptPresets, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveArtifact, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -70,6 +70,21 @@ describe('API request identity and CSRF contracts', () => {
     const taskCall = calls.find(([input]) => String(input).endsWith('/tasks'))
     expect(new Headers(adminCall?.[1]?.headers).get('X-User-Id')).toBe(ADMIN_ID)
     expect(new Headers(taskCall?.[1]?.headers).get('X-User-Id')).toBe(USER_ID)
+  })
+
+  it('downloads generated images through the authenticated request path', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      new Blob(['generated-image'], { type: 'image/png' }),
+      { status: 200 },
+    ))
+
+    const file = await fetchImageAssetFile('/api/v1/image-generation-outputs/output-1', '套装-分镜-1')
+
+    const call = vi.mocked(fetch).mock.calls[0]
+    expect(String(call[0])).toBe('/api/v1/image-generation-outputs/output-1')
+    expect(new Headers(call[1]?.headers).get('X-User-Id')).toBe(USER_ID)
+    expect(file.name).toBe('套装-分镜-1.png')
+    expect(file.type).toBe('image/png')
   })
 
   it('updates automatic prompt confirmation with the runtime config version', async () => {
@@ -154,6 +169,7 @@ describe('API request identity and CSRF contracts', () => {
       '固定模板视频',
       [{ id: 'upload-1' } as UploadResult],
       {
+        generationMode: 'automatic',
         templateId: 'template-1',
         siteProfileId: 'site-1',
         elementIds: [],
@@ -163,17 +179,59 @@ describe('API request identity and CSRF contracts', () => {
         ],
         resultCount: 1,
         actionIntensity: 'standard',
-        cameraTempo: 'standard',
         cutMode: 'explicit_cuts',
       },
     )
 
     expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toMatchObject({
+      generationMode: 'automatic',
       elementIds: [],
       subjectImages: [
         { uploadId: 'subject-front', order: 1 },
         { uploadId: 'subject-back', order: 2 },
       ],
+    })
+  })
+
+  it('sends a custom prompt without a site profile for direct generation', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ id: 'task-custom' } as Task, 201))
+
+    await createVideoTask(
+      '自定义提示词视频',
+      [{ id: 'upload-1' } as UploadResult],
+      {
+        generationMode: 'custom',
+        customPrompt: '人物自然转身并展示服装背面。',
+        elementIds: [],
+        resultCount: 2,
+        actionIntensity: 'standard',
+        cutMode: 'explicit_cuts',
+      },
+    )
+
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
+    expect(body.generationMode).toBe('custom')
+    expect(body.customPrompt).toBe('人物自然转身并展示服装背面。')
+    expect(body.siteProfileId).toBeUndefined()
+  })
+
+  it('keeps prompt preset reads and writes scoped to their workflow', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ id: 'preset-1' }))
+
+    await getPromptPresets('image_storyboard')
+    await createPromptPreset({
+      scope: 'image_storyboard',
+      name: '多角度展示',
+      content: '镜头一：正面展示。镜头二：背面展示。',
+      sortOrder: 0,
+    })
+
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/v1/prompt-presets?scope=image_storyboard')
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body))).toMatchObject({
+      scope: 'image_storyboard',
+      name: '多角度展示',
     })
   })
 

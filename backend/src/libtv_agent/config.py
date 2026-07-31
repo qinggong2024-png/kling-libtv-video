@@ -107,6 +107,20 @@ class Settings(BaseSettings):
     kling_api_max_poll_interval_seconds: float = Field(default=60.0, ge=1, le=600)
     kling_api_max_retries: int = Field(default=3, ge=1, le=8)
     kling_api_enable_paid_integration_test: bool = False
+    wavespeed_enabled: bool = False
+    wavespeed_api_key: str | None = None
+    # Populated only from the encrypted administrator configuration. Keeping it
+    # separate lets clearing the override fall back to WAVESPEED_API_KEY.
+    wavespeed_admin_api_key: str | None = Field(default=None, exclude=True)
+    wavespeed_api_base_url: str = "https://api.wavespeed.ai/api/v3"
+    wavespeed_provider_name: str = "wavespeed"
+    wavespeed_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+    wavespeed_max_submit_concurrency: int = Field(default=1, ge=1, le=20)
+    wavespeed_max_poll_concurrency: int = Field(default=4, ge=1, le=50)
+    wavespeed_get_max_retries: int = Field(default=3, ge=1, le=8)
+    wavespeed_get_retry_base_seconds: float = Field(default=2.0, ge=2, le=30)
+    wavespeed_get_retry_max_seconds: float = Field(default=30.0, ge=2, le=120)
+    wavespeed_admin_config_file: Path = Path("var/runtime/wavespeed-config.json")
     max_input_image_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     artifact_root: Path = Path("var/artifacts")
     admin_credentials_file: Path = Path("var/runtime/admin-credentials.json")
@@ -224,7 +238,46 @@ class Settings(BaseSettings):
                 "Kling API base URL must use an official Kling endpoint; "
                 "loopback endpoints are allowed only in development or test"
             )
+        self.wavespeed_api_base_url = self.wavespeed_api_base_url.rstrip("/")
+        wavespeed_url = urlsplit(self.wavespeed_api_base_url)
+        official_wavespeed_endpoint = (
+            wavespeed_url.scheme == "https"
+            and wavespeed_url.hostname == "api.wavespeed.ai"
+            and wavespeed_url.path == "/api/v3"
+            and not wavespeed_url.username
+            and not wavespeed_url.password
+            and not wavespeed_url.query
+            and not wavespeed_url.fragment
+        )
+        local_wavespeed_endpoint = (
+            self.app_env in {"development", "test"}
+            and wavespeed_url.scheme in {"http", "https"}
+            and wavespeed_url.hostname in loopback_hosts
+            and not wavespeed_url.username
+            and not wavespeed_url.password
+            and not wavespeed_url.query
+            and not wavespeed_url.fragment
+        )
+        if not official_wavespeed_endpoint and not local_wavespeed_endpoint:
+            raise ValueError(
+                "WaveSpeed API base URL must use https://api.wavespeed.ai/api/v3; "
+                "loopback endpoints are allowed only in development or test"
+            )
+        if self.wavespeed_get_retry_base_seconds > self.wavespeed_get_retry_max_seconds:
+            raise ValueError("WaveSpeed retry base interval cannot exceed its maximum")
         return self
+
+    @property
+    def effective_wavespeed_api_key(self) -> str | None:
+        return self.wavespeed_admin_api_key or self.wavespeed_api_key
+
+    @property
+    def wavespeed_credential_source(self) -> Literal["admin", "environment", "none"]:
+        if self.wavespeed_admin_api_key:
+            return "admin"
+        if self.wavespeed_api_key:
+            return "environment"
+        return "none"
 
     def analysis_timeout_for_image_count(self, image_count: int) -> float:
         extra_images = max(0, image_count - self.openai_analysis_timeout_base_image_count)

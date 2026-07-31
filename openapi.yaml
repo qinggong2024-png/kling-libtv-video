@@ -49,6 +49,196 @@
         }
       }
     },
+    "/api/v1/image-generation-batches": {
+      "post": {
+        "tags": [
+          "image-generations"
+        ],
+        "summary": "Create Image Generation Batch",
+        "operationId": "create_image_generation_batch_api_v1_image_generation_batches_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_image_generation_batch_api_v1_image_generation_batches_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Image Generation Batch Api V1 Image Generation Batches Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/image-generation-batches/{batch_id}": {
+      "get": {
+        "tags": [
+          "image-generations"
+        ],
+        "summary": "Read Image Generation Batch",
+        "operationId": "read_image_generation_batch_api_v1_image_generation_batches__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Read Image Generation Batch Api V1 Image Generation Batches  Batch Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/image-generation-outputs/{output_id}": {
+      "get": {
+        "tags": [
+          "image-generations"
+        ],
+        "summary": "Download Image Generation Output",
+        "operationId": "download_image_generation_output_api_v1_image_generation_outputs__output_id__get",
+        "parameters": [
+          {
+            "name": "output_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Output Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/kling/callback": {
       "post": {
         "tags": [
@@ -2311,6 +2501,251 @@
         }
       }
     },
+    "/api/v1/admin/wavespeed/config": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Read Wavespeed Config",
+        "operationId": "read_wavespeed_config_api_v1_admin_wavespeed_config_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaveSpeedConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Patch Wavespeed Config",
+        "operationId": "patch_wavespeed_config_api_v1_admin_wavespeed_config_patch",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaveSpeedConfigUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaveSpeedConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/wavespeed/verify": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Verify Wavespeed Config",
+        "operationId": "verify_wavespeed_config_api_v1_admin_wavespeed_verify_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaveSpeedConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/admin/kling/config": {
       "get": {
         "tags": [
@@ -4343,6 +4778,250 @@
         }
       }
     },
+    "/api/v1/prompt-presets": {
+      "get": {
+        "tags": [
+          "prompt-presets"
+        ],
+        "summary": "List Prompt Presets",
+        "operationId": "list_prompt_presets_api_v1_prompt_presets_get",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "video",
+                "image_fusion",
+                "image_storyboard"
+              ],
+              "type": "string",
+              "default": "video",
+              "title": "Scope"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PromptPresetRead"
+                  },
+                  "title": "Response List Prompt Presets Api V1 Prompt Presets Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "prompt-presets"
+        ],
+        "summary": "Create Prompt Preset",
+        "operationId": "create_prompt_preset_api_v1_prompt_presets_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptPresetWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptPresetRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/prompt-presets/{preset_id}": {
+      "put": {
+        "tags": [
+          "prompt-presets"
+        ],
+        "summary": "Update Prompt Preset",
+        "operationId": "update_prompt_preset_api_v1_prompt_presets__preset_id__put",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Preset Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptPresetWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptPresetRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "prompt-presets"
+        ],
+        "summary": "Delete Prompt Preset",
+        "operationId": "delete_prompt_preset_api_v1_prompt_presets__preset_id__delete",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Preset Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/site-style-profiles": {
       "get": {
         "tags": [
@@ -4654,6 +5333,7 @@
           "safe_fabric_area",
           "sleeve_or_shoulder_visible",
           "face_gaze_adjustable",
+          "hair_reachable",
           "collar_visible",
           "openable_outer_layer",
           "inner_layer_visible",
@@ -4919,6 +5599,34 @@
           "status"
         ],
         "title": "BatchConfirmationResult"
+      },
+      "Body_create_image_generation_batch_api_v1_image_generation_batches_post": {
+        "properties": {
+          "clientManifest": {
+            "type": "string",
+            "title": "Clientmanifest"
+          },
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "clientManifest"
+        ],
+        "title": "Body_create_image_generation_batch_api_v1_image_generation_batches_post"
       },
       "Body_upload_storyboard_api_v1_uploads_post": {
         "properties": {
@@ -6138,6 +6846,41 @@
             ],
             "title": "Risklevel",
             "default": "low"
+          },
+          "libraryScope": {
+            "type": "string",
+            "enum": [
+              "general",
+              "brand"
+            ],
+            "title": "Libraryscope",
+            "default": "general"
+          },
+          "brandId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandid"
+          },
+          "baseActionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseactionid"
           }
         },
         "type": "object",
@@ -6367,6 +7110,102 @@
         ],
         "title": "PromptConfirmationRequest"
       },
+      "PromptPresetRead": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "video",
+              "image_fusion",
+              "image_storyboard"
+            ],
+            "title": "Scope",
+            "default": "video"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2800,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Sortorder",
+            "default": 0
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content",
+          "id",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "PromptPresetRead"
+      },
+      "PromptPresetWrite": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "video",
+              "image_fusion",
+              "image_storyboard"
+            ],
+            "title": "Scope",
+            "default": "video"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2800,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Sortorder",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content"
+        ],
+        "title": "PromptPresetWrite"
+      },
       "PromptUpdateRequest": {
         "properties": {
           "expectedStateVersion": {
@@ -6573,6 +7412,13 @@
             "minLength": 8,
             "title": "Tone"
           },
+          "expressionLanguage": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Expressionlanguage",
+            "default": "自然、克制并服务于商品展示"
+          },
           "audience": {
             "type": "string",
             "maxLength": 300,
@@ -6663,6 +7509,28 @@
             "maxLength": 1000,
             "minLength": 8,
             "title": "Researchnote"
+          },
+          "libraryScope": {
+            "type": "string",
+            "enum": [
+              "general",
+              "brand"
+            ],
+            "title": "Libraryscope",
+            "default": "brand"
+          },
+          "brandId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandid"
           }
         },
         "type": "object",
@@ -7629,16 +8497,51 @@
             "maxItems": 7,
             "title": "Elementids"
           },
-          "templateId": {
+          "generationMode": {
             "type": "string",
-            "maxLength": 80,
-            "minLength": 1,
+            "enum": [
+              "automatic",
+              "custom"
+            ],
+            "title": "Generationmode",
+            "default": "automatic"
+          },
+          "customPrompt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2800
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customprompt"
+          },
+          "templateId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Templateid"
           },
           "siteProfileId": {
-            "type": "string",
-            "maxLength": 80,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Siteprofileid"
           },
           "resultCount": {
@@ -7656,16 +8559,6 @@
               "high"
             ],
             "title": "Actionintensity",
-            "default": "standard"
-          },
-          "cameraTempo": {
-            "type": "string",
-            "enum": [
-              "slow",
-              "standard",
-              "fast"
-            ],
-            "title": "Cameratempo",
             "default": "standard"
           },
           "cutMode": {
@@ -7694,11 +8587,189 @@
           "clientTaskId",
           "title",
           "storyboards",
-          "templateId",
-          "siteProfileId",
           "paidSubmissionConsent"
         ],
         "title": "VideoTaskCreate"
+      },
+      "WaveSpeedConfigResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "apiKeyConfigured": {
+            "type": "boolean",
+            "title": "Apikeyconfigured"
+          },
+          "credentialSource": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "environment",
+              "none"
+            ],
+            "title": "Credentialsource"
+          },
+          "baseUrl": {
+            "type": "string",
+            "title": "Baseurl"
+          },
+          "maxSubmitConcurrency": {
+            "type": "integer",
+            "title": "Maxsubmitconcurrency"
+          },
+          "maxPollConcurrency": {
+            "type": "integer",
+            "title": "Maxpollconcurrency"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkedat"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
+          "verificationMode": {
+            "type": "string",
+            "const": "prediction_read_only_lookup",
+            "title": "Verificationmode"
+          },
+          "verificationMayGenerateOrCharge": {
+            "type": "boolean",
+            "const": false,
+            "title": "Verificationmaygenerateorcharge"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "apiKeyConfigured",
+          "credentialSource",
+          "baseUrl",
+          "maxSubmitConcurrency",
+          "maxPollConcurrency",
+          "provider",
+          "status",
+          "available",
+          "checkedAt",
+          "reason",
+          "updatedAt",
+          "verificationMode",
+          "verificationMayGenerateOrCharge"
+        ],
+        "title": "WaveSpeedConfigResponse"
+      },
+      "WaveSpeedConfigUpdateRequest": {
+        "properties": {
+          "apiKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apikey"
+          },
+          "clearApiKey": {
+            "type": "boolean",
+            "title": "Clearapikey",
+            "default": false
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "baseUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseurl"
+          },
+          "maxSubmitConcurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxsubmitconcurrency"
+          },
+          "maxPollConcurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxpollconcurrency"
+          }
+        },
+        "type": "object",
+        "title": "WaveSpeedConfigUpdateRequest"
       }
     }
   }

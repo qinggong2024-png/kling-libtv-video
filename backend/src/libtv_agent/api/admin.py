@@ -1,11 +1,12 @@
 import uuid
 from copy import deepcopy
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import LibTVError, create_libtv_adapter
+from libtv_agent.adapters.wavespeed import WaveSpeedAdapter
 from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.enums import AttemptStatus, UserRole
 from libtv_agent.domain.models import (
@@ -39,6 +40,12 @@ from libtv_agent.services.runtime_control import (
     rollback_runtime_config,
     set_libtv_auth_required,
     update_runtime_config,
+)
+from libtv_agent.services.wavespeed_config import (
+    load_wavespeed_admin_config,
+    update_wavespeed_admin_config,
+    wavespeed_admin_config_signature,
+    wavespeed_admin_config_status,
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -152,12 +159,173 @@ class KlingStatusResponse(BaseModel):
     verificationMayGenerateOrCharge: bool
 
 
+class WaveSpeedConfigUpdateRequest(BaseModel):
+    apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
+    clearApiKey: bool = False
+    enabled: bool | None = None
+    baseUrl: str | None = Field(default=None, min_length=8, max_length=2048)
+    maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=20)
+    maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
+
+
+class WaveSpeedConfigResponse(BaseModel):
+    enabled: bool
+    apiKeyConfigured: bool
+    credentialSource: Literal["admin", "environment", "none"]
+    baseUrl: str
+    maxSubmitConcurrency: int
+    maxPollConcurrency: int
+    provider: str
+    status: str
+    available: bool
+    checkedAt: str | None
+    reason: str | None
+    updatedAt: str | None
+    verificationMode: Literal["prediction_read_only_lookup"]
+    verificationMayGenerateOrCharge: Literal[False]
+
+
 KLING_ADMIN_ERROR_RESPONSES = {
     status.HTTP_401_UNAUTHORIZED: {"model": KlingErrorResponse},
     status.HTTP_403_FORBIDDEN: {"model": KlingErrorResponse},
     status.HTTP_409_CONFLICT: {"model": KlingErrorResponse},
     status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": KlingErrorResponse},
 }
+
+WAVESPEED_ADMIN_ERROR_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"model": KlingErrorResponse},
+    status.HTTP_403_FORBIDDEN: {"model": KlingErrorResponse},
+    status.HTTP_409_CONFLICT: {"model": KlingErrorResponse},
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": KlingErrorResponse},
+}
+
+
+def _refresh_wavespeed_config_from_disk(request: Request) -> None:
+    signature = wavespeed_admin_config_signature(request.app.state.settings)
+    if signature == request.app.state.wavespeed_config_signature:
+        return
+    load_wavespeed_admin_config(request.app.state.settings)
+    request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
+    request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
+        request.app.state.settings
+    )
+
+
+def _wavespeed_config_payload(request: Request) -> dict[str, object]:
+    result = wavespeed_admin_config_status(request.app.state.settings)
+    availability = request.app.state.wavespeed_adapter.availability_snapshot()
+    result.update(
+        {
+            "status": availability.status,
+            "available": availability.available,
+            "checkedAt": (availability.checked_at.isoformat() if availability.checked_at else None),
+            "reason": availability.reason,
+            "verificationMode": "prediction_read_only_lookup",
+            "verificationMayGenerateOrCharge": False,
+        }
+    )
+    return result
+
+
+@router.get(
+    "/wavespeed/config",
+    response_model=WaveSpeedConfigResponse,
+    responses=WAVESPEED_ADMIN_ERROR_RESPONSES,
+)
+async def read_wavespeed_config(actor: Actor, request: Request) -> WaveSpeedConfigResponse:
+    require_credential_admin(actor.role)
+    _refresh_wavespeed_config_from_disk(request)
+    return WaveSpeedConfigResponse.model_validate(_wavespeed_config_payload(request))
+
+
+@router.patch(
+    "/wavespeed/config",
+    response_model=WaveSpeedConfigResponse,
+    responses=WAVESPEED_ADMIN_ERROR_RESPONSES,
+)
+async def patch_wavespeed_config(
+    payload: WaveSpeedConfigUpdateRequest,
+    actor: Actor,
+    session: Session,
+    request: Request,
+) -> WaveSpeedConfigResponse:
+    require_credential_admin(actor.role)
+    _refresh_wavespeed_config_from_disk(request)
+    if payload.apiKey is not None and payload.clearApiKey:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "apiKey and clearApiKey cannot be used together",
+            },
+        )
+    updates = {
+        name: value
+        for name, value in payload.model_dump(exclude={"clearApiKey"}, exclude_unset=True).items()
+        if value is not None
+    }
+    if payload.clearApiKey:
+        updates["apiKey"] = None
+    if not updates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "at least one WaveSpeed configuration change is required",
+            },
+        )
+    try:
+        update_wavespeed_admin_config(request.app.state.settings, updates)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "INPUT_INVALID", "message": str(exc)},
+        ) from exc
+    request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
+    request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
+        request.app.state.settings
+    )
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="WAVESPEED_CONFIG_UPDATED",
+            entity_type="provider_configuration",
+            entity_id=request.app.state.settings.wavespeed_provider_name,
+            reason="administrator updated WaveSpeed provider configuration",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return WaveSpeedConfigResponse.model_validate(_wavespeed_config_payload(request))
+
+
+@router.post(
+    "/wavespeed/verify",
+    response_model=WaveSpeedConfigResponse,
+    responses=WAVESPEED_ADMIN_ERROR_RESPONSES,
+)
+async def verify_wavespeed_config(
+    actor: Actor,
+    session: Session,
+    request: Request,
+) -> WaveSpeedConfigResponse:
+    require_credential_admin(actor.role)
+    _refresh_wavespeed_config_from_disk(request)
+    availability = await request.app.state.wavespeed_adapter.verify_credentials()
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="WAVESPEED_CREDENTIALS_VERIFIED",
+            entity_type="provider",
+            entity_id=request.app.state.settings.wavespeed_provider_name,
+            reason=f"administrator ran read-only verification: {availability.status}",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return WaveSpeedConfigResponse.model_validate(_wavespeed_config_payload(request))
 
 
 def _refresh_kling_config_from_disk(request: Request) -> None:

@@ -7,6 +7,7 @@ from libtv_agent.services.content_catalog import (
     list_merged_motion_actions,
     motion_action_library,
     save_catalog_entry,
+    site_style_profile_library,
 )
 from libtv_agent.templates.video_templates import VIDEO_TEMPLATES
 
@@ -37,6 +38,36 @@ async def _save(
         raise HTTPException(status.HTTP_409_CONFLICT, "motion action id already exists")
     if not creating and existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "motion action was not found")
+    if payload.library_scope == "general" and (
+        payload.brand_id is not None or payload.base_action_id is not None
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "general motion actions cannot have brand inheritance fields",
+        )
+    if payload.library_scope == "brand":
+        if payload.brand_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "brand motion actions require a brand id",
+            )
+        brand = (await site_style_profile_library(session)).get(payload.brand_id)
+        if brand is None or brand.library_scope != "brand":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "brand motion actions must reference an existing brand style",
+            )
+        if payload.base_action_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "brand motion actions require a general base action id",
+            )
+        base_action = (await motion_action_library(session)).get(payload.base_action_id)
+        if base_action is None or base_action.library_scope != "general":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "brand motion actions must inherit from an existing general action",
+            )
     unknown_templates = sorted(set(payload.compatible_templates) - VIDEO_TEMPLATES.keys())
     if unknown_templates:
         raise HTTPException(

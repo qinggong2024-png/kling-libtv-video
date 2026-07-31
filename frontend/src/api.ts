@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -297,17 +297,40 @@ export function createVideoTask(
         uploadId: upload.id,
         order: index + 1,
       })),
+      generationMode: options.generationMode,
+      customPrompt: options.generationMode === 'custom' ? options.customPrompt : undefined,
       templateId: options.templateId,
-      siteProfileId: options.siteProfileId,
+      siteProfileId: options.generationMode === 'automatic' ? options.siteProfileId : undefined,
       elementIds: options.elementIds,
       resultCount: options.resultCount,
       actionIntensity: options.actionIntensity,
-      cameraTempo: options.cameraTempo,
       cutMode: options.cutMode,
       paidSubmissionConsent: true,
       sourceUploadDurationSeconds,
     }),
   })
+}
+
+export function getPromptPresets(scope: PromptPreset['scope'] = 'video') {
+  return request<PromptPreset[]>(`/api/v1/prompt-presets?scope=${encodeURIComponent(scope)}`)
+}
+
+export function createPromptPreset(payload: PromptPresetWrite) {
+  return request<PromptPreset>('/api/v1/prompt-presets', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updatePromptPreset(id: string, payload: PromptPresetWrite) {
+  return request<PromptPreset>(`/api/v1/prompt-presets/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deletePromptPreset(id: string) {
+  return request<void>(`/api/v1/prompt-presets/${id}`, { method: 'DELETE' })
 }
 
 export function reuseTask(task: Task, variants: VariantKind[]) {
@@ -399,9 +422,24 @@ export async function fetchAssetObjectUrl(path: string): Promise<string> {
   return URL.createObjectURL(await requestBlob(path, { timeoutMs: UPLOAD_TIMEOUT_MS }))
 }
 
+export async function saveAsset(path: string, filename: string): Promise<void> {
+  const url = await fetchAssetObjectUrl(path)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function fetchAssetFile(path: string, filename: string): Promise<File> {
   const blob = await requestBlob(path, { timeoutMs: UPLOAD_TIMEOUT_MS })
   return new File([blob], filename, { type: blob.type || 'image/jpeg' })
+}
+
+export async function fetchImageAssetFile(path: string, basename: string): Promise<File> {
+  const blob = await requestBlob(path, { timeoutMs: UPLOAD_TIMEOUT_MS })
+  const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'
+  return new File([blob], `${basename}.${extension}`, { type: blob.type || 'image/jpeg' })
 }
 
 export async function fetchArtifactObjectUrl(artifactId: string): Promise<string> {
@@ -475,6 +513,41 @@ export function updateKlingConfig(adminId: string, values: KlingConfigPatch): Pr
     method: 'PATCH',
     body: JSON.stringify(values),
   }, { actorId: adminId })
+}
+
+export function getWaveSpeedConfig(adminId: string): Promise<WaveSpeedConfig> {
+  return request('/api/v1/admin/wavespeed/config', {}, { actorId: adminId })
+}
+
+export function updateWaveSpeedConfig(adminId: string, values: WaveSpeedConfigPatch): Promise<WaveSpeedConfig> {
+  return request('/api/v1/admin/wavespeed/config', {
+    method: 'PATCH',
+    body: JSON.stringify(values),
+  }, { actorId: adminId })
+}
+
+export function verifyWaveSpeedConfig(adminId: string): Promise<WaveSpeedConfig> {
+  return request('/api/v1/admin/wavespeed/verify', {
+    method: 'POST',
+  }, { actorId: adminId, timeoutMs: LONG_RUNNING_TIMEOUT_MS })
+}
+
+export function createImageGenerationBatch(
+  manifest: ImageGenerationClientManifest,
+  files: File[],
+): Promise<ImageGenerationBatch> {
+  const body = new FormData()
+  body.append('clientManifest', JSON.stringify(manifest))
+  for (const file of files) body.append('files', file, file.name)
+  return request('/api/v1/image-generation-batches', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': manifest.clientBatchId },
+    body,
+  }, { timeoutMs: LONG_RUNNING_TIMEOUT_MS })
+}
+
+export function getImageGenerationBatch(batchId: string, signal?: AbortSignal): Promise<ImageGenerationBatch> {
+  return request(`/api/v1/image-generation-batches/${encodeURIComponent(batchId)}`, { signal })
 }
 
 export function refreshKlingCapabilities(adminId: string): Promise<KlingStatus> {

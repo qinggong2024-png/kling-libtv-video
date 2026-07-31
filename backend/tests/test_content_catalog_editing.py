@@ -93,9 +93,7 @@ async def test_regular_user_cannot_create_or_edit_catalog_entries(
         headers=user_headers,
     )
     assert profiles_response.status_code == 200
-    profile = next(
-        item for item in profiles_response.json() if item["id"] == "geeksoutfit"
-    )
+    profile = next(item for item in profiles_response.json() if item["id"] == "geeksoutfit")
     profile["tone"] = "普通用户不应能够保存这项风格修改。"
 
     edit_response = await client.put(
@@ -125,9 +123,7 @@ async def test_admin_creates_motion_action_and_get_refresh_keeps_it(
 
     refreshed = await client.get("/api/v1/motion-actions", headers=admin_headers)
     assert refreshed.status_code == 200
-    persisted = next(
-        item for item in refreshed.json() if item["id"] == payload["id"]
-    )
+    persisted = next(item for item in refreshed.json() if item["id"] == payload["id"])
     assert persisted["instruction"] == payload["instruction"]
     assert persisted["purpose"] == payload["purpose"]
 
@@ -168,3 +164,73 @@ async def test_admin_edits_style_with_version_increment_and_cannot_activate_rest
     )
     assert restricted.status_code == 422
     assert "verified site evidence" in restricted.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_existing_catalog_entries_are_assigned_to_the_expected_libraries(
+    catalog_client: tuple[AsyncClient, Settings],
+) -> None:
+    client, settings = catalog_client
+    admin_headers = {"X-User-Id": settings.dev_admin_id}
+
+    actions = await client.get("/api/v1/motion-actions", headers=admin_headers)
+    profiles = await client.get("/api/v1/site-style-profiles", headers=admin_headers)
+
+    assert actions.status_code == 200
+    assert profiles.status_code == 200
+    assert {item["libraryScope"] for item in actions.json()} == {"general"}
+    assert all(item["brandId"] is None for item in actions.json())
+    assert all(item["baseActionId"] is None for item in actions.json())
+    assert {item["libraryScope"] for item in profiles.json()} == {"brand"}
+    assert all(item["brandId"] == item["id"] for item in profiles.json())
+
+
+@pytest.mark.asyncio
+async def test_brand_action_requires_a_brand_and_cannot_leak_into_another_brand_profile(
+    catalog_client: tuple[AsyncClient, Settings],
+) -> None:
+    client, settings = catalog_client
+    admin_headers = {"X-User-Id": settings.dev_admin_id}
+    payload = motion_action_payload()
+    payload["libraryScope"] = "brand"
+
+    missing_brand = await client.post(
+        "/api/v1/motion-actions",
+        headers=admin_headers,
+        json=payload,
+    )
+    assert missing_brand.status_code == 422
+    assert "require a brand id" in missing_brand.json()["detail"]
+
+    payload["brandId"] = "geeksoutfit"
+    missing_base = await client.post(
+        "/api/v1/motion-actions",
+        headers=admin_headers,
+        json=payload,
+    )
+    assert missing_base.status_code == 422
+    assert "general base action id" in missing_base.json()["detail"]
+
+    payload["baseActionId"] = "stance_shift"
+    created = await client.post(
+        "/api/v1/motion-actions",
+        headers=admin_headers,
+        json=payload,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["libraryScope"] == "brand"
+    assert created.json()["brandId"] == "geeksoutfit"
+    assert created.json()["baseActionId"] == "stance_shift"
+
+    profiles = await client.get("/api/v1/site-style-profiles", headers=admin_headers)
+    guidingcross = next(item for item in profiles.json() if item["id"] == "guidingcross")
+    guidingcross.pop("version")
+    guidingcross["preferredActions"].append(payload["id"])
+
+    cross_brand = await client.put(
+        "/api/v1/site-style-profiles/guidingcross",
+        headers=admin_headers,
+        json=guidingcross,
+    )
+    assert cross_brand.status_code == 422
+    assert "another brand" in cross_brand.json()["detail"]

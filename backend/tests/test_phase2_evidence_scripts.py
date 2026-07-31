@@ -41,4 +41,32 @@ def test_check_report_is_junit_driven_and_runs_all_steps() -> None:
     assert "frontendLint" in script
     assert "frontendBuild" in script
     assert "alembicOfflineSql" in script
+    assert "alembicFreshSqlite" in script
     assert "skippedTests" in script
+
+
+def test_test_stack_forces_offline_provider_modes() -> None:
+    script = (ROOT / "scripts" / "start-test-stack.ps1").read_text(encoding="utf-8")
+
+    required_assignments = {
+        "$env:AI_ADAPTER_MODE = 'fake'",
+        "$env:LIBTV_ADAPTER_MODE = 'fake'",
+        "$env:LIBTV_EXECUTION_MODE = 'dry-run'",
+        "$env:PAID_GENERATION_ENABLED = 'false'",
+        "$env:PAID_SUBMISSIONS_PAUSED = 'true'",
+        "$env:KLING_CLI_ENABLED = 'false'",
+        "$env:KLING_API_ENABLED = 'false'",
+        "$env:KLING_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'kling-config.json'",
+        "$env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'",
+        "$env:WAVESPEED_ENABLED = 'false'",
+    }
+    assert required_assignments <= set(script.splitlines())
+    assert "'--app-dir', $appDir" in script
+
+
+def test_local_frontend_is_loopback_by_default_and_lan_is_explicit() -> None:
+    vite_config = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+    lan_script = (ROOT / "scripts" / "start-lan-stack.ps1").read_text(encoding="utf-8")
+
+    assert "env.VITE_HOST || '127.0.0.1'" in vite_config
+    assert "$env:VITE_HOST = '0.0.0.0'" in lan_script

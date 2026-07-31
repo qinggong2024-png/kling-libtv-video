@@ -75,9 +75,9 @@ async def _record_subject_element_failure(
         if job is None:
             return False
         job.status = "FAILED"
-        job.last_error_code = str(
-            getattr(cause, "code", "KLING_SUBJECT_ELEMENT_CREATE_FAILED")
-        )[:80]
+        job.last_error_code = str(getattr(cause, "code", "KLING_SUBJECT_ELEMENT_CREATE_FAILED"))[
+            :80
+        ]
         job.last_error_message = str(cause)[:2000]
         retryable = job.attempt_count < SUBJECT_ELEMENT_MAX_ATTEMPTS
         job.next_attempt_at = (
@@ -123,8 +123,7 @@ async def _run_subject_element_attempt(
                 (
                     asset
                     for asset in task.assets
-                    if asset.source_type == "SUBJECT_REFERENCE"
-                    and asset.role == "PRODUCT"
+                    if asset.source_type == "SUBJECT_REFERENCE" and asset.role == "PRODUCT"
                 ),
                 key=lambda asset: asset.order_no,
             )

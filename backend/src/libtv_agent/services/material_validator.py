@@ -8,7 +8,7 @@ from libtv_agent.templates.motion_actions import (
     ActionCapability,
     ActionContext,
     MotionAction,
-    evaluate_action,
+    evaluate_action_with_base,
 )
 from libtv_agent.templates.video_templates import (
     ActionIntensity,
@@ -261,7 +261,7 @@ def validate_materials(
                 )
             )
             continue
-        eligibility = evaluate_action(action, action_context)
+        eligibility = evaluate_action_with_base(action, action_context, actions)
         if eligibility.denied:
             warnings.append(
                 ValidationIssue(

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { SubjectInputPanel } from './SubjectInputPanel'
 import { createEmptySubjectReferenceFiles } from './subjectFiles'
+import { fillSubjectDropSlots, isSubjectPanelDropExcluded } from './subjectPanelDrop'
 
 const baseProps = {
   onModeChange: vi.fn(),
@@ -14,6 +15,56 @@ const baseProps = {
 }
 
 describe('SubjectInputPanel', () => {
+  it('fills empty subject slots in visual order for a panel-level drop', () => {
+    const [front, back, side, detail] = ['front.png', 'back.png', 'side.png', 'detail.png']
+      .map((name) => new File([name], name, { type: 'image/png' }))
+
+    const result = fillSubjectDropSlots(createEmptySubjectReferenceFiles(), [front, back, side, detail])
+
+    expect(result.acceptedCount).toBe(4)
+    expect(result.files).toEqual({
+      frontalImage: front,
+      backImage: back,
+      detailImages: [side, detail],
+    })
+  })
+
+  it('preserves filled slots and rejects panel-level drop overflow', () => {
+    const existingFront = new File(['front'], 'existing-front.png', { type: 'image/png' })
+    const existingSide = new File(['side'], 'existing-side.png', { type: 'image/png' })
+    const [back, detail, overflow] = ['back.png', 'detail.png', 'overflow.png']
+      .map((name) => new File([name], name, { type: 'image/png' }))
+
+    const result = fillSubjectDropSlots({
+      frontalImage: existingFront,
+      backImage: null,
+      detailImages: [existingSide],
+    }, [back, detail, overflow])
+
+    expect(result.acceptedCount).toBe(2)
+    expect(result.files).toEqual({
+      frontalImage: existingFront,
+      backImage: back,
+      detailImages: [existingSide, detail],
+    })
+  })
+
+  it('excludes nested controls and upload tiles from the panel-level drop target', () => {
+    const closest = vi.fn().mockReturnValue({})
+    const nestedControl = {
+      closest,
+    } as unknown as EventTarget
+    const panelWhitespace = {
+      closest: vi.fn().mockReturnValue(null),
+    } as unknown as EventTarget
+
+    expect(isSubjectPanelDropExcluded(nestedControl)).toBe(true)
+    expect(closest).toHaveBeenCalledWith(expect.stringContaining('button'))
+    expect(closest).toHaveBeenCalledWith(expect.stringContaining('.subject-upload-tile'))
+    expect(isSubjectPanelDropExcluded(panelWhitespace)).toBe(false)
+    expect(isSubjectPanelDropExcluded(null)).toBe(false)
+  })
+
   it('shows the three subject upload areas by default', () => {
     const markup = renderToStaticMarkup(<SubjectInputPanel
       {...baseProps}
@@ -67,7 +118,46 @@ describe('SubjectInputPanel', () => {
     expect(markup).toContain('subject-upload-tile__preview')
     expect(markup).toContain('正面图预览：front.png')
     expect(markup).toContain('侧面图预览：side.png')
-    expect(markup).toContain('点击更换')
+    expect(markup).not.toContain('点击更换')
+  })
+
+  it('marks uploaded subject media for desktop alignment when storyboards are present', () => {
+    const front = new File(['front'], 'front.png', { type: 'image/png' })
+    const alignedMarkup = renderToStaticMarkup(<SubjectInputPanel
+      {...baseProps}
+      mode="upload"
+      uploadedFiles={{
+        frontalImage: front,
+        backImage: null,
+        detailImages: [],
+      }}
+      elements={[]}
+    />)
+    const subjectOnlyMarkup = renderToStaticMarkup(<SubjectInputPanel
+      {...baseProps}
+      mode="upload"
+      uploadedFiles={{
+        frontalImage: front,
+        backImage: null,
+        detailImages: [],
+      }}
+      storyboardReferenceCount={0}
+      elements={[]}
+    />)
+    const historyMarkup = renderToStaticMarkup(<SubjectInputPanel
+      {...baseProps}
+      mode="history"
+      uploadedFiles={{
+        frontalImage: front,
+        backImage: null,
+        detailImages: [],
+      }}
+      elements={[]}
+    />)
+
+    expect(alignedMarkup).toContain('subject-input-panel--align-uploaded-media')
+    expect(subjectOnlyMarkup).not.toContain('subject-input-panel--align-uploaded-media')
+    expect(historyMarkup).not.toContain('subject-input-panel--align-uploaded-media')
   })
 
   it('renders usable history elements as thumbnail cards and hides unavailable entries', () => {

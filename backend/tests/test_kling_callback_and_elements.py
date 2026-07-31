@@ -410,9 +410,7 @@ async def test_element_list_expands_official_task_results() -> None:
                                     "status": "active",
                                     "image": "https://cdn.example.test/official.jpg",
                                     "video": {
-                                        "video_url": (
-                                            "https://cdn.example.test/official.mp4"
-                                        )
+                                        "video_url": ("https://cdn.example.test/official.mp4")
                                     },
                                 }
                             ]
@@ -447,9 +445,7 @@ async def test_element_list_expands_official_task_results() -> None:
                 "description": "Official preset subject",
                 "status": "active",
                 "image": "https://cdn.example.test/official.jpg",
-                "video": {
-                    "video_url": "https://cdn.example.test/official.mp4"
-                },
+                "video": {"video_url": "https://cdn.example.test/official.mp4"},
             },
         }
     ]

@@ -17,10 +17,7 @@ router = APIRouter(prefix="/site-style-profiles", tags=["site-style-profiles"])
 @router.get("")
 async def get_site_style_profiles(actor: Actor, session: Session) -> list[dict[str, object]]:
     del actor
-    return [
-        profile.to_public_dict()
-        for profile in await list_merged_site_style_profiles(session)
-    ]
+    return [profile.to_public_dict() for profile in await list_merged_site_style_profiles(session)]
 
 
 def _require_editor(role: UserRole) -> None:
@@ -41,6 +38,16 @@ async def _save(
         raise HTTPException(status.HTTP_409_CONFLICT, "site style profile id already exists")
     if not creating and existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "site style profile was not found")
+    if payload.library_scope == "general" and payload.brand_id is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "general style profiles cannot have a brand id",
+        )
+    if payload.library_scope == "brand" and payload.brand_id not in {None, payload.id}:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "brand style profile brand id must match its profile id",
+        )
     if payload.status == "active" and payload.evidence_level != "verified_site":
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -51,15 +58,28 @@ async def _save(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "active site style profiles require at least one evidence source URL",
         )
-    unknown_actions = sorted(
-        set(payload.preferred_actions) - (await motion_action_library(session)).keys()
-    )
+    actions = await motion_action_library(session)
+    unknown_actions = sorted(set(payload.preferred_actions) - actions.keys())
     if unknown_actions:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"unknown preferred action ids: {', '.join(unknown_actions)}",
         )
+    profile_brand_id = payload.id if payload.library_scope == "brand" else None
+    mismatched_actions = sorted(
+        action_id
+        for action_id in payload.preferred_actions
+        if actions[action_id].library_scope == "brand"
+        and actions[action_id].brand_id != profile_brand_id
+    )
+    if mismatched_actions:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "style profile cannot reference actions from another brand: "
+            + ", ".join(mismatched_actions),
+        )
     value = payload.model_dump(by_alias=True, mode="json")
+    value["brandId"] = payload.id if payload.library_scope == "brand" else None
     value["version"] = "0.1.0" if existing is None else next_patch_version(existing.version)
     await save_catalog_entry(
         session,

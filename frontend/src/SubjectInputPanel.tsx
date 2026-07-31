@@ -19,6 +19,7 @@ import {
   validateSubjectReferenceFiles,
 } from './subjectFiles'
 import type { SubjectInputMode, SubjectReferenceFiles } from './subjectFiles'
+import { fillSubjectDropSlots, isSubjectPanelDropExcluded } from './subjectPanelDrop'
 import { getKlingElementStatusLabel, isKlingElementAvailable } from './klingElementStatus'
 import type { KlingElement } from './types'
 
@@ -95,9 +96,13 @@ function UploadTile({
     <label
       className="subject-upload-tile__dropzone"
       htmlFor={id}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
       onDrop={(event) => {
         event.preventDefault()
+        event.stopPropagation()
         if (!disabled) onDrop(Array.from(event.dataTransfer.files))
       }}
     >
@@ -108,10 +113,10 @@ function UploadTile({
       >
         <LocalFileThumbnail file={file} alt="" />
       </span> : null}
-      <span className="subject-upload-tile__copy">
+      {!file ? <span className="subject-upload-tile__copy">
         <strong>{label}</strong>
-        <span>{file ? '点击更换' : '拖拽或选择'}</span>
-      </span>
+        <span>拖拽或选择</span>
+      </span> : null}
     </label>
     {file ? <button
         type="button"
@@ -156,9 +161,13 @@ function DetailUploadTile({
     <label
       className="subject-upload-tile__dropzone"
       htmlFor={id}
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
       onDrop={(event) => {
         event.preventDefault()
+        event.stopPropagation()
         if (!disabled && !isFull) onDrop(Array.from(event.dataTransfer.files))
       }}
     >
@@ -172,10 +181,10 @@ function DetailUploadTile({
           <LocalFileThumbnail file={file} alt="" />
         </span>)}
       </span> : null}
-      <span className="subject-upload-tile__copy">
+      {!files.length ? <span className="subject-upload-tile__copy">
         <strong>侧面图</strong>
-        <span>{files.length ? `${files.length} 张 · 点击继续添加` : '拖拽或选择'}</span>
-      </span>
+        <span>拖拽或选择</span>
+      </span> : null}
     </label>
     {files.map((file, index) => <button
       key={`${file.name}-${file.size}-${file.lastModified}`}
@@ -241,7 +250,12 @@ export function SubjectInputPanel({
     historySelectionError,
   ].filter(Boolean)
   const uploadHasFiles = getSubjectFileCount(uploadedFiles) > 0
-  const panelClassName = ['subject-input-panel', className].filter(Boolean).join(' ')
+  const shouldAlignUploadedMedia = mode === 'upload' && storyboardReferenceCount > 0 && uploadHasFiles
+  const panelClassName = [
+    'subject-input-panel',
+    shouldAlignUploadedMedia ? 'subject-input-panel--align-uploaded-media' : '',
+    className,
+  ].filter(Boolean).join(' ')
 
   const clearUploadedFiles = () => {
     if (uploadHasFiles) onUploadedFilesChange(createEmptySubjectReferenceFiles())
@@ -305,6 +319,20 @@ export function SubjectInputPanel({
     selectDetailFiles(chosen)
   }
 
+  const selectPanelDropFiles = (chosen: File[]) => {
+    if (!chosen.length) return
+    const result = fillSubjectDropSlots(uploadedFiles, chosen)
+    if (!result.acceptedCount) {
+      setSelectionError('主体参考图已满，请先移除图片再添加。')
+      return
+    }
+    if (mode !== 'upload') changeMode('upload')
+    setSelectionError(result.acceptedCount < chosen.length
+      ? `主体参考图最多上传 ${2 + SUBJECT_MAX_DETAIL_IMAGES} 张，已保留本次拖入的前 ${result.acceptedCount} 张。`
+      : '')
+    onUploadedFilesChange(result.files)
+  }
+
   const selectHistoryElement = (elementId: string) => {
     setSelectionError('')
     onSelectedElementIdChange(elementId)
@@ -316,6 +344,19 @@ export function SubjectInputPanel({
     aria-labelledby={`${id}-title`}
     aria-describedby={panelErrors.length ? errorId : undefined}
     aria-disabled={disabled || undefined}
+    onDragOver={(event) => {
+      if (!Array.from(event.dataTransfer.types).includes('Files')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = disabled || isSubjectPanelDropExcluded(event.target)
+        ? 'none'
+        : 'copy'
+    }}
+    onDrop={(event) => {
+      if (!Array.from(event.dataTransfer.types).includes('Files')) return
+      event.preventDefault()
+      if (disabled || isSubjectPanelDropExcluded(event.target)) return
+      selectPanelDropFiles(Array.from(event.dataTransfer.files))
+    }}
   >
     <header className="subject-input-panel__header">
       <div>

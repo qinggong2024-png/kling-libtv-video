@@ -5,6 +5,7 @@ from typing import Literal
 
 SiteProfileStatus = Literal["draft", "active", "retired"]
 EvidenceLevel = Literal["verified_site", "restricted_site"]
+LibraryScope = Literal["general", "brand"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,9 @@ class SiteStyleProfile:
     product_priorities: tuple[str, ...]
     forbidden_mismatches: tuple[str, ...]
     research_note: str
+    expression_language: str = "自然、克制并服务于商品展示"
+    library_scope: LibraryScope = "brand"
+    brand_id: str | None = None
 
     def to_public_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -47,6 +51,10 @@ class SiteStyleProfile:
         value["productPriorities"] = value.pop("product_priorities")
         value["forbiddenMismatches"] = value.pop("forbidden_mismatches")
         value["researchNote"] = value.pop("research_note")
+        value["expressionLanguage"] = value.pop("expression_language")
+        value["libraryScope"] = value.pop("library_scope")
+        brand_id = value.pop("brand_id")
+        value["brandId"] = (brand_id or self.id) if self.library_scope == "brand" else None
         return value
 
 
@@ -68,13 +76,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         ),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
-        tone="轻快、聪明、怀旧科幻，但保留商品陈列的清晰度",
+        tone="轻快、聪明、带怀旧科幻玩味感，但保留商品陈列的清晰度",
+        expression_language=(
+            "人物轻松、好奇、带一点机灵玩味；允许短暂挑眉、自然微笑或发现感掠视，"
+            "动作轻快但不滑稽，始终让印花和文字成为视线重点。"
+        ),
         audience="喜欢 geek、nerdy、复古音乐和科幻文化的消费者",
         palette=("white", "black", "vintage accent colors"),
         typography="Space Mono / Ubuntu 风格的等宽与几何无衬线",
-        camera_language="稳定观察为主，允许一次轻推进和一次利落景别切换，不用高速甩镜",
+        camera_language="明亮平视观察为主，允许一次轻快推进、一次小幅横向跟随和利落细节切换，不用高速甩镜",
         opening_rule="前 3 秒先以整身中景建立服装与人物，再开始位移",
-        middle_rule="完成一次三分之四转身，并给印花、文字或袖口一次稳定细节停留",
+        middle_rule="以机灵掠视或自然微笑配合一次三分之四转身，并给印花、文字或袖口一次稳定细节停留",
         ending_rule="回到整件商品清晰可见的中景，以轻松定姿结束",
         preferred_shots=("整身中景", "三分之四中近景", "印花局部特写"),
         preferred_actions=(
@@ -103,12 +115,16 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
         tone="克制、温和、尊重信仰，文字先于动作",
+        expression_language=(
+            "人物真诚、平和、带希望感；使用温和直视、自然轻微微笑或安静低头回望，"
+            "避免布道式手势、夸张虔诚表演和遮挡信仰文字。"
+        ),
         audience="基督信仰服饰和日常穿搭用户",
         palette=("white", "deep navy gray", "washed garment tones"),
         typography="Poppins 风格的清楚无衬线",
-        camera_language="稳定、克制的正面观察与缓慢推进，减少切镜和视角跳变",
+        camera_language="柔和眼平正面观察与缓慢推进，镜头保持尊重、安定且不做突兀视角跳变",
         opening_rule="以正面或轻三分之四中景开场，让信仰文字先被读清",
-        middle_rule="用一次低幅度姿态变化展示水洗质感、衣摆或袖口，不遮挡核心文字",
+        middle_rule="用平和视线和一次低幅度姿态变化展示水洗质感、衣摆或袖口，不遮挡核心文字",
         ending_rule="回到正面稳定停留，或自然低头后抬眼结束",
         preferred_shots=("正面中景", "稳定三分之四中景", "胸前文字近景"),
         preferred_actions=(
@@ -133,13 +149,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         source_urls=("https://www.nerdywave.com/",),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="restricted_site",
-        tone="待验证的暗黑/另类方向；仅作为保守的研究占位",
+        tone="冷漠、克制、带受控攻击性的暗黑表达；人物不讨好镜头，但商品必须清晰",
+        expression_language=(
+            "人物保持冷漠直视、短促掠视或微压下颌，肩线更明确、动作力度更干脆；"
+            "攻击性必须受控，不龇牙、不吼叫、不做恐怖或身体变形表演。"
+        ),
         audience="待站内证据确认",
         palette=("low_saturation", "black", "shadowed_neutral"),
         typography="待验证",
-        camera_language="暂定为低幅度侧向观察与有限低机位，正式启用前需样片验证",
+        camera_language="以低幅度侧向观察、有限低机位和斜向构图制造张力；允许一次克制推进，不用恐怖特效或失控甩镜",
         opening_rule="以侧面或三分之四中景建立暗色轮廓，不用闪烁特效",
-        middle_rule="用克制掠视和一次缓慢转身制造冷感，并保留印花可读停留",
+        middle_rule="沿用通用转身或走动骨架，以冷漠直视、短促掠视和更明确的肩线增加受控攻击性，并保留印花可读停留",
         ending_rule="停在清晰轮廓与低饱和层次仍可辨认的稳定画面",
         preferred_shots=("侧面中景", "有限低机位", "印花近景"),
         preferred_actions=(
@@ -151,7 +171,10 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         pacing="slow_to_standard，先验证再放大动作",
         product_priorities=("轮廓", "黑色/低饱和层次", "印花可读性"),
         forbidden_mismatches=("恐怖特效", "身体变形", "过度闪烁", "未经证据确认的赛博或哥特符号"),
-        research_note="2026-07-30 站内自动化访问返回 403；当前内容只能作为用户标签下的保守占位。",
+        research_note=(
+            "2026-07-30 站内自动化访问返回 403；冷漠表情、受控攻击性和张力镜头"
+            "来自用户确认的品牌方向，仍需样片验证后激活。"
+        ),
     ),
     "pagewings": SiteStyleProfile(
         id="pagewings",
@@ -162,13 +185,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         source_urls=("https://www.pagewings.com/",),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="restricted_site",
-        tone="待验证的读书/文学气质；安静、叙事化、不过度表演",
+        tone="温暖、有氛围、安静而有叙事感的泛阅读气质；人物自然亲和，不过度表演",
+        expression_language=(
+            "人物温和、松弛、像沉浸在安静片刻中；使用柔和视线、轻微自然微笑和低幅呼吸感姿态，"
+            "不假装阅读，也不凭空与书本或眼镜互动。"
+        ),
         audience="待站内证据确认",
         palette=("paper_neutral", "ink_black", "muted_accent"),
         typography="待验证",
-        camera_language="暂定为安静观察、轻推近景与较长停留，不凭空补入文学道具",
+        camera_language="以温暖稳定的观察、柔和轻推和较长停留建立氛围；保留环境呼吸感，不凭空补入文学道具",
         opening_rule="先建立人物与现有环境的关系，以稳定中景留出叙事空间",
-        middle_rule="通过视线移动、轻微重心变化和文字细节停留推进画面",
+        middle_rule="沿用通用视线移动与轻微重心变化，以柔和表情、自然呼吸感和文字细节停留推进画面",
         ending_rule="在安静的中景或文字仍可读的近景自然停留",
         preferred_shots=("环境中景", "轻推近景", "已有物件关系镜头"),
         preferred_actions=(
@@ -185,7 +212,10 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "夸张舞蹈",
             "把推断的学院风当成事实",
         ),
-        research_note="2026-07-30 站内自动化访问返回 403；需补充首页或产品样片后再激活。",
+        research_note=(
+            "2026-07-30 站内自动化访问返回 403；温暖、有氛围的表达来自用户确认的"
+            "品牌方向，需补充首页或产品样片后再激活。"
+        ),
     ),
     "teachersgram": SiteStyleProfile(
         id="teachersgram",
@@ -199,13 +229,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         ),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
-        tone="明亮、亲和、实用的日常工作感",
+        tone="热情洋溢、活泼、明亮、亲和，同时保留教师日常的可信与实用感",
+        expression_language=(
+            "人物精神饱满、热情自信，使用明亮直视、自然大方的微笑和开放肩线；"
+            "动作活泼完整但不蹦跳卖萌，不把教师表达幼儿化。"
+        ),
         audience="教师和教育主题周边消费者",
         palette=("warm cream", "black", "soft classroom accents"),
         typography="Almarai / Arapey，正文清楚、标题有一点编辑感",
-        camera_language="明亮稳定的朋友记录视角，允许自然跟随与一次胸前细节推进",
-        opening_rule="以自然站姿或一到两步走动建立整件服装和亲和感",
-        middle_rule="用轻三分之四侧身让胸前图案朝向镜头，再展示一次袖口或下摆",
+        camera_language="明亮有活力的朋友记录视角，允许短距离自然跟随、轻快横移和一次胸前细节推进",
+        opening_rule="以热情对视、自然站姿或一到两步轻快走动建立整件服装和亲和感",
+        middle_rule="以明亮微笑配合轻快三分之四侧身，让胸前图案朝向镜头，再展示一次袖口或下摆",
         ending_rule="停在教育主题文字清晰可读的中景，以自然微笑或放松表情结束",
         preferred_shots=("整身中景", "胸前图案中近景", "袖口/下摆细节"),
         preferred_actions=(
@@ -214,7 +248,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "chest_print_pause",
             "hem_adjust",
         ),
-        pacing="standard，动作完整而不幼稚",
+        pacing="standard_to_fast，镜头活泼但动作完整，文字停留清楚且不幼稚",
         product_priorities=("教育主题文字", "可穿着的版型", "胸前印花", "实用细节"),
         forbidden_mismatches=("幼儿园式蹦跳", "暗黑低照度", "过度性感姿态", "道具堆砌"),
         research_note="首页分类 Math/Literature/Music/Art/Science 与暖奶油色、字体可直接观察。",
@@ -228,13 +262,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         source_urls=("https://www.goodnurselife.com/",),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="restricted_site",
-        tone="待验证的清洁、可靠、功能导向",
+        tone="温暖、可靠、专业而有活力的护理日常方向，功能与商品信息优先",
+        expression_language=(
+            "人物亲切、可靠、精神状态良好，使用友善直视、放松微笑和利落站姿；"
+            "不表演诊疗、疲惫崩溃或英雄化护理情节。"
+        ),
         audience="待站内证据确认",
         palette=("clean_light", "medical_blue_or_teal_pending", "garment_neutral"),
         typography="待验证",
-        camera_language="暂定为清洁明亮的稳定跟随与短距离推进，避免医疗情节化运镜",
+        camera_language="清洁明亮的眼平观察、稳定跟随与短距离推进，节奏利落但避免医疗情节化运镜",
         opening_rule="用清晰中景建立服装轮廓与职业主题文字",
-        middle_rule="以一次向前停稳或重心变化衔接胸前文字、肩线和袖口细节",
+        middle_rule="以友善直视或自然微笑配合一次向前停稳或重心变化，衔接胸前文字、肩线和袖口细节",
         ending_rule="回到干净稳定的商品确认镜头，不增加器械或操作场景",
         preferred_shots=("清晰中景", "胸前文字近景", "肩线/袖口细节"),
         preferred_actions=(
@@ -262,12 +300,16 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
         tone="叛逆、超现实、强图形，但动作仍受控",
+        expression_language=(
+            "人物自信、挑衅、带一点冷幽默；允许直接盯镜、轻微侧笑、压低下颌和不对称肩线，"
+            "用姿态制造怪诞感，不依赖面部扭曲或失控动作。"
+        ),
         audience="喜欢怪诞、迷幻、反常规图形服饰的消费者",
         palette=("near_black", "neon_magenta", "high_contrast_graphic"),
         typography="Poppins / Jost / Dela Gothic One 的粗体展示感",
-        camera_language="允许不对称取景、短促推进和一次利落切镜，但始终回到商品轮廓",
+        camera_language="允许有张力的不对称取景、有限低机位和短促推进，但始终回到商品轮廓",
         opening_rule="用不对称中景和短暂停格快速建立强图形印花",
-        middle_rule="通过一次有限侧移、头肩轻倾或克制视线变化制造怪诞节奏",
+        middle_rule="以挑衅直视或冷感侧笑配合一次有限侧移、头肩轻倾，制造受控怪诞节奏",
         ending_rule="从近景返回整身商品确认镜头，以强轮廓定格结束",
         preferred_shots=("不对称中景", "短暂近景", "回到整身的商品确认镜头"),
         preferred_actions=(
@@ -294,12 +336,19 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
         tone="温暖、复古、像旧广告一样有记忆点",
+        expression_language=(
+            "人物放松、亲切、带轻微怀旧喜悦；使用自然微笑、从容侧望和舒展站姿，"
+            "避免模仿年代人物的夸张表演或僵硬摆拍。"
+        ),
         audience="喜欢 Americana、年代图形和复古棒球衫的消费者",
         palette=("white", "wine_red", "dark_green", "navy", "black"),
         typography="Figtree，现代清晰字体承载复古商品",
-        camera_language="慢半拍的稳定 lookbook 观察，有限横移与柔和推进，不叠加遮字胶片噪点",
+        camera_language=(
+            "温暖、慢半拍的稳定 lookbook 观察，允许有限横移、柔和推进和广告式定格，"
+            "不叠加遮字胶片噪点"
+        ),
         opening_rule="以静态整身或一步停稳建立年代配色与完整轮廓",
-        middle_rule="用一次半转展示滚边、背面或侧面，再给领口袖口一次稳定停留",
+        middle_rule="以从容侧望或轻松微笑配合一次半转展示滚边、背面或侧面，再给领口袖口稳定停留",
         ending_rule="像旧广告一样回到整身或三分之四中景定格结束",
         preferred_shots=("复古整身中景", "背面/滚边中近景", "领口袖口细节"),
         preferred_actions=("controlled_walk", "three_quarter_turn", "back_reveal", "hem_adjust"),
@@ -325,13 +374,20 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         ),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
-        tone="户外、自由、功能明确，兼顾复古骑行图形和生活方式色彩",
+        tone="充满能量、自由、专注、功能明确，兼顾复古骑行图形和户外生活方式色彩",
+        expression_language=(
+            "人物专注、清醒、带户外运动后的轻快自信；站姿有准备感，视线坚定但不凶狠，"
+            "只有输入支持骑行场景时才增加运动中的专注表情。"
+        ),
         audience="gravel、MTB、downhill 与城市骑行生活方式用户",
         palette=("high_visibility_color", "outdoor_green", "earth_neutral", "graphic_accent"),
         typography="清晰运动无衬线，图形款允许复古骑行海报感",
-        camera_language="商品片以稳定正面和三分之四中全景为主；只有输入已有自行车和户外环境时才使用骑行情境镜头",
+        camera_language=(
+            "商品片以稳定正面和三分之四中全景为主；输入已有自行车和户外环境时，"
+            "允许短距离平行跟拍、低幅推进和更开阔的环境镜头。"
+        ),
         opening_rule="先建立完整上装和骑行版型；无自行车参考时保持自然站姿，不补入车辆或护具",
-        middle_rule="优先确认肩袖、后摆和背面图形；骑行或推车动作仅在对应道具与环境已经存在时使用",
+        middle_rule="以专注视线和有准备感的肩线确认肩袖、后摆和背面图形；骑行或推车仅在道具与环境已存在时使用",
         ending_rule="回到清晰的正面或背面商品停留，避免让车轮、车把或装备遮住服装",
         preferred_shots=("正面中全景", "三分之四侧面", "背面中近景", "条件化户外长景"),
         preferred_actions=(
@@ -340,7 +396,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "back_reveal",
             "sleeve_detail_pause",
         ),
-        pacing="standard；骑行情境可 standard_to_fast，但背印与版型停留至少一秒半",
+        pacing="standard；骑行情境可 standard_to_fast，但输入已提供的商品面与版型至少停留一秒半",
         product_priorities=("完整骑行版型", "肩袖和后摆", "背面图形", "口袋与功能结构"),
         forbidden_mismatches=(
             "无参考时新增自行车、头盔或护具",
@@ -370,12 +426,16 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
         tone="有力量、直接、略带幽默和洗水街头感，但商品信息始终清晰",
+        expression_language=(
+            "人物坚定、有力量、训练状态积极，使用自信直视、收紧但不过度的肩背姿态，"
+            "可有一次轻松短笑；不怒吼、不力竭、不把肌肉表演凌驾于商品。"
+        ),
         audience="力量训练、健身房文化和日常训练穿搭用户",
         palette=("black", "washed_charcoal", "white", "high_contrast_graphic"),
         typography="粗体运动无衬线和高对比口号字体",
-        camera_language="以正面中大全身确认印花和手臂轮廓；训练低机位只作短氛围片段，不能代替商品停留",
+        camera_language="以正面中大全身确认印花和手臂轮廓；允许短促低机位制造力量感，但必须回到商品停留",
         opening_rule="用稳定站姿或一步停稳建立上衣轮廓，不自动添加器械、拳击手套或训练带",
-        middle_rule="保持手臂离开核心印花，允许低幅肩部打开或在输入手位支持时轻整领口",
+        middle_rule="以坚定直视和低幅肩部打开强化力量感，手臂离开核心印花；输入手位支持时可轻整领口",
         ending_rule="训练氛围后必须回到双臂放松、印花无遮挡的正面商品画面",
         preferred_shots=("正面中大全身", "胸前图形中近景", "肩臂轮廓中景"),
         preferred_actions=(
@@ -412,12 +472,16 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
         tone="日常、俏皮、复古且重视文化图形可读性，不把日本主题表演化",
+        expression_language=(
+            "人物轻松、俏皮、好奇，使用灵动视线、自然笑意和小幅不对称停姿；"
+            "活泼来自人物节奏，不模仿动漫角色，也不表演刻板文化姿态。"
+        ),
         audience="喜欢日本城市、动物、食物、幽默、运动和复古图形服饰的用户",
         palette=("washed_neutral", "artwork_color", "sport_accent", "summer_print"),
         typography="清晰日常无衬线，复杂图形与文化文字保留足够阅读空间",
-        camera_language="正面膝上或中全景优先，以一次轻微三分之四转体补充肩袖和宽松轮廓",
+        camera_language="明快眼平的正面膝上或中全景优先，允许小幅横向跟随、轻快推进和一次三分之四转体",
         opening_rule="先给胸前图形完整正面停留，不从站点名称推断动漫、赛博或传统表演",
-        middle_rule="复杂图形追加稳定中近景；球衣或衬衫只做低幅肩袖、侧缝和衣摆展示",
+        middle_rule="以灵动掠视或自然笑意带动一次轻快转体；复杂图形追加稳定中近景，球衣或衬衫只做低幅细节展示",
         ending_rule="回到图形无遮挡的完整商品画面，以自然放松表情结束",
         preferred_shots=("正面膝上景", "正面中全景", "三分之四中景", "图形中近景"),
         preferred_actions=(
@@ -455,13 +519,17 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         ),
         retrieved_at=_RETRIEVED_AT,
         evidence_level="verified_site",
-        tone="舒适、自然、身体中立，真实展示版型而不制造修饰身体的表演",
+        tone="自信、舒适、自然、身体中立，带真实轻松的愉悦感，不制造修饰身体的表演",
+        expression_language=(
+            "人物放松、自信、愉快，允许自然微笑、开放视线和符合自身习惯的舒展姿态；"
+            "不吸腹缩肩、不羞怯遮挡，也不把身体当成需要被修正的对象。"
+        ),
         audience="需要包容尺码与多种日常、复古、幽默和图形风格的消费者",
         palette=("washed_color", "americana_accent", "graphic_color", "everyday_neutral"),
         typography="清楚易读的日常无衬线，图形和幽默文字优先",
-        camera_language="固定竖屏全身为主，同时保留正面和轻三分之四角度，不用斜拍或局部裁切制造缩身效果",
+        camera_language="诚实眼平的固定竖屏全身为主，允许自然跟随与轻三分之四角度，不用斜拍或局部裁切制造缩身效果",
         opening_rule="以自然正面全身建立衣长、袖长和宽松量，允许人物按自身习惯舒适站立",
-        middle_rule="使用前后脚轻错位、小幅重心变化或一步停稳展示真实活动空间，不遮胸腹",
+        middle_rule="以自信微笑和开放视线配合前后脚轻错位、小幅重心变化或一步停稳，展示真实活动空间且不遮胸腹",
         ending_rule="回到完整正面或轻三分之四站姿，保持图案、衣摆和侧缝可判断",
         preferred_shots=("固定竖屏正面全身", "轻三分之四全身", "无遮挡图形中景"),
         preferred_actions=(
