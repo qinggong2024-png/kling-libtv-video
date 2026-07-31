@@ -13,6 +13,7 @@ from libtv_agent.adapters.wavespeed import (
 )
 from libtv_agent.adapters.wavespeed_video import WaveSpeedVideoAdapter, WaveSpeedVideoError
 from libtv_agent.config import Settings
+from libtv_agent.services.media import download_with_retries
 
 
 def _settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -160,6 +161,27 @@ async def test_query_maps_wavespeed_statuses(
         assert result.outputs == (
             ProviderOutput(url="https://cdn.example/video.mp4", content_type="video"),
         )
+
+
+@pytest.mark.asyncio
+async def test_query_rejects_completed_prediction_without_output(tmp_path: Path) -> None:
+    client = FakeWaveSpeedClient()
+    client.prediction = WaveSpeedPrediction(
+        task_id="prediction-1",
+        status="completed",
+        outputs=(),
+        error=None,
+        model_id="kwaivgi/kling-video-o3-pro/reference-to-video",
+        raw_response={"data": {"id": "prediction-1", "status": "completed"}},
+    )
+    adapter = WaveSpeedVideoAdapter(_settings(tmp_path), client=client)  # type: ignore[arg-type]
+
+    with pytest.raises(WaveSpeedVideoError) as caught:
+        await adapter.query("prediction-1")
+
+    assert caught.value.code == "WAVESPEED_OUTPUT_URL_MISSING"
+    assert caught.value.provider_task_id == "prediction-1"
+    assert caught.value.raw_status == "completed"
 
 
 @pytest.mark.asyncio
@@ -314,6 +336,57 @@ async def test_download_is_atomic_and_reuses_existing_output(
     assert not destination.with_suffix(".mp4.part").exists()
     assert reused.reused is True
     assert reused.size_bytes == len(video)
+    assert calls == ["https://cdn.example/video.mp4"]
+
+
+@pytest.mark.asyncio
+async def test_download_media_is_compatible_with_runner_retry_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = b"\x00\x00\x00\x18ftypmp42wavespeed-video"
+
+    def fake_urlopen(request: object, *, timeout: float) -> _MemoryResponse:
+        del request, timeout
+        return _MemoryResponse(video)
+
+    monkeypatch.setattr("libtv_agent.adapters.wavespeed_video.urlopen", fake_urlopen)
+    adapter = WaveSpeedVideoAdapter(_settings(tmp_path), client=FakeWaveSpeedClient())  # type: ignore[arg-type]
+    destination = tmp_path / "runner" / "video.mp4"
+
+    result = await download_with_retries(  # type: ignore[arg-type]
+        adapter,
+        url="https://cdn.example/video.mp4",
+        destination=destination,
+    )
+
+    assert result == destination
+    assert destination.read_bytes() == video
+
+
+@pytest.mark.asyncio
+async def test_download_replaces_invalid_existing_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = b"\x00\x00\x00\x18ftypmp42wavespeed-video"
+    calls: list[str] = []
+
+    def fake_urlopen(request: object, *, timeout: float) -> _MemoryResponse:
+        del timeout
+        calls.append(request.full_url)  # type: ignore[attr-defined]
+        return _MemoryResponse(video)
+
+    monkeypatch.setattr("libtv_agent.adapters.wavespeed_video.urlopen", fake_urlopen)
+    adapter = WaveSpeedVideoAdapter(_settings(tmp_path), client=FakeWaveSpeedClient())  # type: ignore[arg-type]
+    destination = tmp_path / "video.mp4"
+    destination.write_bytes(b"upstream error page")
+
+    downloaded = await adapter.download(
+        ProviderOutput(url="https://cdn.example/video.mp4", content_type="video"), destination
+    )
+
+    assert downloaded.reused is False
+    assert downloaded.size_bytes == len(video)
+    assert destination.read_bytes() == video
     assert calls == ["https://cdn.example/video.mp4"]
 
 
