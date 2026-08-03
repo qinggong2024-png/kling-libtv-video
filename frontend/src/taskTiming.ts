@@ -8,6 +8,15 @@ export type TaskTimingStageKey =
   | 'GENERATION'
   | 'DOWNLOAD'
 
+export type ProductionStageKey =
+  | 'MATERIALS'
+  | 'TEMPLATE'
+  | 'PREFLIGHT'
+  | 'ANALYSIS'
+  | 'PLAN'
+  | 'GENERATION'
+  | 'RESULT'
+
 const FIXED_TEMPLATE_STAGE_KEYS: readonly TaskTimingStageKey[] = [
   'SOURCE_UPLOAD',
   'GENERATION',
@@ -23,12 +32,63 @@ const LEGACY_ANALYSIS_STAGE_KEYS: readonly TaskTimingStageKey[] = [
   'DOWNLOAD',
 ]
 
+const CUSTOM_PRODUCTION_STAGE_KEYS: readonly ProductionStageKey[] = [
+  'MATERIALS',
+  'GENERATION',
+  'RESULT',
+]
+
+const FIXED_TEMPLATE_PRODUCTION_STAGE_KEYS: readonly ProductionStageKey[] = [
+  'MATERIALS',
+  'TEMPLATE',
+  'PREFLIGHT',
+  'GENERATION',
+  'RESULT',
+]
+
+const LEGACY_PRODUCTION_STAGE_KEYS: readonly ProductionStageKey[] = [
+  'MATERIALS',
+  'ANALYSIS',
+  'PLAN',
+  'GENERATION',
+  'RESULT',
+]
+
 export function visibleTaskTimingStageKeys(
   workflowKind?: string | null,
 ): readonly TaskTimingStageKey[] {
   return workflowKind === 'FIXED_TEMPLATE'
     ? FIXED_TEMPLATE_STAGE_KEYS
     : LEGACY_ANALYSIS_STAGE_KEYS
+}
+
+export function visibleProductionStageKeys(
+  workflowKind?: string | null,
+  generationMode?: unknown,
+): readonly ProductionStageKey[] {
+  if (workflowKind !== 'FIXED_TEMPLATE') return LEGACY_PRODUCTION_STAGE_KEYS
+  return generationMode === 'custom'
+    ? CUSTOM_PRODUCTION_STAGE_KEYS
+    : FIXED_TEMPLATE_PRODUCTION_STAGE_KEYS
+}
+
+export function currentProductionStageIndex(
+  phase: string,
+  workflowKind?: string | null,
+  generationMode?: unknown,
+): number {
+  const stages = visibleProductionStageKeys(workflowKind, generationMode)
+  if (phase === 'DRAFT') return 0
+  if (phase === 'DELIVERABLE' || phase === 'PARTIALLY_DELIVERABLE') return stages.length - 1
+
+  if (workflowKind === 'FIXED_TEMPLATE') {
+    if (generationMode === 'custom') return 1
+    return phase === 'PREPARING' ? 2 : 3
+  }
+
+  if (phase === 'ANALYZING' || phase === 'ACTION_REQUIRED') return 1
+  if (phase === 'AWAITING_CONFIRMATION') return 2
+  return 3
 }
 
 export function parseTaskTimestamp(value: string): number {

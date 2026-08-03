@@ -4,6 +4,8 @@ import {
   formatDurationSeconds,
   formatElapsed,
   parseTaskTimestamp,
+  currentProductionStageIndex,
+  visibleProductionStageKeys,
   visibleTaskTimingStageKeys,
 } from './taskTiming'
 
@@ -47,6 +49,27 @@ describe('task timing', () => {
       'MATERIALIZATION',
       'GENERATION',
       'DOWNLOAD',
+    ])
+  })
+
+  it('shows custom prompt tasks as a direct generation flow', () => {
+    expect(visibleProductionStageKeys('FIXED_TEMPLATE', 'custom')).toEqual([
+      'MATERIALS',
+      'GENERATION',
+      'RESULT',
+    ])
+    expect(currentProductionStageIndex('PREPARING', 'FIXED_TEMPLATE', 'custom')).toBe(1)
+    expect(currentProductionStageIndex('QUEUED', 'FIXED_TEMPLATE', 'custom')).toBe(1)
+    expect(currentProductionStageIndex('DELIVERABLE', 'FIXED_TEMPLATE', 'custom')).toBe(2)
+  })
+
+  it('keeps template and preflight visible for automatic fixed-template tasks', () => {
+    expect(visibleProductionStageKeys('FIXED_TEMPLATE', 'automatic')).toEqual([
+      'MATERIALS',
+      'TEMPLATE',
+      'PREFLIGHT',
+      'GENERATION',
+      'RESULT',
     ])
   })
 })
