@@ -117,7 +117,9 @@ import { formatRiskFlags } from './riskLabels'
 import {
   formatDurationSeconds,
   formatElapsed,
+  currentProductionStageIndex,
   parseTaskTimestamp,
+  visibleProductionStageKeys,
   visibleTaskTimingStageKeys,
 } from './taskTiming'
 import { createUuid } from './uuid'
@@ -1505,14 +1507,20 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
       setError(cause instanceof Error ? cause.message : '任务取消失败，请稍后重试')
     } finally { setBusy(false) }
   }
-  const isConfirmation = task.phase === 'AWAITING_CONFIRMATION'
+  const isConfirmation = !isFixedWorkflow && task.phase === 'AWAITING_CONFIRMATION'
   const isGenerating = ACTIVE_PHASES.has(task.phase) && task.phase !== 'DRAFT' && task.phase !== 'ANALYZING'
   const isCompleted = RESULT_PHASES.has(task.phase)
   const canReuse = !isFixedWorkflow && isCompleted && task.actionCapabilities.canRegenerate && reusableVariants.length > 0
   const analysisFailure = isAnalysisFailure(task)
-  const currentStep = isFixedWorkflow
-    ? task.phase === 'DRAFT' ? 0 : task.phase === 'PREPARING' ? 2 : RESULT_PHASES.has(task.phase) ? 4 : 3
-    : task.phase === 'DRAFT' ? 0 : task.phase === 'ANALYZING' || analysisFailure ? 1 : isConfirmation ? 2 : RESULT_PHASES.has(task.phase) ? 4 : 3
+  const productionStageKeys = visibleProductionStageKeys(
+    task.workflowKind,
+    task.settings?.generationMode,
+  )
+  const currentStep = currentProductionStageIndex(
+    task.phase,
+    task.workflowKind,
+    task.settings?.generationMode,
+  )
   const needsRecovery = task.phase === 'ACTION_REQUIRED'
   const confirmationChoice = confirmationKinds.length === 2
     ? 'BOTH'
@@ -1527,7 +1535,16 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
         <div className="drawer-header-main"><span>任务 / {isConfirmation ? '方案确认' : RESULT_PHASES.has(task.phase) ? '视频结果' : analysisFailure ? '分析恢复' : needsRecovery ? '异常处理' : '生产进度'}</span><h1 id="detail-title">{task.title}</h1></div>
         <div className="drawer-header-actions"><ProviderBadge provider={task.generationProvider} /><TaskStatusBadge task={task} /></div>
       </header>
-      <div className="workspace-stages" aria-label="制作阶段">{(isFixedWorkflow ? ['素材', '模板', '预检', `${provider.displayName}生成`, '结果'] : ['素材', '分析', '方案', provider.kind === 'legacy' ? '历史任务生成' : `${provider.displayName}生成`, '结果']).map((label, index) => <div key={label} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</div>
+      <div className="workspace-stages" aria-label="制作阶段">{productionStageKeys.map((stageKey, index) => {
+        const label = stageKey === 'MATERIALS' ? '素材'
+          : stageKey === 'TEMPLATE' ? '模板'
+            : stageKey === 'PREFLIGHT' ? '预检'
+              : stageKey === 'ANALYSIS' ? '分析'
+                : stageKey === 'PLAN' ? '方案'
+                  : stageKey === 'RESULT' ? '结果'
+                    : provider.kind === 'legacy' ? '历史任务生成' : `${provider.displayName}生成`
+        return <div key={stageKey} aria-current={index === currentStep ? 'step' : undefined} className={index < currentStep ? 'is-complete' : index === currentStep ? 'is-current' : ''}><span>{index < currentStep ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>
+      })}</div>
       <div className="drawer-content">
         <section className="source-summary"><div className="source-assets">{[...task.assets].sort((a, b) => a.order - b.order).map((asset, index) => <figure key={asset.id}><AuthenticatedImage src={asset.thumbnailUrl} alt={asset.originalFilename} /><figcaption>{asset.role === 'PRODUCT' || asset.usedForGeneration === false ? '产品图' : `分镜 ${index + 1}`}</figcaption></figure>)}</div><div className="garment-summary"><span>{isCustomWorkflow ? '自定义直达快照' : isFixedWorkflow ? '自动化生成快照' : '服装识别摘要'}</span><strong>{isCustomWorkflow ? '自定义提示词 · 默认生产规格' : isFixedWorkflow ? `${task.siteProfileId ?? '未知站点'} · 自动编排` : [analysis?.garmentFacts?.category, analysis?.garmentFacts?.mainColor, analysis?.garmentFacts?.fit].filter(Boolean).join(' · ') || '正在整理服装信息'}</strong><p>{isCustomWorkflow ? `提示词原文直达 · ${task.variants.length} 个结果` : isFixedWorkflow ? `动作 ${String(task.settings?.actionIntensity ?? 'standard')} · ${task.variants.length} 个结果` : analysis?.consistencyObservations?.summary ?? '系统将优先保持服装结构、颜色、印花和文字准确。'}</p></div></section>
         {analysisFailure ? <section className="analysis-recovery" role="alert">

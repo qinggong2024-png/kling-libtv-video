@@ -882,6 +882,8 @@ async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_co
     assert task["settings"]["generationMode"] == "custom"
     assert task["compiledPlan"]["compiler"] == "custom-direct-v1"
     assert task["compiledPlan"]["userPrompt"] == user_prompt
+    assert task["phase"] != "AWAITING_CONFIRMATION"
+    assert task["actionCapabilities"]["canConfirm"] is False
     assert len(task["variants"]) == 2
     assert {variant["promptText"] for variant in task["variants"]} == {
         f"{user_prompt} Reference roles: @image_1 are ordered storyboards and control "
