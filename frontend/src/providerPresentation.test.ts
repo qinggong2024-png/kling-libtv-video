@@ -58,5 +58,15 @@ describe('provider presentation', () => {
     const message = providerActionRequiredMessage('BACH_ELEMENTS_NOT_IN_P1', 'bach')
     expect(message).toContain('不能使用单独的产品参考图')
     expect(message).toContain('没有调用任何生成 API')
+    expect(variantExecutionMessage({
+      generationStatus: 'PENDING',
+      downloadStatus: 'PENDING',
+      downloadArtifactId: null,
+      errorCode: null,
+      provider: 'bach',
+      providerTaskId: null,
+    }, 'bach', 'ACTION_REQUIRED')).toBe(
+      'Bach Image-to-Video API：预检未通过，未提交生成',
+    )
   })
 })

@@ -125,8 +125,12 @@ type VariantExecution = {
 export function variantExecutionMessage(
   variant: VariantExecution,
   taskProvider?: string | null,
+  taskPhase?: string | null,
 ): string {
   const meta = providerPresentation(variant.provider ?? taskProvider)
+  if (taskPhase === 'ACTION_REQUIRED' && !variant.providerTaskId) {
+    return `${meta.displayLabel}：预检未通过，未提交生成`
+  }
   if (variant.downloadArtifactId) return '成品文件已就绪'
   if (variant.downloadStatus === 'DOWNLOADING') return `${meta.displayLabel} 已返回结果，正在下载成品`
   if (variant.generationStatus === 'UNKNOWN') {
