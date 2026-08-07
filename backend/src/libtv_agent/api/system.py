@@ -9,6 +9,43 @@ async def system_status(request: Request) -> dict[str, object]:
     settings = request.app.state.settings
     kling_availability = request.app.state.kling_adapter.availability_snapshot()
     kling_capabilities = request.app.state.kling_adapter.capabilities_snapshot()
+    capability_defaults = {
+        "api": {"imageInputLimit": 7, "supportsMultipleImages": True},
+        "wavespeed": {"imageInputLimit": 7, "supportsMultipleImages": True},
+        "bach": {"imageInputLimit": 2, "supportsMultipleImages": False},
+    }
+    active_defaults = capability_defaults.get(
+        settings.kling_provider_backend,
+        {"imageInputLimit": 0, "supportsMultipleImages": False},
+    )
+    active_model = settings.active_kling_model
+    video_generation = {
+        "enabled": settings.kling_enabled,
+        "backend": settings.kling_provider_backend,
+        "provider": request.app.state.kling_adapter.get_provider_name(),
+        "model": active_model,
+        "status": kling_availability.status,
+        "available": kling_availability.available,
+        "authenticated": kling_availability.authenticated,
+        "reason": kling_availability.reason,
+        "cliVersion": kling_availability.cli_version,
+        "models": (
+            list(kling_capabilities.supported_models)
+            if kling_capabilities
+            else ([active_model] if active_model else [])
+        ),
+        "supportsMultipleImages": (
+            kling_capabilities.supports_multiple_images
+            if kling_capabilities
+            else active_defaults["supportsMultipleImages"]
+        ),
+        "imageInputLimit": (
+            kling_capabilities.image_input_limit
+            if kling_capabilities
+            else active_defaults["imageInputLimit"]
+        ),
+        "fallbackMode": settings.kling_storyboard_fallback_mode,
+    }
     return {
         "environment": settings.app_env,
         "libtvAdapter": settings.libtv_adapter_mode,
@@ -32,20 +69,7 @@ async def system_status(request: Request) -> dict[str, object]:
         "sharedAuthentication": settings.shared_authentication,
         "csrfCookieName": settings.csrf_cookie_name,
         "aiAdapter": settings.ai_adapter_mode,
-        "kling": {
-            "enabled": settings.kling_enabled,
-            "backend": settings.kling_provider_backend,
-            "provider": request.app.state.kling_adapter.get_provider_name(),
-            "status": kling_availability.status,
-            "available": kling_availability.available,
-            "authenticated": kling_availability.authenticated,
-            "reason": kling_availability.reason,
-            "cliVersion": kling_availability.cli_version,
-            "models": list(kling_capabilities.supported_models) if kling_capabilities else [],
-            "supportsMultipleImages": (
-                kling_capabilities.supports_multiple_images if kling_capabilities else False
-            ),
-            "imageInputLimit": (kling_capabilities.image_input_limit if kling_capabilities else 0),
-            "fallbackMode": settings.kling_storyboard_fallback_mode,
-        },
+        "videoGeneration": video_generation,
+        # Retained for older frontends while they migrate to the provider-neutral field.
+        "kling": video_generation,
     }

@@ -1,4 +1,4 @@
-export type GenerationProviderKind = 'legacy' | 'kling' | 'wavespeed'
+export type GenerationProviderKind = 'legacy' | 'kling' | 'wavespeed' | 'bach'
 
 export type ProviderPresentation = {
   kind: GenerationProviderKind
@@ -10,6 +10,7 @@ export type ProviderPresentation = {
 export function generationProviderKind(provider?: string | null): GenerationProviderKind {
   const normalized = provider?.trim().toLowerCase() ?? ''
   if (normalized === 'wavespeed' || normalized.startsWith('wavespeed_')) return 'wavespeed'
+  if (normalized === 'bach' || normalized.startsWith('bach_')) return 'bach'
   return normalized === 'kling' || normalized.startsWith('kling_') ? 'kling' : 'legacy'
 }
 
@@ -25,6 +26,14 @@ export function providerPresentation(provider?: string | null): ProviderPresenta
       displayName: 'WaveSpeed',
       displayLabel: 'WaveSpeed 视频 API',
       cssClass: 'provider--wavespeed',
+    }
+  }
+  if (generationProviderKind(provider) === 'bach') {
+    return {
+      kind: 'bach',
+      displayName: 'Bach',
+      displayLabel: 'Bach Image-to-Video API',
+      cssClass: 'provider--bach',
     }
   }
   return {
@@ -81,7 +90,9 @@ export function providerTimingStageLabel(key: string, provider?: string | null):
   if (key === 'GENERATION') {
     return meta.kind === 'wavespeed'
       ? 'WaveSpeed 云端生成'
-      : meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
+      : meta.kind === 'bach'
+        ? 'Bach 云端生成'
+        : meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
   }
   return '成品下载'
 }

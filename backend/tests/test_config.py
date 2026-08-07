@@ -1,4 +1,6 @@
 import pytest
+from libtv_agent.adapters.bach_provider import BachApiAdapter
+from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.config import Settings
 
 
@@ -67,6 +69,27 @@ def test_wavespeed_configuration_selects_video_provider_without_disabling_kling_
     assert settings.active_kling_aspect_ratio == "16:9"
     assert settings.kling_provider_submission_enabled("wavespeed_video") is True
     assert settings.kling_provider_submission_enabled("kling_official_api") is True
+
+
+def test_bach_configuration_selects_bach_video_provider() -> None:
+    settings = Settings(
+        kling_provider_backend="bach",
+        bach_enabled=True,
+        bach_access_key="fake-bach-access-key",
+        bach_secret_key="fake-bach-secret-key",
+        bach_model="bach_i2v_test",
+        bach_duration=6,
+        bach_aspect_ratio="16:9",
+        _env_file=None,
+    )
+
+    assert settings.kling_enabled is True
+    assert settings.active_kling_provider_name == "bach"
+    assert settings.active_kling_model == "bach_i2v_test"
+    assert settings.active_kling_duration == 6
+    assert settings.active_kling_aspect_ratio == "16:9"
+    assert settings.kling_provider_submission_enabled("bach") is True
+    assert isinstance(create_kling_adapter(settings), BachApiAdapter)
 
 
 def test_test_environment_cannot_enable_paid_kling_api_test() -> None:

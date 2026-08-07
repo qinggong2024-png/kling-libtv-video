@@ -158,11 +158,15 @@ async def prepare_kling_task(
             product_reference_paths=tuple(product_reference_paths),
             fallback_mode=settings.kling_storyboard_fallback_mode,
             task_trace_id=task.id.hex,
-            resolution=settings.kling_api_resolution,
+            resolution=settings.active_video_resolution,
             audio=audio,
             multi_shot=multi_shot,
             external_task_id=f"{task.id.hex}-{variant.id.hex}-{variant.revision}",
-            callback_url=settings.kling_api_callback_url,
+            callback_url=(
+                settings.kling_api_callback_url
+                if settings.kling_provider_backend != "bach"
+                else None
+            ),
             element_references=element_references,
         )
         model = await adapter.validate_request(request)
@@ -222,7 +226,7 @@ async def prepare_kling_task(
             "modelKey": model,
             "duration": duration,
             "aspectRatio": aspect_ratio,
-            "resolution": settings.kling_api_resolution,
+            "resolution": settings.active_video_resolution,
             "audio": audio,
             "multiShot": multi_shot,
             "elementIds": [item.element_id for item in element_references],

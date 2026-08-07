@@ -71,12 +71,20 @@ def _video_execution_backend(provider: str, settings: Settings) -> str:
     normalized = provider.strip().lower()
     if normalized == settings.wavespeed_video_provider_name.strip().lower():
         return "WAVESPEED_VIDEO_API"
+    if normalized == settings.bach_provider_name.strip().lower():
+        return "BACH_API"
     if normalized in {"kling", settings.kling_api_provider_name.strip().lower()}:
         return "KLING_OFFICIAL_API"
     return "KLING_OFFICIAL_CLI"
 
 
 def _video_timeout_error(provider: str, settings: Settings) -> tuple[str, str]:
+    if provider.strip().lower() == settings.bach_provider_name.strip().lower():
+        return (
+            "BACH_TASK_TIMEOUT",
+            "Bach video task exceeded the configured wait time; "
+            "the remote task was not resubmitted",
+        )
     if provider.strip().lower() == settings.wavespeed_video_provider_name.strip().lower():
         return (
             "WAVESPEED_VIDEO_TASK_TIMEOUT",
@@ -570,7 +578,7 @@ class RunnerSupervisor:
                 task_trace_id=task.id.hex,
                 resolution=str(
                     variant.generation_config_json.get("resolution")
-                    or self.settings.kling_api_resolution
+                    or self.settings.active_video_resolution
                 ),
                 audio=str(
                     variant.generation_config_json.get("audio")
@@ -587,7 +595,11 @@ class RunnerSupervisor:
                     )
                 ),
                 external_task_id=attempt.intent_hash,
-                callback_url=self.settings.kling_api_callback_url,
+                callback_url=(
+                    self.settings.kling_api_callback_url
+                    if self.settings.kling_provider_backend != "bach"
+                    else None
+                ),
                 element_references=tuple(
                     VideoElementReference(
                         element_id=str(element_id),

@@ -22,6 +22,10 @@ from libtv_agent.config import Settings, get_settings
 from libtv_agent.db import Database
 from libtv_agent.logging_config import configure_logging
 from libtv_agent.services.analysis_lifecycle import recover_stale_analyses
+from libtv_agent.services.bach_config import (
+    bach_admin_config_signature,
+    load_bach_admin_config,
+)
 from libtv_agent.services.credentials import load_admin_credentials
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -148,6 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     load_admin_credentials(app_settings)
     load_kling_admin_config(app_settings)
     load_wavespeed_admin_config(app_settings)
+    load_bach_admin_config(app_settings)
     configure_logging()
 
     @asynccontextmanager
@@ -202,14 +207,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
-    app.state.libtv_adapter = create_libtv_adapter(app_settings)
-    app.state.kling_adapter = create_kling_adapter(app_settings)
     app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
+    app.state.libtv_adapter = create_libtv_adapter(app_settings)
+    app.state.kling_adapter = create_kling_adapter(
+        app_settings,
+        wavespeed_client=app.state.wavespeed_adapter,
+    )
     app.state.libtv_login_manager = LibTVLoginManager()
     app.state.object_store = create_object_store(app_settings)
     app.state.settings = app_settings
     app.state.kling_config_signature = kling_admin_config_signature(app_settings)
     app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
+    app.state.bach_config_signature = bach_admin_config_signature(app_settings)
     app.state.analysis_jobs = set()
     app.state.confirmation_jobs = set()
     app.state.subject_element_jobs = set()
@@ -273,16 +282,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def security_contract(request: Request, call_next):
         kling_config_signature = kling_admin_config_signature(app_settings)
         wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
+        bach_config_signature = bach_admin_config_signature(app_settings)
         if (
             kling_config_signature != app.state.kling_config_signature
             or wavespeed_config_signature != app.state.wavespeed_config_signature
+            or bach_config_signature != app.state.bach_config_signature
         ):
             load_kling_admin_config(app_settings)
             load_wavespeed_admin_config(app_settings)
-            app.state.kling_adapter = create_kling_adapter(app_settings)
+            load_bach_admin_config(app_settings)
             app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
+            app.state.kling_adapter = create_kling_adapter(
+                app_settings,
+                wavespeed_client=app.state.wavespeed_adapter,
+            )
             app.state.kling_config_signature = kling_admin_config_signature(app_settings)
             app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
+            app.state.bach_config_signature = bach_admin_config_signature(app_settings)
         shared = app_settings.shared_authentication
         unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
         login_path = request.url.path == "/api/v1/auth/login"

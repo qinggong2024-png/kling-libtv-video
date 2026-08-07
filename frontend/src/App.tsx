@@ -75,6 +75,7 @@ import {
   uploadStoryboard,
   getAdminCredentials,
   getAdminUsers,
+  getBachConfig,
   getKlingConfig,
   getKlingElements,
   getKlingStatus,
@@ -82,6 +83,7 @@ import {
   getOperations,
   getPersonalPromptAutoConfirmation,
   updateAdminCredentials,
+  updateBachConfig,
   updateKlingConfig,
   refreshKlingCapabilities,
   updateWaveSpeedConfig,
@@ -96,7 +98,7 @@ import {
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary, WaveSpeedConfig } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary, WaveSpeedConfig } from './types'
 import { CustomPromptField } from './CustomPromptField'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
 import { ImageCenter } from './ImageCenter'
@@ -598,8 +600,8 @@ function TaskThumb({ task, large = false }: { task: Task; large?: boolean }) {
   </span>
 }
 
-function ProductLogo() {
-  return <span className="brand-lockup"><span className="brand-mark"><Clapperboard size={19} /></span><span><strong>衣影工坊</strong><small>可灵官方 API 视频生产</small></span></span>
+function ProductLogo({ subtitle = 'AI 视频生产' }: { subtitle?: string }) {
+  return <span className="brand-lockup"><span className="brand-mark"><Clapperboard size={19} /></span><span><strong>衣影工坊</strong><small title={subtitle}>{subtitle}</small></span></span>
 }
 
 function loginErrorMessage(cause: unknown): string {
@@ -769,14 +771,18 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const storyboardInputRef = useRef<HTMLInputElement>(null)
   const resetTimerRef = useRef<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
-  const providerAvailable = Boolean(system?.kling.available && system.kling.authenticated)
+  const videoGeneration = system?.videoGeneration ?? system?.kling
+  const activeProvider = providerPresentation(videoGeneration?.provider)
+  const activeModel = videoGeneration?.model || videoGeneration?.models[0] || activeProvider.displayName
+  const referenceLimit = videoGeneration?.imageInputLimit ?? 0
+  const storyboardLimit = Math.min(7, Math.max(1, referenceLimit || 7))
+  const providerAvailable = Boolean(videoGeneration?.available && videoGeneration.authenticated)
   const subjectValidation = validateSubjectReferenceFiles(subjectFiles)
   const subjectReferenceCount = getSubjectReferenceCount(subjectMode, subjectFiles, elementId)
   const subjectReady = subjectMode === 'none'
     || (subjectMode === 'upload' && subjectValidation.isValid)
     || (subjectMode === 'history' && Boolean(elementId))
-  const klingInputsSupported = storyboards.length + subjectReferenceCount
-    <= (system?.kling.imageInputLimit ?? 0)
+  const providerInputsSupported = storyboards.length + subjectReferenceCount <= referenceLimit
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
   const selectedProfile = profiles.find((item) => item.id === siteProfileId) ?? null
   const customPromptReady = generationMode !== 'custom' || Boolean(customPrompt.trim())
@@ -849,10 +855,10 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     setSubmittedNotice('')
     const images = files.filter(isSupportedImageFile)
     const rejectedCount = files.length - images.length
-    const accepted = images.slice(0, Math.max(0, 7 - storyboards.length)).map((file) => ({ id: createUuid(), file }))
+    const accepted = images.slice(0, Math.max(0, storyboardLimit - storyboards.length)).map((file) => ({ id: createUuid(), file }))
     const notices: string[] = []
     if (rejectedCount) notices.push(`${rejectedCount} 个文件不是支持的 JPG、PNG 或 WEBP 图片`)
-    if (images.length !== accepted.length) notices.push('分镜图最多添加 7 张，超出部分未添加')
+    if (images.length !== accepted.length) notices.push(`当前模型的分镜图最多添加 ${storyboardLimit} 张，超出部分未添加`)
     setNotice(notices.join('；'))
     setStoryboards((items) => [...items, ...accepted])
   }
@@ -883,7 +889,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     addFiles(Array.from(event.dataTransfer.files))
   }
   const submit = async () => {
-    if (!storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady) return
+    if (!storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -925,8 +931,8 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         ),
       ])
       setStage(generationMode === 'custom'
-        ? '正在校验自定义提示词并执行可灵预检'
-        : subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : '正在编译自动化方案并执行可灵预检')
+        ? `正在校验自定义提示词并执行 ${activeProvider.displayName} 预检`
+        : subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : `正在编译自动化方案并执行 ${activeProvider.displayName} 预检`)
       setProgress(68)
       const sourceUploadDurationSeconds = (performance.now() - uploadStartedAt) / 1000
       const baseName = storyboards[0].file.name.replace(/\.[^.]+$/, '').trim().slice(0, 80) || '服装广告视频'
@@ -949,8 +955,8 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       setProgress(100)
       onCreated(task)
       setSubmittedNotice(task.phase === 'ACTION_REQUIRED'
-        ? `“${task.title}”已创建，但可灵预检需要处理：${task.phaseReasonCode ?? '请查看任务详情'}`
-        : `“${task.title}”已进入可灵生成队列，可以继续上传下一组素材`)
+        ? `“${task.title}”已创建，但 ${activeProvider.displayName} 预检需要处理：${task.phaseReasonCode ?? '请查看任务详情'}`
+        : `“${task.title}”已进入 ${activeProvider.displayName} 生成队列，可以继续上传下一组素材`)
       const clearSubmittedMaterials = () => {
         setStoryboards([])
         setSubjectMode('none')
@@ -984,7 +990,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           event.dataTransfer.dropEffect = event.dataTransfer.types.includes(MATERIAL_DRAG_TYPE) ? 'move' : 'copy'
         }} onDrop={(event) => { if (!formLocked) handleDrop(event, storyboards.length) }}>
           <input ref={storyboardInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
-          <div className="upload-panel-head"><div><h2>有序分镜</h2><small>至少 1 张，最多 7 张；拖拽图片调整顺序</small></div><span>{storyboards.length}/7</span></div>
+          <div className="upload-panel-head"><div><h2>有序分镜</h2><small>至少 1 张，最多 {storyboardLimit} 张；拖拽图片调整顺序</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
           <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '拖拽或点击上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
           {storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表">{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} />)}</div> : null}
         </section>
@@ -997,20 +1003,20 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           selectedElementId={elementId}
           onSelectedElementIdChange={setElementId}
           storyboardReferenceCount={storyboards.length}
-          referenceLimit={system?.kling.imageInputLimit || 7}
+          referenceLimit={referenceLimit || 7}
           disabled={formLocked}
           elementsLoading={elementsLoading}
           elementsError={elementCatalogError}
         />
         <section className="generation-workflow" aria-labelledby="generation-workflow-title">
-          <div className="generation-workflow-heading"><div><span>生成方式</span><h2 id="generation-workflow-title">选择提示词路线</h2></div><small>{generationMode === 'custom' ? '自定义提示词直达可灵' : '根据站点风格自动编排'}</small></div>
+          <div className="generation-workflow-heading"><div><span>生成方式</span><h2 id="generation-workflow-title">选择提示词路线</h2></div><small>{generationMode === 'custom' ? `自定义提示词直达 ${activeProvider.displayName}` : '根据站点风格自动编排'}</small></div>
           <div className="generation-routes" role="radiogroup" aria-label="生成方式">
             <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
               <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
                 <span className="generation-route-radio">{generationMode === 'custom' ? <Check size={14} /> : null}</span><span><strong>自定义提示词</strong><small>跳过动作库与站点风格</small></span>
               </button>
               <div className="generation-route-body">
-                <CustomPromptField scope="video" label="可灵提示词" value={customPrompt} disabled={formLocked || generationMode !== 'custom'} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
+                <CustomPromptField scope="video" label={`${activeModel} 提示词`} value={customPrompt} disabled={formLocked || generationMode !== 'custom'} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
               </div>
             </article>
 
@@ -1037,16 +1043,16 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{resultCount} 个独立任务</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
-      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !klingInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
+      <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>
       {busy ? <div className="composer-submit-progress progress-track"><span style={{ width: `${progress}%` }} /></div> : null}
     </div>
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>
         : catalogError ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{catalogError}</span></div>
-          : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{klingApiStatusPresentation(system?.kling.status, system?.kling.enabled, system?.kling.reason).message} 请让管理员配置 API Key、启用通道并验证连接。</div>
+          : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{activeProvider.displayLabel} 当前不可用。请让管理员配置凭据、启用通道并验证连接。</div>
           : !productionReady && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{generationMode === 'automatic' ? '当前站点风格尚未通过生产验收。' : '默认生产规格当前不可用。'}</span></div>
           : !subjectReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。'}</span></div>
-          : !klingInputsSupported ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />当前可灵模型最多接收 {system?.kling.imageInputLimit ?? 0} 张图片；系统不会静默丢弃分镜。</div>
+          : !providerInputsSupported ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />当前模型 {activeModel} 最多接收 {referenceLimit} 张图片；系统不会静默丢弃分镜。</div>
             : submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div>
               : notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div>
                 : !storyboards.length ? <div className="inline-alert"><CircleAlert size={17} /><span>请至少上传 1 张分镜图</span></div>
@@ -1497,7 +1503,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
     } finally { setBusy(false) }
   }
   const cancel = async () => {
-    if (!window.confirm('确定取消此任务吗？已提交到可灵的远端任务可能无法撤回。')) return
+    if (!window.confirm(`确定取消此任务吗？已提交到 ${providerPresentation(task.generationProvider).displayName} 的远端任务可能无法撤回。`)) return
     setBusy(true)
     setError('')
     try {
@@ -1628,6 +1634,8 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
 }
 
 function HomeView({ tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged }: { tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void }) {
+  const activeVideo = system?.videoGeneration ?? system?.kling
+  const activeModel = activeVideo?.model || activeVideo?.models[0] || '当前管理端模型'
   const actionableTasks = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
@@ -1663,7 +1671,7 @@ function HomeView({ tasks, seed, system, actorId, onCreated, onOpen, onView, onP
     })
   }
   return <div className="home-view">
-    <div className="home-title"><div><h1>视频制作</h1><p>上传分镜与主体素材，选择自定义或自动化路线生成视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
+    <div className="home-title"><div><h1>视频制作</h1><p>上传分镜与主体素材，使用 {activeModel} 生成视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
       <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} />
     </div>
@@ -1866,7 +1874,7 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     <div className="library-scope-tabs" role="tablist" aria-label="内容库归属">
       <button type="button" role="tab" aria-selected={scope === 'general'} className={scope === 'general' ? 'is-active' : ''} onClick={() => { setScope('general'); setBrandFilter('all') }}><Globe2 size={18} /><span><strong>通用内容</strong><small>所有品牌可复用</small></span></button>
       <button type="button" role="tab" aria-selected={scope === 'brand'} className={scope === 'brand' ? 'is-active' : ''} onClick={() => setScope('brand')}><LockKeyhole size={18} /><span><strong>品牌专属</strong><small>按品牌隔离使用</small></span></button>
-      <button type="button" role="tab" aria-selected={scope === 'subjects'} className={scope === 'subjects' ? 'is-active' : ''} onClick={() => setScope('subjects')}><Package size={18} /><span><strong>历史主体</strong><small>可灵主体资产</small></span></button>
+      <button type="button" role="tab" aria-selected={scope === 'subjects'} className={scope === 'subjects' ? 'is-active' : ''} onClick={() => setScope('subjects')}><Package size={18} /><span><strong>历史主体</strong><small>视频主体资产</small></span></button>
     </div>
 
     {scope !== 'subjects' ? <div className="library-toolbar">
@@ -2012,6 +2020,67 @@ function ProviderCredentials({ adminId }: { adminId: string | null }) {
   </form>
 }
 
+function ProviderRoutingSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
+  const [currentBackend, setCurrentBackend] = useState<KlingConfig['backend'] | null>(null)
+  const [videoBackend, setVideoBackend] = useState<KlingConfig['backend']>('api')
+  const [busy, setBusy] = useState<'load' | 'save' | null>('load')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy('load')
+    try {
+      const config = await getKlingConfig(adminId)
+      setCurrentBackend(config.backend)
+      setVideoBackend(config.backend)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取生成通道路由')
+    } finally { setBusy(null) }
+  }, [adminId])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (currentBackend === null || currentBackend === videoBackend) return
+    setBusy('save')
+    setError('')
+    setNotice('')
+    try {
+      const config = await updateKlingConfig(adminId, { backend: videoBackend })
+      setCurrentBackend(config.backend)
+      setVideoBackend(config.backend)
+      setNotice('生成通道路由已更新，仅影响后续新提交的任务。')
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '生成通道路由切换失败')
+    } finally { setBusy(null) }
+  }
+
+  const videoHelp = videoBackend === 'api'
+    ? '使用可灵官方 API 的模型和视频参数。'
+    : videoBackend === 'wavespeed'
+      ? '使用下方 WaveSpeed 视频模型和参数。'
+      : '使用下方 Bach Image-to-Video 模型和参数。'
+
+  return <form className="settings-section provider-section" onSubmit={(event) => void save(event)}>
+    <div className="settings-section-heading">
+      <div><span>Provider Routing</span><h2>生成通道路由</h2><p>统一选择图片和视频任务使用的提供商。切换只影响后续新任务，历史任务仍由原提供商查询和下载。</p></div>
+      <button className="primary-button" type="submit" disabled={busy !== null || currentBackend === null || currentBackend === videoBackend}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{busy === 'save' ? '正在切换' : '应用通道路由'}</button>
+    </div>
+    {busy === 'load' && currentBackend === null ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取通道路由…</div> : null}
+    {currentBackend !== null ? <div className="kling-settings-grid">
+      <label htmlFor="image-provider-route"><strong>图片通道</strong><select id="image-provider-route" value="wavespeed" disabled><option value="wavespeed">WaveSpeed Image API</option></select><small>当前仅接入 WaveSpeed；Bach 图片能力将在 P4 阶段开放。</small></label>
+      <label htmlFor="video-provider-route"><strong>视频通道</strong><select id="video-provider-route" value={videoBackend} disabled={busy !== null} onChange={(event) => setVideoBackend(event.target.value as KlingConfig['backend'])}><option value="api">可灵官方 API</option><option value="wavespeed">WaveSpeed 视频 API</option><option value="bach">Bach Image-to-Video</option></select><small>{videoHelp}</small></label>
+    </div> : null}
+    <div className="kling-provider-feedback" aria-live="polite" aria-atomic="true">{notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}{error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}</div>
+  </form>
+}
+
 function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
   const [config, setConfig] = useState<KlingConfig | null>(null)
   const [draft, setDraft] = useState<KlingConfigDraft | null>(null)
@@ -2116,11 +2185,6 @@ function KlingProviderSettings({ adminId, onChanged }: { adminId: string; onChan
 
     {busy === 'load' && !draft ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取可灵配置…</div> : null}
     {draft ? <>
-      <div className="kling-config-block">
-        <div className="kling-config-heading"><div><strong>视频生成通道</strong><small>仅影响保存后新提交的视频；历史任务仍由原提供商查询和下载。</small></div><span className="is-configured">{draft.backend === 'wavespeed' ? 'WaveSpeed' : '可灵官方 API'}</span></div>
-        <label htmlFor="video-provider-backend"><strong>当前通道</strong><select id="video-provider-backend" value={draft.backend} disabled={busy !== null} onChange={(event) => updateDraft('backend', event.target.value as KlingConfigDraft['backend'])}><option value="api">可灵官方 API</option><option value="wavespeed">WaveSpeed 视频 API</option></select><small>{draft.backend === 'wavespeed' ? '视频参数与 API Key 在下方 WaveSpeed 配置中维护。' : '使用当前可灵模型、区域和生成参数。'}</small></label>
-      </div>
-
       <div className="kling-provider-toolbar">
         <div className="api-status-card">
           <div className="api-status-card-icon"><Clapperboard size={20} /></div>
@@ -2662,6 +2726,109 @@ function UserManagement({ adminId, sharedAuthentication }: { adminId: string; sh
   </section>
 }
 
+function BachProviderSettings({ adminId, onChanged }: { adminId: string; onChanged: () => Promise<void> }) {
+  const [config, setConfig] = useState<BachConfig | null>(null)
+  const [accessKey, setAccessKey] = useState('')
+  const [secretKey, setSecretKey] = useState('')
+  const [clearAccessKey, setClearAccessKey] = useState(false)
+  const [clearSecretKey, setClearSecretKey] = useState(false)
+  const [busy, setBusy] = useState<'load' | 'save' | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy('load')
+    try {
+      setConfig(await getBachConfig(adminId))
+      setAccessKey('')
+      setSecretKey('')
+      setClearAccessKey(false)
+      setClearSecretKey(false)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取 Bach API 配置')
+    } finally { setBusy(null) }
+  }, [adminId])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!config) return
+    if (config.enabled && !accessKey.trim() && !config.accessKeyConfigured && (clearAccessKey || !config.accessKeyConfigured)) {
+      setError('启用 Bach 前请先填写 AccessKey。')
+      return
+    }
+    if (config.enabled && !secretKey.trim() && !config.secretKeyConfigured && (clearSecretKey || !config.secretKeyConfigured)) {
+      setError('启用 Bach 前请先填写 SecretKey。')
+      return
+    }
+    setBusy('save')
+    setError('')
+    setNotice('')
+    const patch: Record<string, unknown> = {}
+    patch.enabled = config.enabled
+    patch.model = config.model
+    patch.resolution = config.resolution
+    patch.duration = config.duration
+    patch.aspectRatio = config.aspectRatio
+    patch.generateAudio = config.generateAudio
+    if (accessKey.trim()) patch.accessKey = accessKey.trim()
+    if (secretKey.trim()) patch.secretKey = secretKey.trim()
+    if (clearAccessKey) patch.clearAccessKey = true
+    if (clearSecretKey) patch.clearSecretKey = true
+    try {
+      const next = await updateBachConfig(adminId, patch)
+      setConfig(next)
+      setAccessKey('')
+      setSecretKey('')
+      setClearAccessKey(false)
+      setClearSecretKey(false)
+      setNotice('Bach AK/SK 配置已安全保存；选择 Bach 通道后用于后续新任务。')
+      await onChanged()
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : 'Bach API 配置保存失败')
+    } finally { setBusy(null) }
+  }
+
+  return <form className="settings-section provider-section" onSubmit={(event) => void save(event)}>
+    <div className="settings-section-heading">
+      <div><span>Bach API · P1</span><h2>首尾帧视频配置</h2><p>AK/SK 只发送到服务端并加密保存，页面不会读取或回显原值。当前阶段接入 Image-to-Video。</p></div>
+      <button className="primary-button" type="submit" disabled={busy !== null || !config}>{busy === 'save' ? <LoaderCircle className="spin" size={16} /> : <LockKeyhole size={16} />}{busy === 'save' ? '正在保存' : '保存 Bach 配置'}</button>
+    </div>
+    {busy === 'load' && !config ? <div className="account-loading"><LoaderCircle className="spin" size={20} />正在读取 Bach 配置…</div> : null}
+    {config ? <>
+      <div className="kling-provider-toolbar">
+        <div className="api-status-card">
+          <div className="api-status-card-icon"><Clapperboard size={20} /></div>
+          <div><small>Bach 凭据状态</small><strong>{config.credentialsConfigured ? '已配置' : '未配置'}</strong><span>{config.credentialsConfigured ? '保存后可在上方通道选择中启用 Bach。' : '请填写 AccessKey 和 SecretKey。'}</span></div>
+          <span className={`api-status-state is-${config.credentialsConfigured ? 'success' : 'warning'}`}>{config.credentialsConfigured ? <CheckCircle2 size={13} /> : <CircleAlert size={13} />}{config.credentialsConfigured ? '已配置' : '待配置'}</span>
+        </div>
+        <div className="kling-enabled-control"><span><strong>启用 Bach</strong><small>{config.enabled ? '允许后续任务使用 Bach' : '新任务不会提交到 Bach'}</small></span><label className="settings-switch"><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig((current) => current ? { ...current, enabled: event.target.checked } : current)} aria-label="启用 Bach Provider" /><span aria-hidden="true" /></label></div>
+      </div>
+      <div className="kling-api-key-row">
+        <div className="credential-field"><label htmlFor="bach-access-key"><strong>AccessKey</strong><small>{config.accessKeyConfigured && !clearAccessKey ? '已配置 · 输入新 AK 可替换' : '保存后输入框自动清空'}</small></label><div className="secret-input"><LockKeyhole size={16} /><input id="bach-access-key" type="password" value={accessKey} onChange={(event) => { setAccessKey(event.target.value); setClearAccessKey(false) }} placeholder={config.accessKeyConfigured && !clearAccessKey ? '已配置 · 输入新 AK 进行替换' : '输入 Bach AccessKey'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} /></div><small>仅服务端保存，读取接口只返回是否已配置。</small></div>
+        <button className="danger-button" type="button" disabled={busy !== null || (!config.accessKeyConfigured && !accessKey)} onClick={() => setClearAccessKey((value) => !value)}>{clearAccessKey ? <RotateCcw size={15} /> : <X size={15} />}{clearAccessKey ? '取消清除 AK' : '清除 AK'}</button>
+      </div>
+      <div className="kling-api-key-row">
+        <div className="credential-field"><label htmlFor="bach-secret-key"><strong>SecretKey</strong><small>{config.secretKeyConfigured && !clearSecretKey ? '已配置 · 输入新 SK 可替换' : '保存后输入框自动清空'}</small></label><div className="secret-input"><LockKeyhole size={16} /><input id="bach-secret-key" type="password" value={secretKey} onChange={(event) => { setSecretKey(event.target.value); setClearSecretKey(false) }} placeholder={config.secretKeyConfigured && !clearSecretKey ? '已配置 · 输入新 SK 进行替换' : '输入 Bach SecretKey'} autoComplete="new-password" spellCheck={false} minLength={8} maxLength={4096} /></div><small>SecretKey 不会进入浏览器、日志或普通配置响应。</small></div>
+        <button className="danger-button" type="button" disabled={busy !== null || (!config.secretKeyConfigured && !secretKey)} onClick={() => setClearSecretKey((value) => !value)}>{clearSecretKey ? <RotateCcw size={15} /> : <X size={15} />}{clearSecretKey ? '取消清除 SK' : '清除 SK'}</button>
+      </div>
+      <div className="kling-settings-grid">
+        <label><strong>模型</strong><input value={config.model} readOnly /></label>
+        <label><strong>分辨率</strong><select value={config.resolution} onChange={(event) => setConfig((current) => current ? { ...current, resolution: event.target.value } : current)}><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+        <label><strong>时长</strong><input type="number" min={1} max={8} value={config.duration} onChange={(event) => setConfig((current) => current ? { ...current, duration: Number(event.target.value) } : current)} /><small>首帧 1–8 秒；首尾帧 1–6 秒</small></label>
+        <label><strong>画面比例</strong><select value={config.aspectRatio} onChange={(event) => setConfig((current) => current ? { ...current, aspectRatio: event.target.value } : current)}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+        <label className="kling-inline-switch"><span><strong>生成音频</strong><small>仅在 Bach 任务 payload 中启用音频</small></span><span className="settings-switch"><input type="checkbox" checked={config.generateAudio} onChange={(event) => setConfig((current) => current ? { ...current, generateAudio: event.target.checked } : current)} /><span aria-hidden="true" /></span></label>
+      </div>
+    </> : null}
+    <div className="kling-provider-feedback" aria-live="polite" aria-atomic="true">{notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}{error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}</div>
+  </form>
+}
+
 function AdminCenterView({
   system,
   actor,
@@ -2677,7 +2844,11 @@ function AdminCenterView({
 }) {
   const isAdmin = actor?.role === 'ADMIN'
   const canOperate = isAdmin || actor?.role === 'OPERATOR'
-  const apiState = klingApiStatusPresentation(system?.kling.status, system?.kling.enabled, system?.kling.reason)
+  const activeVideo = system?.videoGeneration ?? system?.kling
+  const activeProvider = providerPresentation(activeVideo?.provider)
+  const providerStateLabel = activeVideo?.available && activeVideo.authenticated
+    ? '已就绪'
+    : activeVideo?.enabled ? '待验证' : '未启用'
   const environmentLabel = system?.environment === 'production'
     ? '正式生产'
     : system?.environment === 'staging'
@@ -2706,15 +2877,17 @@ function AdminCenterView({
       {section === 'overview' ? <>
         <section className="admin-summary-grid" aria-label="系统摘要">
           <div><span className="summary-icon summary-icon--blue"><LayoutDashboard size={19} /></span><span><small>运行环境</small><strong>{environmentLabel}</strong></span></div>
-          <div><span className={`summary-icon ${system?.kling.available && system?.kling.authenticated ? 'summary-icon--green' : 'summary-icon--amber'}`}><Activity size={19} /></span><span><small>可灵官方 API</small><strong>{apiState.label}</strong></span></div>
-          <div><span className="summary-icon summary-icon--green"><Clapperboard size={19} /></span><span><small>生成模型</small><strong>{system?.kling.models[0] ?? '待验证'}</strong></span></div>
+          <div><span className={`summary-icon ${activeVideo?.available && activeVideo.authenticated ? 'summary-icon--green' : 'summary-icon--amber'}`}><Activity size={19} /></span><span><small>{activeProvider.displayLabel}</small><strong>{providerStateLabel}</strong></span></div>
+          <div><span className="summary-icon summary-icon--green"><Clapperboard size={19} /></span><span><small>生成模型</small><strong>{activeVideo?.model || activeVideo?.models[0] || '待配置'}</strong></span></div>
         </section>
         <section className="settings-section admin-operations-card"><OperationsPanel adminId={actor?.userId ?? null} /></section>
       </> : null}
       {section === 'accounts' && isAdmin ? <UserManagement adminId={actor!.userId} sharedAuthentication={system?.sharedAuthentication ?? false} /> : null}
       {section === 'providers' ? isAdmin ? <>
-        <KlingProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
-        <WaveSpeedProviderSettings adminId={actor!.userId} onChanged={onKlingChanged} />
+        <ProviderRoutingSettings key={`routing-${activeVideo?.backend ?? 'unknown'}`} adminId={actor!.userId} onChanged={onKlingChanged} />
+        <KlingProviderSettings key={`kling-${activeVideo?.backend ?? 'unknown'}`} adminId={actor!.userId} onChanged={onKlingChanged} />
+        <WaveSpeedProviderSettings key={`wavespeed-${activeVideo?.backend ?? 'unknown'}`} adminId={actor!.userId} onChanged={onKlingChanged} />
+        <BachProviderSettings key={`bach-${activeVideo?.backend ?? 'unknown'}`} adminId={actor!.userId} onChanged={onKlingChanged} />
       </> : <EmptyState icon={<ShieldCheck size={24} />} title="需要管理员权限" description="生成提供商的密钥、端点与连接验证仅允许管理员修改。" /> : null}
       {section === 'security' ? <>
         <PromptConfirmationSetting adminId={actor!.userId} />
@@ -3332,6 +3505,10 @@ function App() {
   }
 
   const canOperate = actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'
+  const currentVideoGeneration = system?.videoGeneration ?? system?.kling
+  const currentProviderLabel = system
+    ? providerPresentation(currentVideoGeneration?.provider).displayLabel
+    : 'AI 视频生产'
   const nav: Array<{ value: View; label: string; icon: React.ReactNode; badge?: number }> = [
     { value: 'images', label: '图片中心', icon: <Images size={18} /> },
     { value: 'make', label: '视频制作', icon: <Plus size={18} /> },
@@ -3347,7 +3524,7 @@ function App() {
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     <aside className="sidebar">
-      <ProductLogo />
+      <ProductLogo subtitle={currentProviderLabel} />
       <nav className="sidebar-main-nav" aria-label="主导航">{nav.filter((item) => item.value !== 'settings').map((item) => <button key={item.value} onClick={() => switchView(item.value)} className={view === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
       <div className="sidebar-bottom">
         <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.environment === 'test' ? '测试版' : '正式版'}</span></div>
@@ -3357,7 +3534,7 @@ function App() {
       </div>
     </aside>
     <div className="app-body">
-      <header className="mobile-topbar"><ProductLogo /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></header>
+      <header className="mobile-topbar"><ProductLogo subtitle={currentProviderLabel} /><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></header>
       <main id="main-content">{loading ? <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载生产任务</strong></div> : <>
       {error ? <div className="service-banner"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => void refresh()}><RefreshCw size={15} />重新连接</button></div> : null}
       {showNotificationPrompt ? <div className="notification-permission-banner" role="region" aria-label="浏览器通知">
