@@ -23,10 +23,21 @@ function Test-Ready([string]$Uri, [int]$Port) {
     catch { return $false }
 }
 
+function Test-ApiCurrent {
+    $identity = Get-WorkspacePortIdentity -Port 8000 -ProjectRoot $projectRoot
+    if (-not $identity.Listening -or -not $identity.OwnedByWorkspace) { return $false }
+    try {
+        $status = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/system/status' -TimeoutSec 2
+        $expectedRevision = Get-WorkspaceSourceRevision -ProjectRoot $projectRoot
+        return $status.sourceRevision -eq $expectedRevision
+    }
+    catch { return $false }
+}
+
 Assert-WorkspacePortOwnership -Port 8000 -ProjectRoot $projectRoot -ServiceName 'API' | Out-Null
 Assert-WorkspacePortOwnership -Port 5173 -ProjectRoot $projectRoot -ServiceName 'frontend' | Out-Null
 
-if (-not (Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready' 8000)) {
+if (-not (Test-ApiCurrent)) {
     Start-Process `
         -FilePath 'powershell.exe' `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $apiScript) `
@@ -46,7 +57,7 @@ $deadline = [DateTimeOffset]::Now.AddSeconds($StartupTimeoutSeconds)
 do {
     Assert-WorkspacePortOwnership -Port 8000 -ProjectRoot $projectRoot -ServiceName 'API' | Out-Null
     Assert-WorkspacePortOwnership -Port 5173 -ProjectRoot $projectRoot -ServiceName 'frontend' | Out-Null
-    $apiReady = Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready' 8000
+    $apiReady = (Test-Ready 'http://127.0.0.1:8000/api/v1/health/ready' 8000) -and (Test-ApiCurrent)
     $frontendReady = Test-Ready 'http://127.0.0.1:5173/' 5173
     $proxyReady = Test-Ready 'http://127.0.0.1:5173/api/v1/health/ready' 5173
     if ($apiReady -and $frontendReady -and $proxyReady) { break }

@@ -101,6 +101,27 @@ API 默认是 `http://127.0.0.1:8000`，前端默认是 `http://127.0.0.1:5173`�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-local-services.ps1 -RequireFrontend
 ```
 
+健康检查同时比对磁盘后端源码与运行中 API 的 SHA-256 指纹。源码更新但 API 仍是旧进程时，
+`apiSourceRevision` 会返回 `FAIL`；自启动 watchdog 会在下一轮检查中受控重启当前工作区的
+API 和关联 Runner。首次部署此守卫后，需要重新安装或重启一次 watchdog，使常驻进程加载
+新版脚本：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\manage-local-autostart.ps1 -Action Install -Mode Lan
+```
+
+发布后可运行真实浏览器冒烟检查。它会访问图片中心、视频制作、任务、内容库、管理中心全部
+栏目和设置页，并在空白页、未捕获异常、`console.error` 或渲染器崩溃时返回非零退出码：
+
+```powershell
+Set-Location frontend
+$env:UI_SMOKE_BASE_URL='http://127.0.0.1:5173/'
+# 共享登录环境还需通过 UI_SMOKE_USERNAME / UI_SMOKE_PASSWORD 提供管理员账号。
+npm.cmd run smoke:ui
+```
+
+报告写入 `var/reports/ui-smoke.json`。密码只从进程环境变量读取，不写入命令参数或报告。
+
 ## 视频生成 API 接入
 
 新生产任务可由管理员在可灵官方 API 与 WaveSpeed 视频 API 之间切换。旧 LibTV、可灵 API、

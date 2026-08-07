@@ -21,8 +21,8 @@ async def get_motion_actions(actor: Actor, session: Session) -> list[dict[str, o
 
 
 def _require_editor(role: UserRole) -> None:
-    if role not in {UserRole.ADMIN, UserRole.OPERATOR}:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "catalog editor role is required")
+    if role is UserRole.AUDITOR:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "auditor role is read-only")
 
 
 async def _save(

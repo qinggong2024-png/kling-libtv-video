@@ -75,7 +75,7 @@ async def catalog_client(tmp_path: Path) -> AsyncIterator[tuple[AsyncClient, Set
 
 
 @pytest.mark.asyncio
-async def test_regular_user_cannot_create_or_edit_catalog_entries(
+async def test_regular_user_can_create_and_edit_catalog_entries(
     catalog_client: tuple[AsyncClient, Settings],
 ) -> None:
     client, settings = catalog_client
@@ -86,7 +86,8 @@ async def test_regular_user_cannot_create_or_edit_catalog_entries(
         headers=user_headers,
         json=motion_action_payload(),
     )
-    assert create_response.status_code == 403
+    assert create_response.status_code == 201
+    assert create_response.json()["id"] == "catalog_test_pause"
 
     profiles_response = await client.get(
         "/api/v1/site-style-profiles",
@@ -94,14 +95,15 @@ async def test_regular_user_cannot_create_or_edit_catalog_entries(
     )
     assert profiles_response.status_code == 200
     profile = next(item for item in profiles_response.json() if item["id"] == "geeksoutfit")
-    profile["tone"] = "普通用户不应能够保存这项风格修改。"
+    profile["tone"] = "普通用户保存的风格修改。"
 
     edit_response = await client.put(
         "/api/v1/site-style-profiles/geeksoutfit",
         headers=user_headers,
         json=profile,
     )
-    assert edit_response.status_code == 403
+    assert edit_response.status_code == 200
+    assert edit_response.json()["tone"] == "普通用户保存的风格修改。"
 
 
 @pytest.mark.asyncio

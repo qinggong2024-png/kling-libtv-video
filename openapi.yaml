@@ -8965,6 +8965,13 @@
             "title": "Resultcount",
             "default": 1
           },
+          "durationSeconds": {
+            "type": "integer",
+            "maximum": 15.0,
+            "minimum": 3.0,
+            "title": "Durationseconds",
+            "default": 10
+          },
           "actionIntensity": {
             "type": "string",
             "enum": [

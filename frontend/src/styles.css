@@ -603,6 +603,10 @@ main { min-height: 100dvh; }
 .composer-submit-row > span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
 .composer-result-count { flex: 0 1 360px; gap: 5px; }
 .composer-result-count .segmented-control { min-height: 40px; }
+.composer-duration-field { display: grid; flex: 0 0 112px; gap: 5px; color: var(--text); font-size: 13px; font-weight: 700; }
+.composer-duration-field > span:last-child { display: flex; align-items: center; min-height: 40px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; }
+.composer-duration-field input { width: 76px; min-width: 0; height: 38px; padding: 0 8px; border: 0; background: transparent; color: var(--text); font-size: 14px; }
+.composer-duration-field small { color: var(--muted); font-size: 12px; }
 .composer-submit-summary > span { min-width: 0; display: grid; gap: 1px; }
 .composer-submit-summary strong { color: var(--text); font-size: 12px; }
 .composer-submit-summary small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1299,6 +1303,9 @@ main { min-height: 100dvh; }
 .account-create-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 14px; padding: 18px 0; border-bottom: 1px solid var(--line); }
 .account-create-form > label, .account-reset-form label { min-width: 0; display: grid; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
 .account-create-form input, .account-reset-form input { width: 100%; min-width: 0; min-height: 44px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--text); font-size: 14px; }
+.personal-password-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 12px; padding-top: 18px; }
+.personal-password-form label { min-width: 0; display: grid; gap: 6px; color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.personal-password-form input { width: 100%; min-width: 0; min-height: 44px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--text); font-size: 14px; }
 .account-create-form small { color: var(--muted); font-size: 12px; line-height: 1.45; font-weight: 500; }
 .account-create-form > button { min-height: 44px; margin-bottom: 21px; }
 .account-feedback { display: grid; gap: 8px; padding-top: 12px; }
@@ -1721,7 +1728,7 @@ body.modal-open { overflow: hidden; }
   .credential-grid, .settings-grid, .kling-provider-toolbar, .wavespeed-endpoint-row, .ops-control-grid { grid-template-columns: 1fr; }.kling-settings-grid, .kling-element-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }.ops-metrics, .ops-capacity, .ops-stage-grid { grid-template-columns: 1fr 1fr; }.ops-pipeline-summary { grid-template-columns: 1fr; }.ops-stage-grid > div:nth-child(n) { padding-left: 0; border-left: 0; }.ops-stage-grid > div:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--line); }.ops-columns { grid-template-columns: 1fr; }
   .subnav-tabs { grid-template-columns: 1fr; }.subnav-tabs button { min-height: 68px; }.admin-summary-grid { grid-template-columns: 1fr; }
   .ops-confirmation { grid-template-columns: auto minmax(0, 1fr); }.ops-confirmation > div:last-child { grid-column: 1 / -1; justify-content: flex-end; }
-  .account-create-form { grid-template-columns: 1fr; }.account-create-form > button { width: 100%; margin-bottom: 0; }.account-row { grid-template-columns: 42px minmax(0, 1fr) auto; }.account-actions { grid-column: 1 / -1; }.account-actions button { flex: 1; }.account-reset-form, .account-change-password-form { grid-template-columns: 1fr; }.account-reset-form > div button { flex: 1; }
+  .account-create-form, .personal-password-form { grid-template-columns: 1fr; }.account-create-form > button, .personal-password-form > button { width: 100%; margin-bottom: 0; }.account-row { grid-template-columns: 42px minmax(0, 1fr) auto; }.account-actions { grid-column: 1 / -1; }.account-actions button { flex: 1; }.account-reset-form, .account-change-password-form { grid-template-columns: 1fr; }.account-reset-form > div button { flex: 1; }
   .app-shell button, .app-shell .secondary-button, .app-shell .compact-button, .app-shell .text-button, .app-shell .remix-button, .app-shell .icon-button { min-height: 44px; }
   .app-shell input, .app-shell textarea, .app-shell select { font-size: 16px; }
   .app-shell small { font-size: 12px; line-height: 1.5; }

@@ -48,6 +48,7 @@ async def system_status(request: Request) -> dict[str, object]:
     }
     return {
         "environment": settings.app_env,
+        "sourceRevision": settings.deployment_source_revision,
         "libtvAdapter": settings.libtv_adapter_mode,
         "libtvExecutionMode": settings.libtv_execution_mode,
         "paidGenerationEnabled": settings.paid_generation_enabled,

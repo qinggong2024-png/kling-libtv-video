@@ -8,7 +8,10 @@ from libtv_agent.adapters.wavespeed import WaveSpeedHttpResponse
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
 from libtv_agent.domain.models import AuditEvent, Base
-from libtv_agent.services.wavespeed_config import update_wavespeed_admin_config
+from libtv_agent.services.wavespeed_config import (
+    _StoredWaveSpeedConfig,
+    update_wavespeed_admin_config,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -41,6 +44,18 @@ def _settings(database_url: str, tmp_path: Path) -> Settings:
         wavespeed_api_key=ENVIRONMENT_KEY,
         _env_file=None,
     )
+
+
+def test_stored_config_preserves_future_fields_during_rolling_upgrades() -> None:
+    config = _StoredWaveSpeedConfig.model_validate(
+        {
+            "format": "libtv-wavespeed-config-v1",
+            "enabled": False,
+            "futureProviderOption": {"mode": "safe"},
+        }
+    )
+
+    assert config.model_dump()["futureProviderOption"] == {"mode": "safe"}
 
 
 @pytest.mark.asyncio

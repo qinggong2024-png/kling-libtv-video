@@ -214,8 +214,7 @@ def _expand_manifest(manifest: ImageBatchManifest, file_count: int) -> list[Imag
                     "front",
                     "正面融合图",
                     (references["model.front"], references["product.front"]),
-                    "当前生成正面融合图：图一为人物正面，图二为球衣正面。"
-                    f"{FUSION_SOURCE_LOCK}",
+                    f"当前生成正面融合图：图一为人物正面，图二为球衣正面。{FUSION_SOURCE_LOCK}",
                 )
             ]
             if _generate_back(manifest, item):
@@ -235,9 +234,7 @@ def _expand_manifest(manifest: ImageBatchManifest, file_count: int) -> list[Imag
                     else ""
                 )
                 source_lock = (
-                    FUSION_SOURCE_LOCK
-                    if model_role == "model.back"
-                    else FUSION_INFERRED_BACK_LOCK
+                    FUSION_SOURCE_LOCK if model_role == "model.back" else FUSION_INFERRED_BACK_LOCK
                 )
                 views.append(
                     (
@@ -597,7 +594,8 @@ async def read_image_generation_batch(
     batch = await owned_batch(session, user_id=actor.id, batch_id=batch_id)
     if batch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "image generation batch was not found")
-    await refresh_batch(session, app=request.app, batch=batch)
+    async with request.app.state.image_generation_refresh_lock:
+        await refresh_batch(session, app=request.app, batch=batch)
     return batch_response(batch)
 
 

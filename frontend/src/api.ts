@@ -303,6 +303,7 @@ export function createVideoTask(
       siteProfileId: options.generationMode === 'automatic' ? options.siteProfileId : undefined,
       elementIds: options.elementIds,
       resultCount: options.resultCount,
+      durationSeconds: options.durationSeconds,
       actionIntensity: options.actionIntensity,
       cutMode: options.cutMode,
       paidSubmissionConsent: true,

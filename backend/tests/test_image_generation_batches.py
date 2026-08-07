@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from libtv_agent.api.image_generations import ImageBatchManifest, _expand_manifest
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
-from libtv_agent.domain.models import Base, ImageGenerationItem
+from libtv_agent.domain.models import Base, ImageGenerationBatch, ImageGenerationItem
 from libtv_agent.services.image_generations import (
     ImageBatchSubmissionError,
     _prediction_result,
@@ -47,6 +47,12 @@ class FakeWaveSpeedAdapter:
     async def get_prediction(self, task_id: str) -> dict[str, Any]:
         self.queries.append(task_id)
         return {"data": {"id": task_id, "status": "processing", "outputs": []}}
+
+    def availability_snapshot(self) -> SimpleNamespace:
+        return SimpleNamespace(available=True, status="WAVESPEED_READY", reason=None)
+
+    async def verify_credentials(self) -> SimpleNamespace:
+        return self.availability_snapshot()
 
 
 async def _app(tmp_path: Path) -> tuple[Any, Settings]:
@@ -564,3 +570,53 @@ async def test_output_materialization_retries_without_exposing_remote_url(
             assert output["url"].startswith("/api/v1/image-generation-outputs/")
             assert "private-signed-output" not in second_poll.text
             assert materialize_attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_startup_recovers_active_image_batches_without_browser_polling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, settings = await _app(tmp_path)
+    adapter = FakeWaveSpeedAdapter()
+    app.state.wavespeed_adapter = adapter
+    headers = {"X-User-Id": settings.dev_user_id, "Idempotency-Key": "startup-recovery"}
+    data, files = _multipart(_manifest())
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            created = await client.post(
+                "/api/v1/image-generation-batches", headers=headers, data=data, files=files
+            )
+            assert created.status_code == 201
+            assert created.json()["status"] == "running"
+
+    async def completed_prediction(task_id: str) -> dict[str, Any]:
+        adapter.queries.append(task_id)
+        return {
+            "data": {
+                "id": task_id,
+                "status": "completed",
+                "outputs": ["https://cdn.example.test/recovered.png"],
+            }
+        }
+
+    async def materialize(_app: Any, output: Any) -> None:
+        output.object_key = f"image-generations/{output.id}.png"
+        output.content_type = "image/png"
+        output.size_bytes = 10
+        output.sha256 = "0" * 64
+
+    adapter.get_prediction = completed_prediction  # type: ignore[method-assign]
+    monkeypatch.setattr("libtv_agent.services.image_generations._materialize_output", materialize)
+
+    async with app.router.lifespan_context(app):
+        async with app.state.database.session_factory() as session:
+            batch = await session.scalar(select(ImageGenerationBatch))
+            item = await session.scalar(select(ImageGenerationItem))
+            assert batch is not None
+            assert item is not None
+            assert batch.status == "COMPLETED"
+            assert item.status == "COMPLETED"
+            assert item.outputs[0].object_key is not None
+
+    assert adapter.queries == ["prediction-1"]

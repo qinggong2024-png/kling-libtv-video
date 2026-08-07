@@ -72,6 +72,24 @@ try {
     Test-Endpoint 'apiLiveness' 'http://127.0.0.1:8000/api/v1/health/live' 8000
     Test-Endpoint 'apiReadiness' 'http://127.0.0.1:8000/api/v1/health/ready' 8000
     Test-Endpoint 'apiSystemStatus' 'http://127.0.0.1:8000/api/v1/system/status' 8000
+    $expectedSourceRevision = Get-WorkspaceSourceRevision -ProjectRoot $projectRoot
+    $currentSourceRevision = $null
+    $sourceRevisionError = $null
+    if ($results.apiPort.workspaceOwned) {
+        try {
+            $systemStatus = Invoke-RestMethod `
+                -Uri 'http://127.0.0.1:8000/api/v1/system/status' `
+                -TimeoutSec $TimeoutSeconds
+            $currentSourceRevision = [string]$systemStatus.sourceRevision
+        }
+        catch { $sourceRevisionError = $_.Exception.Message }
+    }
+    $results.apiSourceRevision = [ordered]@{
+        status = if ($currentSourceRevision -and $currentSourceRevision -eq $expectedSourceRevision) { 'PASS' } else { 'FAIL' }
+        current = $currentSourceRevision
+        expected = $expectedSourceRevision
+        error = $sourceRevisionError
+    }
     if ($RequireFrontend -or $results.frontendPort.listening) {
         Test-Endpoint 'frontend' 'http://127.0.0.1:5173/' 5173
         Test-Endpoint 'frontendApiProxy' 'http://127.0.0.1:5173/api/v1/health/ready' 5173

@@ -27,6 +27,7 @@ from libtv_agent.services.bach_config import (
     load_bach_admin_config,
 )
 from libtv_agent.services.credentials import load_admin_credentials
+from libtv_agent.services.image_generations import refresh_active_batches
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
     load_kling_admin_config,
@@ -74,6 +75,29 @@ async def _analysis_recovery_loop(app: FastAPI) -> None:
     while True:
         await asyncio.sleep(app.state.settings.analysis_recovery_poll_seconds)
         await _recover_stale_analyses(app)
+
+
+async def _refresh_active_image_generation_batches(app: FastAPI) -> int:
+    settings = app.state.settings
+    if not settings.wavespeed_enabled or not settings.effective_wavespeed_api_key:
+        return 0
+    availability_snapshot = getattr(app.state.wavespeed_adapter, "availability_snapshot", None)
+    if callable(availability_snapshot) and not availability_snapshot().available:
+        return 0
+    try:
+        async with app.state.image_generation_refresh_lock:
+            async with app.state.database.session_factory() as session:
+                return await refresh_active_batches(session, app=app)
+    except Exception:
+        # Provider or database outages must not take down the API or stop later recovery attempts.
+        logger.exception("active image generation recovery failed")
+        return 0
+
+
+async def _image_generation_recovery_loop(app: FastAPI) -> None:
+    while True:
+        await asyncio.sleep(app.state.settings.wavespeed_video_poll_interval_seconds)
+        await _refresh_active_image_generation_batches(app)
 
 
 async def _shutdown_analysis_jobs(app: FastAPI) -> None:
@@ -187,7 +211,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "WaveSpeed read-only verification failed at startup: %s",
                     availability.status,
                 )
+        recovered_image_batches = await _refresh_active_image_generation_batches(app)
+        if recovered_image_batches:
+            logger.warning(
+                "refreshed persisted WaveSpeed image batches",
+                extra={"recovered_image_batches": recovered_image_batches},
+            )
         recovery_task = asyncio.create_task(_analysis_recovery_loop(app))
+        image_recovery_task = asyncio.create_task(_image_generation_recovery_loop(app))
         try:
             yield
         finally:
@@ -195,8 +226,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await _shutdown_confirmation_jobs(app)
             await _shutdown_subject_element_jobs(app)
             recovery_task.cancel()
+            image_recovery_task.cancel()
             try:
                 await recovery_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await image_recovery_task
             except asyncio.CancelledError:
                 pass
             await app.state.libtv_login_manager.close()
@@ -223,6 +259,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.confirmation_jobs = set()
     app.state.subject_element_jobs = set()
     app.state.subject_element_job_keys = set()
+    app.state.image_generation_refresh_lock = asyncio.Lock()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.app_public_origins,
@@ -283,22 +320,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kling_config_signature = kling_admin_config_signature(app_settings)
         wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
         bach_config_signature = bach_admin_config_signature(app_settings)
-        if (
-            kling_config_signature != app.state.kling_config_signature
-            or wavespeed_config_signature != app.state.wavespeed_config_signature
-            or bach_config_signature != app.state.bach_config_signature
-        ):
-            load_kling_admin_config(app_settings)
-            load_wavespeed_admin_config(app_settings)
-            load_bach_admin_config(app_settings)
-            app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
-            app.state.kling_adapter = create_kling_adapter(
-                app_settings,
-                wavespeed_client=app.state.wavespeed_adapter,
-            )
-            app.state.kling_config_signature = kling_admin_config_signature(app_settings)
-            app.state.wavespeed_config_signature = wavespeed_admin_config_signature(app_settings)
-            app.state.bach_config_signature = bach_admin_config_signature(app_settings)
+        if kling_config_signature != app.state.kling_config_signature:
+            try:
+                load_kling_admin_config(app_settings)
+                app.state.kling_adapter = create_kling_adapter(
+                    app_settings,
+                    wavespeed_client=app.state.wavespeed_adapter,
+                )
+            except Exception:
+                logger.exception("rejected invalid Kling administrator configuration reload")
+            finally:
+                # Do not retry the same broken file on every request. A later file change
+                # produces a new signature and is retried while the last valid adapter remains.
+                app.state.kling_config_signature = kling_config_signature
+        if wavespeed_config_signature != app.state.wavespeed_config_signature:
+            try:
+                load_wavespeed_admin_config(app_settings)
+                app.state.wavespeed_adapter = WaveSpeedAdapter(app_settings)
+                if app_settings.kling_provider_backend == "wavespeed":
+                    app.state.kling_adapter = create_kling_adapter(
+                        app_settings,
+                        wavespeed_client=app.state.wavespeed_adapter,
+                    )
+            except Exception:
+                logger.exception("rejected invalid WaveSpeed administrator configuration reload")
+            finally:
+                app.state.wavespeed_config_signature = wavespeed_config_signature
+        if bach_config_signature != app.state.bach_config_signature:
+            try:
+                load_bach_admin_config(app_settings)
+                if app_settings.kling_provider_backend == "bach":
+                    app.state.kling_adapter = create_kling_adapter(
+                        app_settings,
+                        wavespeed_client=app.state.wavespeed_adapter,
+                    )
+            except Exception:
+                logger.exception("rejected invalid Bach administrator configuration reload")
+            finally:
+                app.state.bach_config_signature = bach_config_signature
         shared = app_settings.shared_authentication
         unsafe = request.method in {"POST", "PUT", "PATCH", "DELETE"}
         login_path = request.url.path == "/api/v1/auth/login"
