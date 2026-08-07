@@ -12,6 +12,7 @@ describe('provider presentation', () => {
     expect(generationProviderKind('kling')).toBe('kling')
     expect(generationProviderKind('kling_official_cli')).toBe('kling')
     expect(generationProviderKind('kling_official_api')).toBe('kling')
+    expect(generationProviderKind('bach')).toBe('bach')
     expect(generationProviderKind('libtv')).toBe('legacy')
   })
 
@@ -19,6 +20,7 @@ describe('provider presentation', () => {
     expect(providerProgress('QUEUED', 'kling').label).toContain('可灵官方 API')
     expect(providerProgress('QUEUED', 'kling_official_api').label).toContain('可灵官方 API')
     expect(providerProgress('QUEUED', 'libtv').label).toContain('历史生成通道')
+    expect(providerProgress('QUEUED', 'bach').label).toContain('Bach Image-to-Video API')
     expect(providerTimingStageLabel('MATERIALIZATION', 'kling')).toBe(
       '可灵官方 API 素材准备',
     )

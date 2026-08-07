@@ -298,6 +298,22 @@ export interface KlingElementCreate {
   externalId?: string
 }
 
+export interface VideoGenerationStatus {
+  enabled: boolean
+  backend: 'cli' | 'api' | 'wavespeed' | 'bach'
+  provider: string
+  model?: string | null
+  status: string
+  available: boolean
+  authenticated: boolean
+  reason: string | null
+  cliVersion: string | null
+  models: string[]
+  supportsMultipleImages: boolean
+  imageInputLimit: number
+  fallbackMode: 'disabled' | 'first_last_frame'
+}
+
 export interface SystemStatus {
   environment: string
   sourceRevision: string
@@ -314,25 +330,14 @@ export interface SystemStatus {
   phaseOneAdminId: string | null
   sharedAuthentication: boolean
   csrfCookieName: string
-  kling: {
-    enabled: boolean
-    backend: 'api' | 'wavespeed'
-    provider: string
-    status: string
-    available: boolean
-    authenticated: boolean
-    reason: string | null
-    cliVersion: string | null
-    models: string[]
-    supportsMultipleImages: boolean
-    imageInputLimit: number
-    fallbackMode: 'disabled' | 'first_last_frame'
-  }
+  videoGeneration?: VideoGenerationStatus
+  /** @deprecated Use videoGeneration. */
+  kling: VideoGenerationStatus
 }
 
 export interface KlingStatus {
   enabled: boolean
-  backend: 'api' | 'wavespeed'
+  backend: 'api' | 'wavespeed' | 'bach'
   provider: string
   status: string
   available: boolean
@@ -353,7 +358,7 @@ export interface KlingStatus {
 }
 
 export interface KlingConfig {
-  backend: 'api' | 'wavespeed'
+  backend: 'api' | 'wavespeed' | 'bach'
   apiKeyConfigured: boolean
   baseUrl: string
   callbackUrl: string | null
@@ -371,7 +376,7 @@ export interface KlingConfig {
 }
 
 export interface KlingConfigPatch {
-  backend?: 'api' | 'wavespeed'
+  backend?: 'api' | 'wavespeed' | 'bach'
   apiKey?: string
   clearApiKey?: boolean
   baseUrl?: string
@@ -424,6 +429,42 @@ export interface WaveSpeedConfigPatch {
   videoDuration?: number
   videoAspectRatio?: string
   videoSound?: boolean
+}
+
+export type BachCredentialSource = 'admin' | 'environment' | 'none'
+
+export interface BachConfig {
+  enabled: boolean
+  accessKeyConfigured: boolean
+  secretKeyConfigured: boolean
+  credentialsConfigured: boolean
+  credentialSource: BachCredentialSource
+  baseUrl: string
+  model: string
+  resolution: string
+  duration: number
+  aspectRatio: string
+  generateAudio: boolean
+  maxSubmitConcurrency: number
+  maxPollConcurrency: number
+  provider: string
+  updatedAt: string | null
+}
+
+export interface BachConfigPatch {
+  accessKey?: string
+  secretKey?: string
+  clearAccessKey?: boolean
+  clearSecretKey?: boolean
+  enabled?: boolean
+  baseUrl?: string
+  model?: string
+  resolution?: string
+  duration?: number
+  aspectRatio?: string
+  generateAudio?: boolean
+  maxSubmitConcurrency?: number
+  maxPollConcurrency?: number
 }
 
 export type ImageGenerationBatchStatus =

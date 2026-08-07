@@ -24,7 +24,7 @@ class _StoredKlingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: str = _FORMAT
-    backend: str = Field(pattern="^(cli|api|wavespeed)$")
+    backend: str = Field(pattern="^(cli|api|wavespeed|bach)$")
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)
     baseUrl: str = "https://api-beijing.klingai.com"
     callbackUrl: str | None = Field(default=None, max_length=2048)
@@ -183,9 +183,9 @@ def update_kling_admin_config(
     unknown = set(updates) - allowed
     if unknown:
         raise ValueError("unsupported Kling administrator configuration")
-    if "backend" in updates and updates["backend"] not in {"api", "wavespeed"}:
+    if "backend" in updates and updates["backend"] not in {"api", "wavespeed", "bach"}:
         raise ValueError(
-            "video generation backend must be api or wavespeed; "
+            "video generation backend must be api, wavespeed, or bach; "
             "CLI is available only for historical attempt recovery"
         )
     api_key = updates.get("apiKey")

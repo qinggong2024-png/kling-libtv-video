@@ -14,7 +14,11 @@ _DESCRIPTION = "LibTV WaveSpeed provider configuration"
 
 
 class _StoredWaveSpeedConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Administrator config is hot-reloaded while rolling upgrades can briefly
+    # leave older and newer API processes alive together. Unknown future fields
+    # must not make an otherwise usable provider configuration fatal. Preserve
+    # those fields as well so an older process cannot erase them on its next write.
+    model_config = ConfigDict(extra="allow")
 
     format: str = _FORMAT
     apiKey: str | None = Field(default=None, min_length=8, max_length=4096)

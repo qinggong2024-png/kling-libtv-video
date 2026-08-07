@@ -68,9 +68,9 @@ class Settings(BaseSettings):
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
     fake_libtv_scenario: str = "success"
-    # CLI remains recovery-only. New work can be routed to either the Kling
-    # official API or WaveSpeed without changing persisted historical attempts.
-    kling_provider_backend: Literal["cli", "api", "wavespeed"] = "api"
+    # CLI remains recovery-only. New work can be routed to Kling, WaveSpeed, or
+    # Bach without changing persisted historical attempts.
+    kling_provider_backend: Literal["cli", "api", "wavespeed", "bach"] = "api"
     kling_cli_enabled: bool = False
     kling_cli_executable: str = "kling"
     kling_cli_provider_name: str = "kling_official_cli"
@@ -131,6 +131,26 @@ class Settings(BaseSettings):
     wavespeed_video_poll_interval_seconds: float = Field(default=10.0, ge=1, le=300)
     wavespeed_video_max_poll_interval_seconds: float = Field(default=30.0, ge=1, le=600)
     wavespeed_admin_config_file: Path = Path("var/runtime/wavespeed-config.json")
+    bach_enabled: bool = False
+    bach_access_key: str | None = None
+    bach_secret_key: str | None = Field(default=None, exclude=True)
+    bach_admin_access_key: str | None = Field(default=None, exclude=True)
+    bach_admin_secret_key: str | None = Field(default=None, exclude=True)
+    bach_api_base_url: str = "https://api-gen-na.bach.art/api/vdr"
+    bach_provider_name: str = "bach"
+    bach_model: str = "bach-1.0"
+    bach_resolution: Literal["720p", "1080p"] = "720p"
+    bach_duration: int = Field(default=6, ge=1, le=8)
+    bach_aspect_ratio: Literal["16:9", "9:16", "1:1"] = "9:16"
+    bach_generate_audio: bool = False
+    bach_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+    bach_task_timeout_seconds: float = Field(default=1800.0, ge=60, le=86_400)
+    bach_download_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
+    bach_max_submit_concurrency: int = Field(default=1, ge=1, le=20)
+    bach_max_poll_concurrency: int = Field(default=4, ge=1, le=50)
+    bach_poll_interval_seconds: float = Field(default=10.0, ge=1, le=300)
+    bach_max_poll_interval_seconds: float = Field(default=60.0, ge=1, le=600)
+    bach_admin_config_file: Path = Path("var/runtime/bach-config.json")
     max_input_image_bytes: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     artifact_root: Path = Path("var/artifacts")
     admin_credentials_file: Path = Path("var/runtime/admin-credentials.json")
@@ -224,6 +244,8 @@ class Settings(BaseSettings):
             > self.wavespeed_video_max_poll_interval_seconds
         ):
             raise ValueError("WaveSpeed video poll interval cannot exceed its maximum")
+        if self.bach_poll_interval_seconds > self.bach_max_poll_interval_seconds:
+            raise ValueError("Bach poll interval cannot exceed its maximum")
         if self.kling_api_base_url.rstrip("/") != self.kling_api_base_url:
             self.kling_api_base_url = self.kling_api_base_url.rstrip("/")
         api_url = urlsplit(self.kling_api_base_url)
@@ -280,6 +302,31 @@ class Settings(BaseSettings):
             )
         if self.wavespeed_get_retry_base_seconds > self.wavespeed_get_retry_max_seconds:
             raise ValueError("WaveSpeed retry base interval cannot exceed its maximum")
+        self.bach_api_base_url = self.bach_api_base_url.rstrip("/")
+        bach_url = urlsplit(self.bach_api_base_url)
+        official_bach_endpoint = (
+            bach_url.scheme == "https"
+            and bach_url.hostname == "api-gen-na.bach.art"
+            and bach_url.path == "/api/vdr"
+            and not bach_url.username
+            and not bach_url.password
+            and not bach_url.query
+            and not bach_url.fragment
+        )
+        local_bach_endpoint = (
+            self.app_env in {"development", "test"}
+            and bach_url.scheme in {"http", "https"}
+            and bach_url.hostname in loopback_hosts
+            and not bach_url.username
+            and not bach_url.password
+            and not bach_url.query
+            and not bach_url.fragment
+        )
+        if not official_bach_endpoint and not local_bach_endpoint:
+            raise ValueError(
+                "Bach API base URL must use https://api-gen-na.bach.art/api/vdr; "
+                "loopback endpoints are allowed only in development or test"
+            )
         return self
 
     @property
@@ -294,6 +341,22 @@ class Settings(BaseSettings):
             return "environment"
         return "none"
 
+    @property
+    def effective_bach_access_key(self) -> str | None:
+        return self.bach_admin_access_key or self.bach_access_key
+
+    @property
+    def effective_bach_secret_key(self) -> str | None:
+        return self.bach_admin_secret_key or self.bach_secret_key
+
+    @property
+    def bach_credential_source(self) -> Literal["admin", "environment", "none"]:
+        if self.bach_admin_access_key or self.bach_admin_secret_key:
+            return "admin"
+        if self.bach_access_key or self.bach_secret_key:
+            return "environment"
+        return "none"
+
     def analysis_timeout_for_image_count(self, image_count: int) -> float:
         extra_images = max(0, image_count - self.openai_analysis_timeout_base_image_count)
         timeout = self.openai_analysis_timeout_seconds + (
@@ -305,36 +368,58 @@ class Settings(BaseSettings):
     def kling_enabled(self) -> bool:
         if self.kling_provider_backend == "wavespeed":
             return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
+        if self.kling_provider_backend == "bach":
+            return self.bach_enabled and bool(self.effective_bach_access_key) and bool(
+                self.effective_bach_secret_key
+            )
         return self.kling_api_enabled
 
     @property
     def active_kling_provider_name(self) -> str:
         if self.kling_provider_backend == "wavespeed":
             return self.wavespeed_video_provider_name
+        if self.kling_provider_backend == "bach":
+            return self.bach_provider_name
         return self.kling_api_provider_name
 
     @property
     def active_kling_model(self) -> str | None:
         if self.kling_provider_backend == "wavespeed":
             return self.wavespeed_video_model
+        if self.kling_provider_backend == "bach":
+            return self.bach_model
         return self.kling_api_model
 
     @property
     def active_kling_duration(self) -> int:
         if self.kling_provider_backend == "wavespeed":
             return self.wavespeed_video_duration
+        if self.kling_provider_backend == "bach":
+            return self.bach_duration
         return self.kling_api_duration
 
     @property
     def active_kling_aspect_ratio(self) -> str:
         if self.kling_provider_backend == "wavespeed":
             return self.wavespeed_video_aspect_ratio
+        if self.kling_provider_backend == "bach":
+            return self.bach_aspect_ratio
         return self.kling_api_aspect_ratio
+
+    @property
+    def active_video_resolution(self) -> str:
+        if self.kling_provider_backend == "bach":
+            return self.bach_resolution
+        if self.kling_provider_backend == "wavespeed":
+            return "720p"
+        return self.kling_api_resolution
 
     @property
     def active_video_audio(self) -> str:
         if self.kling_provider_backend == "wavespeed":
             return "native" if self.wavespeed_video_sound else "off"
+        if self.kling_provider_backend == "bach":
+            return "native" if self.bach_generate_audio else "off"
         return self.kling_api_audio
 
     @property
@@ -350,6 +435,7 @@ class Settings(BaseSettings):
                     self.kling_cli_provider_name,
                     self.kling_api_provider_name,
                     self.wavespeed_video_provider_name,
+                    self.bach_provider_name,
                 )
             )
         )
@@ -368,6 +454,12 @@ class Settings(BaseSettings):
                 self.wavespeed_video_max_poll_interval_seconds
                 if unknown
                 else self.wavespeed_video_poll_interval_seconds
+            )
+        if normalized == self.bach_provider_name.strip().lower():
+            return (
+                self.bach_max_poll_interval_seconds
+                if unknown
+                else self.bach_poll_interval_seconds
             )
         if normalized == self.kling_api_provider_name.strip().lower():
             return (
@@ -392,6 +484,10 @@ class Settings(BaseSettings):
             return self.kling_cli_enabled
         if normalized == self.wavespeed_video_provider_name.strip().lower():
             return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
+        if normalized == self.bach_provider_name.strip().lower():
+            return self.bach_enabled and bool(self.effective_bach_access_key) and bool(
+                self.effective_bach_secret_key
+            )
         return False
 
     def kling_provider_submission_enabled(self, provider: str) -> bool:
@@ -401,6 +497,10 @@ class Settings(BaseSettings):
             return self.kling_enabled
         if normalized == self.wavespeed_video_provider_name.strip().lower():
             return self.wavespeed_enabled and bool(self.effective_wavespeed_api_key)
+        if normalized == self.bach_provider_name.strip().lower():
+            return self.bach_enabled and bool(self.effective_bach_access_key) and bool(
+                self.effective_bach_secret_key
+            )
         if normalized == self.kling_api_provider_name.strip().lower():
             return self.kling_api_enabled
         return False
@@ -411,6 +511,8 @@ class Settings(BaseSettings):
             return self.kling_api_task_timeout_seconds
         if normalized == self.wavespeed_video_provider_name.strip().lower():
             return self.wavespeed_video_task_timeout_seconds
+        if normalized == self.bach_provider_name.strip().lower():
+            return self.bach_task_timeout_seconds
         return None
 
     def validate_shared_environment(self) -> None:

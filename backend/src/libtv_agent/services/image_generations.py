@@ -552,6 +552,34 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
     await session.commit()
 
 
+async def refresh_active_batches(
+    session: AsyncSession,
+    *,
+    app: Any,
+    limit: int = 100,
+) -> int:
+    """Advance persisted predictions even when no browser is polling them."""
+
+    batches = list(
+        (
+            await session.scalars(
+                select(ImageGenerationBatch)
+                .join(ImageGenerationItem)
+                .where(
+                    ImageGenerationItem.status.in_(ACTIVE_ITEM_STATUSES),
+                    ImageGenerationItem.provider_task_id.is_not(None),
+                )
+                .distinct()
+                .order_by(ImageGenerationBatch.created_at)
+                .limit(limit)
+            )
+        ).all()
+    )
+    for batch in batches:
+        await refresh_batch(session, app=app, batch=batch)
+    return len(batches)
+
+
 async def owned_batch(
     session: AsyncSession, *, user_id: uuid.UUID, batch_id: uuid.UUID
 ) -> ImageGenerationBatch | None:

@@ -90,8 +90,9 @@ class WaveSpeedVideoAdapter:
         return self.settings.wavespeed_video_provider_name
 
     def availability_snapshot(self) -> ProviderAvailability:
-        if self._availability is not None:
-            return self._availability
+        # The image and video routes share one WaveSpeed client in the API app.
+        # Always reflect its latest administrator verification instead of a
+        # stale wrapper-level snapshot captured before the verification ran.
         value = self._client.availability_snapshot()
         return ProviderAvailability(
             status=value.status,

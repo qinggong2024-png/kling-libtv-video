@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -522,6 +522,17 @@ export function getWaveSpeedConfig(adminId: string): Promise<WaveSpeedConfig> {
 
 export function updateWaveSpeedConfig(adminId: string, values: WaveSpeedConfigPatch): Promise<WaveSpeedConfig> {
   return request('/api/v1/admin/wavespeed/config', {
+    method: 'PATCH',
+    body: JSON.stringify(values),
+  }, { actorId: adminId })
+}
+
+export function getBachConfig(adminId: string): Promise<BachConfig> {
+  return request('/api/v1/admin/bach/config', {}, { actorId: adminId })
+}
+
+export function updateBachConfig(adminId: string, values: BachConfigPatch): Promise<BachConfig> {
+  return request('/api/v1/admin/bach/config', {
     method: 'PATCH',
     body: JSON.stringify(values),
   }, { actorId: adminId })

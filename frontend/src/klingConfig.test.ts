@@ -56,6 +56,7 @@ describe('Kling provider configuration', () => {
 
     expect(buildKlingConfigPatch(draft)).not.toHaveProperty('apiKey')
     expect(buildKlingConfigPatch(draft)).not.toHaveProperty('clearApiKey')
+    expect(buildKlingConfigPatch(draft)).not.toHaveProperty('backend')
     expect(buildKlingConfigPatch({ ...draft, apiKey: ' replacement-key ' })).toMatchObject({
       apiKey: 'replacement-key',
     })

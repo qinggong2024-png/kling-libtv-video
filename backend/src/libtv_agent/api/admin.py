@@ -17,6 +17,12 @@ from libtv_agent.domain.models import (
 )
 from libtv_agent.domain.schemas import ReconcileRequest
 from libtv_agent.runner.supervisor import RunnerSupervisor
+from libtv_agent.services.bach_config import (
+    bach_admin_config_signature,
+    bach_admin_config_status,
+    load_bach_admin_config,
+    update_bach_admin_config,
+)
 from libtv_agent.services.confirmation import confirm_task
 from libtv_agent.services.credentials import credential_status, update_admin_credentials
 from libtv_agent.services.idempotency import (
@@ -91,7 +97,7 @@ class LibTVAccountUseRequest(BaseModel):
 
 
 class KlingConfigUpdateRequest(BaseModel):
-    backend: str | None = Field(default=None, pattern="^(api|wavespeed)$")
+    backend: str | None = Field(default=None, pattern="^(api|wavespeed|bach)$")
     apiKey: str | None = None
     clearApiKey: bool = False
     baseUrl: str | None = Field(default=None, max_length=2048)
@@ -200,6 +206,40 @@ class WaveSpeedConfigResponse(BaseModel):
     verificationMayGenerateOrCharge: Literal[False]
 
 
+class BachConfigUpdateRequest(BaseModel):
+    accessKey: str | None = Field(default=None, min_length=8, max_length=4096)
+    secretKey: str | None = Field(default=None, min_length=8, max_length=4096)
+    clearAccessKey: bool = False
+    clearSecretKey: bool = False
+    enabled: bool | None = None
+    baseUrl: str | None = Field(default=None, min_length=8, max_length=2048)
+    model: str | None = Field(default=None, min_length=1, max_length=255)
+    resolution: str | None = Field(default=None, pattern="^(720p|1080p)$")
+    duration: int | None = Field(default=None, ge=1, le=8)
+    aspectRatio: str | None = Field(default=None, pattern="^(16:9|9:16|1:1)$")
+    generateAudio: bool | None = None
+    maxSubmitConcurrency: int | None = Field(default=None, ge=1, le=20)
+    maxPollConcurrency: int | None = Field(default=None, ge=1, le=50)
+
+
+class BachConfigResponse(BaseModel):
+    enabled: bool
+    accessKeyConfigured: bool
+    secretKeyConfigured: bool
+    credentialsConfigured: bool
+    credentialSource: Literal["admin", "environment", "none"]
+    baseUrl: str
+    model: str
+    resolution: str
+    duration: int
+    aspectRatio: str
+    generateAudio: bool
+    maxSubmitConcurrency: int
+    maxPollConcurrency: int
+    provider: str
+    updatedAt: str | None
+
+
 KLING_ADMIN_ERROR_RESPONSES = {
     status.HTTP_401_UNAUTHORIZED: {"model": KlingErrorResponse},
     status.HTTP_403_FORBIDDEN: {"model": KlingErrorResponse},
@@ -214,6 +254,110 @@ WAVESPEED_ADMIN_ERROR_RESPONSES = {
     status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": KlingErrorResponse},
 }
 
+BACH_ADMIN_ERROR_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"model": KlingErrorResponse},
+    status.HTTP_403_FORBIDDEN: {"model": KlingErrorResponse},
+    status.HTTP_409_CONFLICT: {"model": KlingErrorResponse},
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": KlingErrorResponse},
+}
+
+
+def _refresh_bach_config_from_disk(request: Request) -> None:
+    signature = bach_admin_config_signature(request.app.state.settings)
+    if signature == request.app.state.bach_config_signature:
+        return
+    load_bach_admin_config(request.app.state.settings)
+    request.app.state.bach_config_signature = signature
+
+
+@router.get(
+    "/bach/config",
+    response_model=BachConfigResponse,
+    responses=BACH_ADMIN_ERROR_RESPONSES,
+)
+async def read_bach_config(actor: Actor, request: Request) -> BachConfigResponse:
+    require_credential_admin(actor.role)
+    _refresh_bach_config_from_disk(request)
+    return BachConfigResponse.model_validate(bach_admin_config_status(request.app.state.settings))
+
+
+@router.patch(
+    "/bach/config",
+    response_model=BachConfigResponse,
+    responses=BACH_ADMIN_ERROR_RESPONSES,
+)
+async def patch_bach_config(
+    payload: BachConfigUpdateRequest,
+    actor: Actor,
+    session: Session,
+    request: Request,
+) -> BachConfigResponse:
+    require_credential_admin(actor.role)
+    _refresh_bach_config_from_disk(request)
+    if payload.accessKey is not None and payload.clearAccessKey:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "accessKey and clearAccessKey cannot be used together",
+            },
+        )
+    if payload.secretKey is not None and payload.clearSecretKey:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "secretKey and clearSecretKey cannot be used together",
+            },
+        )
+    updates = {
+        name: value
+        for name, value in payload.model_dump(
+            exclude={"clearAccessKey", "clearSecretKey"}, exclude_unset=True
+        ).items()
+        if value is not None
+    }
+    if payload.clearAccessKey:
+        updates["accessKey"] = None
+    if payload.clearSecretKey:
+        updates["secretKey"] = None
+    if not updates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INPUT_INVALID",
+                "message": "at least one Bach configuration change is required",
+            },
+        )
+    try:
+        result = update_bach_admin_config(request.app.state.settings, updates)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "INPUT_INVALID", "message": str(exc)},
+        ) from exc
+    if request.app.state.settings.kling_provider_backend == "bach":
+        request.app.state.kling_adapter = create_kling_adapter(
+            request.app.state.settings,
+            wavespeed_client=request.app.state.wavespeed_adapter,
+        )
+    request.app.state.bach_config_signature = bach_admin_config_signature(
+        request.app.state.settings
+    )
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="BACH_CONFIG_UPDATED",
+            entity_type="provider_configuration",
+            entity_id=str(result["provider"]),
+            reason="administrator updated Bach provider configuration",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return BachConfigResponse.model_validate(result)
+
 
 def _refresh_wavespeed_config_from_disk(request: Request) -> None:
     signature = wavespeed_admin_config_signature(request.app.state.settings)
@@ -222,7 +366,10 @@ def _refresh_wavespeed_config_from_disk(request: Request) -> None:
     load_wavespeed_admin_config(request.app.state.settings)
     request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
     if request.app.state.settings.kling_provider_backend == "wavespeed":
-        request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+        request.app.state.kling_adapter = create_kling_adapter(
+            request.app.state.settings,
+            wavespeed_client=request.app.state.wavespeed_adapter,
+        )
     request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
         request.app.state.settings
     )
@@ -300,7 +447,10 @@ async def patch_wavespeed_config(
         ) from exc
     request.app.state.wavespeed_adapter = WaveSpeedAdapter(request.app.state.settings)
     if request.app.state.settings.kling_provider_backend == "wavespeed":
-        request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+        request.app.state.kling_adapter = create_kling_adapter(
+            request.app.state.settings,
+            wavespeed_client=request.app.state.wavespeed_adapter,
+        )
     request.app.state.wavespeed_config_signature = wavespeed_admin_config_signature(
         request.app.state.settings
     )
@@ -352,7 +502,10 @@ def _refresh_kling_config_from_disk(request: Request) -> None:
     if signature == request.app.state.kling_config_signature:
         return
     load_kling_admin_config(request.app.state.settings)
-    request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+    request.app.state.kling_adapter = create_kling_adapter(
+        request.app.state.settings,
+        wavespeed_client=request.app.state.wavespeed_adapter,
+    )
     request.app.state.kling_config_signature = kling_admin_config_signature(
         request.app.state.settings
     )
@@ -425,7 +578,10 @@ async def patch_kling_config(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "INPUT_INVALID", "message": str(exc)},
         ) from exc
-    request.app.state.kling_adapter = create_kling_adapter(request.app.state.settings)
+    request.app.state.kling_adapter = create_kling_adapter(
+        request.app.state.settings,
+        wavespeed_client=request.app.state.wavespeed_adapter,
+    )
     request.app.state.kling_config_signature = kling_admin_config_signature(
         request.app.state.settings
     )
