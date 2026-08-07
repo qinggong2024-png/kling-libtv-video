@@ -9,14 +9,35 @@ async def system_status(request: Request) -> dict[str, object]:
     settings = request.app.state.settings
     kling_availability = request.app.state.kling_adapter.availability_snapshot()
     kling_capabilities = request.app.state.kling_adapter.capabilities_snapshot()
+    standard_video_durations = [str(value) for value in range(3, 16)]
     capability_defaults = {
-        "api": {"imageInputLimit": 7, "supportsMultipleImages": True},
-        "wavespeed": {"imageInputLimit": 7, "supportsMultipleImages": True},
-        "bach": {"imageInputLimit": 2, "supportsMultipleImages": False},
+        "api": {
+            "imageInputLimit": 7,
+            "supportsMultipleImages": True,
+            "videoDurations": standard_video_durations,
+            "tailImageVideoDurations": standard_video_durations,
+        },
+        "wavespeed": {
+            "imageInputLimit": 7,
+            "supportsMultipleImages": True,
+            "videoDurations": standard_video_durations,
+            "tailImageVideoDurations": standard_video_durations,
+        },
+        "bach": {
+            "imageInputLimit": 2,
+            "supportsMultipleImages": False,
+            "videoDurations": [str(value) for value in range(1, 9)],
+            "tailImageVideoDurations": [str(value) for value in range(1, 7)],
+        },
     }
     active_defaults = capability_defaults.get(
         settings.kling_provider_backend,
-        {"imageInputLimit": 0, "supportsMultipleImages": False},
+        {
+            "imageInputLimit": 0,
+            "supportsMultipleImages": False,
+            "videoDurations": standard_video_durations,
+            "tailImageVideoDurations": standard_video_durations,
+        },
     )
     active_model = settings.active_kling_model
     video_generation = {
@@ -43,6 +64,20 @@ async def system_status(request: Request) -> dict[str, object]:
             kling_capabilities.image_input_limit
             if kling_capabilities
             else active_defaults["imageInputLimit"]
+        ),
+        "videoDurations": (
+            list(kling_capabilities.video_durations)
+            if kling_capabilities and kling_capabilities.video_durations
+            else active_defaults["videoDurations"]
+        ),
+        "tailImageVideoDurations": (
+            list(kling_capabilities.tail_image_video_durations)
+            if kling_capabilities and kling_capabilities.tail_image_video_durations
+            else (
+                list(kling_capabilities.video_durations)
+                if kling_capabilities and kling_capabilities.video_durations
+                else active_defaults["tailImageVideoDurations"]
+            )
         ),
         "fallbackMode": settings.kling_storyboard_fallback_mode,
     }

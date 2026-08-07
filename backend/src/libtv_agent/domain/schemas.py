@@ -160,7 +160,7 @@ class VideoTaskCreate(ApiModel):
     template_id: str | None = Field(default=None, min_length=1, max_length=80)
     site_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
     result_count: int = Field(default=1, ge=1, le=4)
-    duration_seconds: int = Field(default=10, ge=3, le=15)
+    duration_seconds: int = Field(default=10, ge=1, le=15)
     action_intensity: Literal["low", "standard", "high"] = "standard"
     cut_mode: Literal["explicit_cuts", "continuous_when_possible"] = "explicit_cuts"
     paid_submission_consent: bool

@@ -168,6 +168,7 @@ class BachApiAdapter:
                 supported_models=(self.settings.bach_model,),
                 supported_tools=("image_to_video", "batch_upload", "task_query"),
                 video_durations=tuple(str(value) for value in range(1, 9)),
+                tail_image_video_durations=tuple(str(value) for value in range(1, 7)),
                 aspect_ratios=("16:9", "9:16", "1:1"),
                 image_input_limit=2,
                 supports_tail_image=True,

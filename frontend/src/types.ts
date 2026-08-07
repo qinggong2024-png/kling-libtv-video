@@ -311,6 +311,8 @@ export interface VideoGenerationStatus {
   models: string[]
   supportsMultipleImages: boolean
   imageInputLimit: number
+  videoDurations: string[]
+  tailImageVideoDurations: string[]
   fallbackMode: 'disabled' | 'first_last_frame'
 }
 

@@ -15,7 +15,13 @@ from libtv_agent.domain.contracts import (
     sha256_json,
 )
 from libtv_agent.domain.enums import VariantKind
-from libtv_agent.domain.schemas import ActionCapabilities, PointsQuotaRead, TaskCreate, TaskRead
+from libtv_agent.domain.schemas import (
+    ActionCapabilities,
+    PointsQuotaRead,
+    TaskCreate,
+    TaskRead,
+    VideoTaskCreate,
+)
 from libtv_agent.services.prompts import (
     calculate_timeline,
     compress_prompt,
@@ -83,6 +89,49 @@ def test_task_create_rejects_missing_duplicate_or_reversed_outputs(
                     }
                 ],
                 "variants": variants,
+            }
+        )
+
+
+@pytest.mark.parametrize("duration", [1, 6, 8, 15])
+def test_video_task_create_accepts_provider_duration_union(duration: int) -> None:
+    payload = VideoTaskCreate.model_validate(
+        {
+            "clientTaskId": "client-video-duration",
+            "title": "Video duration contract",
+            "storyboards": [
+                {
+                    "uploadId": "00000000-0000-0000-0000-000000000010",
+                    "order": 1,
+                }
+            ],
+            "generationMode": "custom",
+            "customPrompt": "Show the garment",
+            "durationSeconds": duration,
+            "paidSubmissionConsent": True,
+        }
+    )
+
+    assert payload.duration_seconds == duration
+
+
+@pytest.mark.parametrize("duration", [0, 16])
+def test_video_task_create_rejects_duration_outside_provider_union(duration: int) -> None:
+    with pytest.raises(ValueError):
+        VideoTaskCreate.model_validate(
+            {
+                "clientTaskId": "client-video-duration",
+                "title": "Video duration contract",
+                "storyboards": [
+                    {
+                        "uploadId": "00000000-0000-0000-0000-000000000010",
+                        "order": 1,
+                    }
+                ],
+                "generationMode": "custom",
+                "customPrompt": "Show the garment",
+                "durationSeconds": duration,
+                "paidSubmissionConsent": True,
             }
         )
 

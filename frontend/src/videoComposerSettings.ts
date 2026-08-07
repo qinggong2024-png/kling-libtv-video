@@ -40,7 +40,7 @@ export function loadVideoComposerSettings(storage: Pick<ComposerStorage, 'getIte
     generationMode: generationMode === 'custom' ? 'custom' : 'automatic',
     customPrompt: storage.getItem(KEYS.customPrompt) ?? '',
     resultCount: resultCount === 2 || resultCount === 3 || resultCount === 4 ? resultCount : 1,
-    durationSeconds: Number.isInteger(durationSeconds) && durationSeconds >= 3 && durationSeconds <= 15 ? durationSeconds : 10,
+    durationSeconds: Number.isInteger(durationSeconds) && durationSeconds >= 1 && durationSeconds <= 15 ? durationSeconds : 10,
     actionIntensity: actionIntensity === 'low' || actionIntensity === 'high' ? actionIntensity : 'standard',
     cutMode: cutMode === 'continuous_when_possible' ? 'continuous_when_possible' : 'explicit_cuts',
   }

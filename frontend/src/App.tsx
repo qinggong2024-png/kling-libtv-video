@@ -158,6 +158,11 @@ import type { KlingConfigDraft } from './klingConfig'
 import { CatalogEditor } from './CatalogEditor'
 import { createImageCenterVideoSeed } from './imageCenterVideoSeed'
 import { loadVideoComposerSettings, saveVideoComposerSettings } from './videoComposerSettings'
+import {
+  formatVideoDurationOptions,
+  getVideoDurationOptions,
+  normalizeVideoDuration,
+} from './videoDurationOptions'
 
 type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
@@ -782,6 +787,12 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const activeModel = videoGeneration?.model || videoGeneration?.models[0] || activeProvider.displayName
   const referenceLimit = videoGeneration?.imageInputLimit ?? 0
   const storyboardLimit = Math.min(7, Math.max(1, referenceLimit || 7))
+  const durationOptions = useMemo(
+    () => getVideoDurationOptions(videoGeneration, storyboards.length),
+    [storyboards.length, videoGeneration],
+  )
+  const normalizedDurationSeconds = normalizeVideoDuration(durationSeconds, durationOptions)
+  const durationOptionsLabel = formatVideoDurationOptions(durationOptions)
   const providerAvailable = Boolean(videoGeneration?.available && videoGeneration.authenticated)
   const subjectValidation = validateSubjectReferenceFiles(subjectFiles)
   const subjectReferenceCount = getSubjectReferenceCount(subjectMode, subjectFiles, elementId)
@@ -820,11 +831,11 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       generationMode,
       customPrompt,
       resultCount,
-      durationSeconds,
+      durationSeconds: normalizedDurationSeconds,
       actionIntensity,
       cutMode,
     })
-  }, [actionIntensity, customPrompt, cutMode, durationSeconds, generationMode, resultCount, siteProfileId, templateId])
+  }, [actionIntensity, customPrompt, cutMode, generationMode, normalizedDurationSeconds, resultCount, siteProfileId, templateId])
   useEffect(() => {
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
@@ -954,7 +965,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
           subjectUploads,
           resultCount,
-          durationSeconds,
+          durationSeconds: normalizedDurationSeconds,
           actionIntensity,
           cutMode,
         },
@@ -1049,7 +1060,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       </div>
     <div className="composer-submit-row" aria-live="polite">
       <fieldset className="result-count-field composer-result-count"><legend>生成结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
-      <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长</span><span><input id="video-duration" type="number" min={3} max={15} step={1} value={durationSeconds} disabled={formLocked} onChange={(event) => setDurationSeconds(Math.min(15, Math.max(3, Number(event.target.value) || 3)))} /><small>秒</small></span></label>
+      <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{resultCount} 个独立任务</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
       <button className="primary-button primary-button--large" disabled={formLocked || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在提交</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</button>

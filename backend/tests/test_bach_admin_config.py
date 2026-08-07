@@ -81,6 +81,12 @@ async def test_admin_can_store_bach_ak_sk_without_echoing_them(tmp_path: Path) -
             assert system.json()["videoGeneration"]["provider"] == "bach"
             assert system.json()["videoGeneration"]["model"] == "bach-image-to-video-v2"
             assert system.json()["videoGeneration"]["imageInputLimit"] == 2
+            assert system.json()["videoGeneration"]["videoDurations"] == [
+                str(value) for value in range(1, 9)
+            ]
+            assert system.json()["videoGeneration"]["tailImageVideoDurations"] == [
+                str(value) for value in range(1, 7)
+            ]
 
             reloaded = _settings(settings.database_url, tmp_path)
             assert load_bach_admin_config(reloaded) is True

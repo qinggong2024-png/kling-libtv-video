@@ -8968,7 +8968,7 @@
           "durationSeconds": {
             "type": "integer",
             "maximum": 15.0,
-            "minimum": 3.0,
+            "minimum": 1.0,
             "title": "Durationseconds",
             "default": 10
           },
