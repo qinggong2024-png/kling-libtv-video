@@ -294,7 +294,7 @@ async def create_fixed_video_task(
     task_id = uuid.uuid4()
     consent_at = datetime.now(UTC)
     settings_json = {
-        "generationProvider": "kling",
+        "generationProvider": settings.active_kling_provider_name,
         "generationMode": payload.generation_mode,
         "elementIds": list(payload.element_ids),
         "resultCount": payload.result_count,

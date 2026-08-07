@@ -221,7 +221,7 @@ async def prepare_kling_task(
                 )
         variant.generation_config_json = {
             **variant.generation_config_json,
-            "generationProvider": "kling",
+            "generationProvider": provider_name,
             "model": model,
             "modelKey": model,
             "duration": duration,

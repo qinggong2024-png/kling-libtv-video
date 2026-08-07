@@ -97,6 +97,17 @@ export function providerTimingStageLabel(key: string, provider?: string | null):
   return '成品下载'
 }
 
+export function providerActionRequiredMessage(
+  reasonCode?: string | null,
+  provider?: string | null,
+): string {
+  if (reasonCode === 'BACH_ELEMENTS_NOT_IN_P1') {
+    return 'Bach 当前的 Image-to-Video 通道仅支持首帧或首尾帧，不能使用单独的产品参考图。本次已在提交前拦截，没有调用任何生成 API；请移除产品图后重新制作。'
+  }
+  const meta = providerPresentation(provider)
+  return `${meta.displayLabel} 预检未通过，本次没有提交生成。请展开技术信息查看错误代码。`
+}
+
 type VariantExecution = {
   generationStatus: string
   downloadStatus: string

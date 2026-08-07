@@ -129,6 +129,7 @@ import {
 } from './taskTiming'
 import { createUuid } from './uuid'
 import {
+  providerActionRequiredMessage,
   providerPresentation,
   providerProgress,
   providerTimingStageLabel,
@@ -509,7 +510,8 @@ function taskFailureMessage(task: Task): string {
     ANALYSIS_STALE_RECOVERED: '系统检测到后台分析长时间没有更新，已停止等待旧任务。',
     ANALYSIS_SCHEMA_INVALID: '分析结果不完整，无法生成可确认的视频方案。',
   }
-  return messages[task.phaseReasonCode ?? ''] ?? '任务遇到问题，需要查看技术信息后处理。'
+  return messages[task.phaseReasonCode ?? '']
+    ?? providerActionRequiredMessage(task.phaseReasonCode, task.generationProvider)
 }
 
 function TaskStatusBadge({ task }: { task: Task }) {
@@ -1117,7 +1119,7 @@ function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen: () => 
       ? variantExecutionMessage(unknownVariant!, task.generationProvider)
       : isAnalysisFailure(task)
         ? taskFailureMessage(task)
-        : '视频生成遇到问题，需要处理'
+        : taskFailureMessage(task)
   const action = task.phase === 'AWAITING_CONFIRMATION' ? '立即确认' : unknown ? '查询状态' : isAnalysisFailure(task) ? '重新分析' : '查看原因'
   return <article className="attention-item">
     <button type="button" className="attention-item-dismiss" onClick={onDismiss} aria-label={`关闭“${task.title}”的提醒`} title="关闭此提醒"><X size={16} /></button>
@@ -1564,6 +1566,10 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
           <span className="analysis-recovery-icon"><AlertTriangle size={22} /></span>
           <div><span>方案尚未生成</span><h2>{taskStatus(task).label}</h2><p>{taskFailureMessage(task)} 重新分析会继续使用当前素材，并按素材数量重新计算等待时间。</p></div>
           <button className="primary-button" disabled={busy || !task.actionCapabilities.canRetryAnalysis} onClick={() => void retryAnalysis()}>{busy ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}重新分析方案</button>
+        </section> : null}
+        {needsRecovery && !analysisFailure ? <section className="analysis-recovery" role="alert">
+          <span className="analysis-recovery-icon"><AlertTriangle size={22} /></span>
+          <div><span>提交前预检已停止</span><h2>{provider.displayLabel} 未收到生成任务</h2><p>{taskFailureMessage(task)}</p></div>
         </section> : null}
         {isConfirmation ? <>
           <div className="drawer-section-title"><div><span>步骤 2 / 3</span><h2>确认视频方案</h2></div><p>确认后将保存提示词原文快照，并原样提交给 {provider.displayLabel}。</p></div>
