@@ -1264,10 +1264,36 @@ type AnalysisResult = {
   dynamicPlan?: VariantPlan
 }
 
+async function copyText(value: string) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Fall through for browsers that expose the API but deny clipboard access.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, value.length)
+  try {
+    if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected')
+  } finally {
+    textarea.remove()
+  }
+}
+
 function PromptBlock({ variant, value, disabled, dirty, onChange }: { variant: Variant; value: string; disabled: boolean; dirty: boolean; onChange: (value: string) => void }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1600)
   }
@@ -1399,17 +1425,21 @@ function HistoricalPrompt({
   variant: Variant
   selected: boolean
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const copy = async () => {
-    await navigator.clipboard.writeText(variant.promptText)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1600)
+    try {
+      await copyText(variant.promptText)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('failed')
+    }
+    window.setTimeout(() => setCopyStatus('idle'), 1600)
   }
   return <article className={`history-prompt${selected ? ' is-selected' : ''}`}>
     <header>
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
       <span><strong>{variantDisplayName(variant)}</strong><small>{task.workflowKind === 'FIXED_TEMPLATE' ? task.settings?.generationMode === 'custom' ? '自定义直达快照' : '自动化编译快照' : selected ? '将复用此提示词' : '本次不复用'}</small></span>
-      <button className="compact-button" type="button" onClick={() => void copy()}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? '已复制' : '复制'}</button>
+      <button className="compact-button" type="button" onClick={() => void copy()} aria-live="polite">{copyStatus === 'copied' ? <Check size={15} /> : <Copy size={15} />}{copyStatus === 'copied' ? '已复制' : copyStatus === 'failed' ? '复制失败' : '复制'}</button>
     </header>
     <p>{variant.promptText}</p>
   </article>
