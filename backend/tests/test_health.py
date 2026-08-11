@@ -31,11 +31,17 @@ async def test_system_status_exposes_deployed_source_revision() -> None:
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/v1/system/status")
 
     assert response.status_code == 200
-    assert response.json()["sourceRevision"] == "abc123"
+    body = response.json()
+    assert body["sourceRevision"] == "abc123"
+    assert body["schemaRevision"].startswith("metadata-equivalent:")
+    assert len(body["configRevision"]) == 64
+    assert body["runtimeVersion"] == "0.1.0"
 
 
 @pytest.mark.asyncio

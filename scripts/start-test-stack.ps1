@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
+$sourceRevision = Get-WorkspaceSourceRevision -ProjectRoot $projectRoot
 $storageName = if ($Profile -eq 'Full') { 'test-live' } else { 'test' }
 $storageRoot = Join-Path $projectRoot ("var\" + $storageName)
 $logDir = Join-Path $storageRoot 'logs'
@@ -115,6 +116,7 @@ Assert-PortAvailable $FrontendPort
 # an explicit live-provider profile; Safe remains suitable for zero-cost checks.
 $env:APP_ENV = if ($Profile -eq 'Full') { 'development' } else { 'test' }
 $env:DEPLOYMENT_ID = "libtv-agent-$storageName"
+$env:DEPLOYMENT_SOURCE_REVISION = $sourceRevision
 $env:APP_HOST = '127.0.0.1'
 $env:APP_PORT = "$ApiPort"
 $env:APP_PUBLIC_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
