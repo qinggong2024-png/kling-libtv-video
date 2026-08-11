@@ -133,6 +133,7 @@ $env:CSRF_COOKIE_NAME = 'libtv_test_csrf'
 $env:SESSION_COOKIE_SECURE = 'false'
 $env:RUNNER_POLL_SECONDS = '1'
 $env:KLING_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'kling-config.json'
+$env:BACH_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'bach-config.json'
 $env:WAVESPEED_ENABLED = 'false'
 $env:WAVESPEED_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'wavespeed-config.json'
 $env:OPENAI_MODEL = 'gpt-5.6-luna'
@@ -155,15 +156,22 @@ $env:PAID_SUBMISSIONS_PAUSED = 'true'
 $env:KLING_CLI_ENABLED = 'false'
 $env:KLING_API_ENABLED = 'false'
 $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
+$env:BACH_ENABLED = 'false'
 
 if ($Profile -eq 'Full') {
     $sourceKlingConfig = Join-Path $projectRoot 'var\runtime\kling-config.json'
     $testKlingConfig = Join-Path $runtimeRoot 'kling-config.json'
-    if (-not (Test-Path -LiteralPath $sourceKlingConfig)) {
-        throw 'Full test profile requires the configured Kling provider file at var/runtime/kling-config.json.'
+    $sourceBachConfig = Join-Path $projectRoot 'var\runtime\bach-config.json'
+    $testBachConfig = Join-Path $runtimeRoot 'bach-config.json'
+    $useBach = Test-Path -LiteralPath $sourceBachConfig
+    if ($useBach) {
+        Copy-Item -LiteralPath $sourceBachConfig -Destination $testBachConfig -Force
     }
-    if (-not (Test-Path -LiteralPath $testKlingConfig)) {
-        Copy-Item -LiteralPath $sourceKlingConfig -Destination $testKlingConfig
+    elseif (Test-Path -LiteralPath $sourceKlingConfig) {
+        Copy-Item -LiteralPath $sourceKlingConfig -Destination $testKlingConfig -Force
+    }
+    else {
+        throw 'Full test profile requires a configured provider file at var/runtime/bach-config.json or var/runtime/kling-config.json.'
     }
     $env:AI_ADAPTER_MODE = 'openai'
     $env:LIBTV_ADAPTER_MODE = 'real'
@@ -171,9 +179,10 @@ if ($Profile -eq 'Full') {
     $env:PAID_GENERATION_ENABLED = 'true'
     $env:PAID_GENERATION_CONFIRMATION = 'I_ACCEPT_LIBTV_POINT_CHARGES'
     $env:PAID_SUBMISSIONS_PAUSED = 'false'
-    $env:KLING_PROVIDER_BACKEND = 'api'
+    $env:KLING_PROVIDER_BACKEND = if ($useBach) { 'bach' } else { 'api' }
     $env:KLING_CLI_ENABLED = 'false'
-    $env:KLING_API_ENABLED = 'true'
+    $env:KLING_API_ENABLED = if ($useBach) { 'false' } else { 'true' }
+    $env:BACH_ENABLED = if ($useBach) { 'true' } else { 'false' }
     $env:KLING_ENABLE_PAID_INTEGRATION_TEST = 'false'
     $env:KLING_API_ENABLE_PAID_INTEGRATION_TEST = 'false'
 }
