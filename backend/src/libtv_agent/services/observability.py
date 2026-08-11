@@ -255,6 +255,131 @@ async def _pipeline_performance(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
+    job_count = int(await session.scalar(select(func.count()).select_from(ParentTask)) or 0)
+    generated_video_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationVariant)
+            .where(GenerationVariant.generation_status.in_(["SUCCEEDED", "PARTIAL"]))
+        )
+        or 0
+    )
+    final_deliverable_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(ParentTask)
+            .where(ParentTask.phase == ParentTaskPhase.DELIVERABLE)
+        )
+        or 0
+    )
+    total_variants = int(
+        await session.scalar(select(func.count()).select_from(GenerationVariant)) or 0
+    )
+    regeneration_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationVariant)
+            .where(GenerationVariant.revision > 1)
+        )
+        or 0
+    )
+    attempt_rows = list(
+        await session.execute(
+            select(
+                GenerationAttempt.status,
+                GenerationAttempt.credits_consumed,
+                GenerationAttempt.submitted_at,
+                GenerationAttempt.completed_at,
+            )
+        )
+    )
+    failed_statuses = {
+        AttemptStatus.FAILED_BEFORE_SUBMIT,
+        AttemptStatus.FAILED_TERMINAL,
+        AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+        AttemptStatus.NEEDS_MANUAL_REVIEW,
+    }
+    failure_count = sum(status in failed_statuses for status, *_ in attempt_rows)
+    waiting_seconds = [
+        elapsed
+        for _, _, started, completed in attempt_rows
+        if (elapsed := _elapsed_seconds(started, completed)) is not None
+    ]
+    generation_cost = sum(int(cost or 0) for _, cost, *_ in attempt_rows)
+    attempt_total = len(attempt_rows)
+    succeeded_count = sum(status == AttemptStatus.SUCCEEDED for status, *_ in attempt_rows)
+    retry_count = sum(
+        status in failed_statuses or status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
+        for status, *_ in attempt_rows
+    )
+    measurement_gaps = ["human_review"]
+    if not attempt_total:
+        measurement_gaps.append("generation_attempts")
+    return {
+        "status": "BASELINE_DATA_MISSING",
+        "productionJobCount": job_count,
+        "generatedVideoCount": generated_video_count,
+        "finalDeliverableCount": final_deliverable_count,
+        "firstPassDeliverableRate": None,
+        "humanReviewMinutes": None,
+        "humanMinutesPerDeliverable": None,
+        "averageWaitingSeconds": (
+            round(sum(waiting_seconds) / len(waiting_seconds), 1) if waiting_seconds else None
+        ),
+        "failureRate": failure_count / len(attempt_rows) if attempt_rows else None,
+        "regenerationRate": regeneration_count / total_variants if total_variants else None,
+        "generationCostCredits": generation_cost,
+        "costCreditsPerDeliverable": (
+            generation_cost / final_deliverable_count if final_deliverable_count else None
+        ),
+        "criticalQualityEscapeRate": None,
+        "productFidelityFailureRate": None,
+        "qualityReviewSampleCount": 0,
+        "criticalQualityEscapeCount": 0,
+        "productFidelityFailureCount": 0,
+        "generationSuccessRate": succeeded_count / attempt_total if attempt_total else None,
+        "retryRate": retry_count / attempt_total if attempt_total else None,
+        "measurementStatus": "MEASUREMENT_GAP" if measurement_gaps else "MEASURED",
+        "measurementGaps": measurement_gaps,
+    }
+
+
+async def _human_review_queue(session: AsyncSession) -> dict[str, int]:
+    """Expose required human gates as a queue, so operators do not poll for work."""
+    final_approval = 0
+    action_required = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(ParentTask)
+            .where(ParentTask.phase == ParentTaskPhase.ACTION_REQUIRED)
+        )
+        or 0
+    )
+    product_fidelity = 0
+    return {
+        "productFidelity": product_fidelity,
+        "humanCritical": action_required,
+        "finalApproval": final_approval,
+        "total": product_fidelity + action_required + final_approval,
+    }
+
+
+def _runtime_revisions(settings: Settings, config: dict[str, Any]) -> dict[str, Any]:
+    current = {
+        "sourceRevision": settings.deployment_source_revision,
+        "schemaRevision": config.get("schemaRevision"),
+        "configRevision": config.get("configRevision"),
+        "runtimeVersion": config.get("runtimeVersion"),
+    }
+    locked = config.get("pilotRuntimeLock") or {}
+    compared = {key: value for key, value in current.items() if value is not None}
+    drift = bool(locked) and any(
+        locked.get(key) not in (None, value) for key, value in compared.items()
+    )
+    return {"current": current, "locked": locked or None, "drift": drift}
+
+
 async def operational_backlog_count(session: AsyncSession) -> int:
     prepared = int(
         await session.scalar(
@@ -454,6 +579,9 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     reservations.update({status.value: int(total or 0) for status, total in reservation_rows})
     duplicate_generation_total, cross_task_connection_total = await _integrity_metrics(session)
     pipeline_performance = await _pipeline_performance(session)
+    business_baseline = await _business_baseline(session)
+    human_review_queue = await _human_review_queue(session)
+    runtime_revisions = _runtime_revisions(settings, config)
     pipeline_backlog = pipeline_performance["backlog"]
     if config.get("globalPaused", True):
         current_constraint = "GLOBAL_PAUSED"
@@ -477,7 +605,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     if config.get("libtvAuthRequired", False):
         alerts.append(
             {
-                "severity": "P0",
+                "severity": "ACTION_REQUIRED",
                 "code": "LIBTV_AUTH_REQUIRED",
                 "action": "RUN_REFRESH_LIBTV_LOGIN",
             }
@@ -486,7 +614,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     if unknown >= 2 or (active and unknown / active > 0.10):
         alerts.append(
             {
-                "severity": "P0",
+                "severity": "CRITICAL",
                 "code": "UNKNOWN_THRESHOLD_EXCEEDED",
                 "action": "PAUSE_NEW_PAID_SUBMISSIONS",
             }
@@ -495,9 +623,33 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     if command_ready + prepared < int(queue.get("lowWatermark", 0)):
         alerts.append(
             {
-                "severity": "WARNING",
+                "severity": "INFO",
                 "code": "PREPARED_QUEUE_BELOW_LOW_WATERMARK",
                 "action": "OBSERVE_MATERIALIZATION_CAPACITY",
+            }
+        )
+    if runtime_revisions["drift"]:
+        alerts.append(
+            {
+                "severity": "CRITICAL",
+                "code": "PILOT_BLOCKED_RUNTIME_DRIFT",
+                "action": "PAUSE_NEW_PAID_SUBMISSIONS",
+            }
+        )
+    if cross_task_connection_total:
+        alerts.append(
+            {
+                "severity": "CRITICAL",
+                "code": "DATA_INTEGRITY_ASSET_CONTAMINATION",
+                "action": "PAUSE_NEW_PAID_SUBMISSIONS",
+            }
+        )
+    if charged_unknown:
+        alerts.append(
+            {
+                "severity": "CRITICAL",
+                "code": "PAID_STATE_UNCERTAIN",
+                "action": "RECONCILE_BEFORE_RETRY",
             }
         )
     runners = list(await session.scalars(select(RunnerHost).order_by(RunnerHost.hostname)))
@@ -507,6 +659,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             "version": runtime.version if runtime else None,
             "config": config,
         },
+        "runtimeRevisions": runtime_revisions,
         "queues": {
             "prepared": prepared,
             "generation": command_ready + dispatch_pending,
@@ -560,5 +713,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         ],
         "points": {**reservations, "chargeUnknownAttempts": charged_unknown},
         "pipelinePerformance": pipeline_performance,
+        "businessBaseline": business_baseline,
+        "humanReviewQueue": human_review_queue,
         "alerts": alerts,
     }
