@@ -14,6 +14,7 @@ describe('image center video seed', () => {
     const seed = createImageCenterVideoSeed(
       { product: { front: productFront, back: productBack, side: null } },
       [storyboard],
+      ['output-1'],
       productFront,
       'video-seed',
     )
@@ -21,6 +22,7 @@ describe('image center video seed', () => {
     expect(seed).toEqual({
       id: 'video-seed',
       storyboards: [storyboard],
+      storyboardOutputIds: ['output-1'],
       products: [productFront, productBack],
       subjectFiles: {
         frontalImage: productFront,

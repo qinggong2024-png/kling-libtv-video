@@ -26,6 +26,7 @@ from libtv_agent.services.content_catalog import (
     get_merged_site_style_profile,
     motion_action_library,
 )
+from libtv_agent.services.feedback_learning import apply_video_learning
 from libtv_agent.services.generation_safety import write_preview_file
 from libtv_agent.services.kling_preparation import prepare_kling_task
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
@@ -239,6 +240,13 @@ async def create_fixed_video_task(
         element_count=len(payload.element_ids),
     )
     if payload.generation_mode == "automatic":
+        learning = await apply_video_learning(
+            session,
+            user_id=user_id,
+            template_id=template.id,
+            site_profile_id=site_profile.id,
+            settings=settings,
+        )
         plans = [
             compile_video_plan(
                 PromptCompileInput(
@@ -254,6 +262,11 @@ async def create_fixed_video_task(
                     action_context=validation.action_context,
                     action_library=actions,
                     prompt_budget=MAX_KLING_PROMPT_CHARS - len(role_prompt) - 1,
+                    learning_guidance=learning.prompt_guidance,
+                    learning_preferred_action_ids=learning.preferred_action_ids,
+                    learning_avoided_action_ids=learning.avoided_action_ids,
+                    learning_profile_version=learning.profile_version,
+                    learning_evidence_count=learning.evidence_count,
                 )
             )
             for index in range(1, payload.result_count + 1)
@@ -353,6 +366,7 @@ async def create_fixed_video_task(
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
                 used_for_analysis=False,
                 used_for_generation=True,
             )
@@ -375,6 +389,7 @@ async def create_fixed_video_task(
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
                 used_for_analysis=False,
                 used_for_generation=True,
             )

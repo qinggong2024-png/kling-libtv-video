@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
@@ -14,7 +14,14 @@ from libtv_agent.adapters.openai_analysis import AnalysisTimeoutError
 from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
-from libtv_agent.domain.enums import GenerationStatus, ParentTaskPhase, VariantKind
+from libtv_agent.domain.enums import (
+    DownloadStatus,
+    GenerationStatus,
+    ParentTaskPhase,
+    QualityDecisionStatus,
+    ValidationStatus,
+    VariantKind,
+)
 from libtv_agent.domain.models import (
     AuditEvent,
     GenerationAttempt,
@@ -25,6 +32,7 @@ from libtv_agent.domain.models import (
 from libtv_agent.domain.schemas import (
     AnalyzeRequest,
     ConfirmRequest,
+    FinalApprovalRequest,
     PromptAssistantRequest,
     PromptAssistantResponse,
     PromptUpdateRequest,
@@ -43,7 +51,12 @@ from libtv_agent.services.analysis_lifecycle import (
     fail_active_analysis,
 )
 from libtv_agent.services.confirmation import confirm_task
-from libtv_agent.services.feedback import feedback_context
+from libtv_agent.services.feedback_learning import (
+    feedback_context_for_task,
+    queue_feedback_learning_job,
+    rebuild_deterministic_profile,
+    schedule_feedback_learning_job,
+)
 from libtv_agent.services.generation_safety import (
     build_generation_preview,
     paid_generation_authorized,
@@ -59,7 +72,7 @@ from libtv_agent.services.points import PointsLimitExceededError
 from libtv_agent.services.prompt_revision import PromptRevisionTimeoutError, run_prompt_assistant
 from libtv_agent.services.restore import RemoteRestoreInProgressError, restore_remote_output
 from libtv_agent.services.runtime_control import RuntimeControlBlockedError
-from libtv_agent.services.state_machine import VersionConflictError, cas_task_phase
+from libtv_agent.services.state_machine import VersionConflictError, cas_task_phase, aggregate_parent_phase
 from libtv_agent.services.tasks import (
     TaskNotFoundError,
     create_task,
@@ -441,6 +454,8 @@ async def put_variant_feedback(
     existing = await session.scalar(
         select(GenerationFeedback).where(GenerationFeedback.variant_id == variant.id)
     )
+    context = feedback_context_for_task(task, variant)
+    learning_scope_key = context.get("learningScopeKey")
     previous = existing.value if existing is not None else None
     if payload.feedback is None:
         if existing is not None:
@@ -448,7 +463,6 @@ async def put_variant_feedback(
                 delete(GenerationFeedback).where(GenerationFeedback.id == existing.id)
             )
     else:
-        context = feedback_context(task.analysis_result_json, variant.variant_type)
         feedback_changed = previous != payload.feedback
         reason_codes = (
             [reason.value for reason in payload.reasons]
@@ -502,7 +516,112 @@ async def put_variant_feedback(
             ],
         )
     )
+    queued_scope_key: str | None = None
+    settings = _settings(request)
+    if learning_scope_key and settings.feedback_learning_enabled:
+        await session.flush()
+        profile = await rebuild_deterministic_profile(
+            session,
+            user_id=actor.id,
+            scope_key=str(learning_scope_key),
+            max_history=settings.feedback_learning_max_history,
+        )
+        if (
+            profile is not None
+            and settings.feedback_learning_llm_enabled
+            and settings.openai_api_key
+        ):
+            await queue_feedback_learning_job(session, profile=profile)
+            queued_scope_key = profile.scope_key
     await session.commit()
+    if queued_scope_key:
+        schedule_feedback_learning_job(
+            request.app,
+            user_id=actor.id,
+            scope_key=queued_scope_key,
+        )
+    return await _read(session, task, settings)
+
+
+@router.put(
+    "/{task_id}/variants/{variant_id}/final-approval",
+    response_model=TaskRead,
+)
+async def put_variant_final_approval(
+    task_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    payload: FinalApprovalRequest,
+    actor: Actor,
+    session: Session,
+    request: Request,
+) -> TaskRead:
+    try:
+        task = await get_task(session, actor.id, task_id)
+    except TaskNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    variant = next((item for item in task.variants if item.id == variant_id), None)
+    if variant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "variant was not found")
+    technical_pass = (
+        variant.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
+        and variant.download_status == DownloadStatus.READY
+        and variant.validation_status in {ValidationStatus.PASSED, ValidationStatus.WARNING}
+    )
+    if not technical_pass:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TECHNICAL_HARD_GATE_NOT_PASSED",
+                "message": "final approval requires a downloaded, technically valid video",
+            },
+        )
+    previous = variant.final_approval_status
+    variant.final_approval_status = QualityDecisionStatus(payload.decision)
+    variant.quality_gates_json = {
+        "PRODUCT_FIDELITY": {
+            "verification": "HUMAN_REQUIRED",
+            "outcome": "PASS" if payload.product_fidelity_pass else "FAIL",
+        },
+        "EDITING_ASSEMBLY": {
+            "verification": "HUMAN_REQUIRED",
+            "outcome": "PASS" if payload.editing_assembly_pass else "FAIL",
+        },
+        "HUMAN_CRITICAL": {
+            "verification": "HUMAN_REQUIRED",
+            "outcome": "PASS" if payload.human_critical_pass else "FAIL",
+        },
+        "TECHNICAL_CRITICAL": {
+            "verification": "MACHINE_VERIFIED",
+            "outcome": "PASS",
+            "validationStatus": variant.validation_status.value,
+        },
+    }
+    variant.final_approved_by = actor.id
+    variant.final_approved_at = datetime.now(UTC)
+    variant.human_review_seconds = payload.human_review_seconds
+    variant.review_notes = payload.notes
+    task.phase = aggregate_parent_phase(task.variants)
+    task.phase_reason_code = (
+        None
+        if task.phase in {ParentTaskPhase.DELIVERABLE, ParentTaskPhase.PARTIALLY_DELIVERABLE}
+        else "FINAL_APPROVAL_REJECTED"
+    )
+    task.state_version += 1
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="FINAL_VIDEO_APPROVAL",
+            entity_type="generation_variant",
+            entity_id=str(variant.id),
+            from_state=previous.value,
+            to_state=variant.final_approval_status.value,
+            reason=payload.notes or "Required Hard Gates reviewed",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[f"parent_task:{task.id}"],
+        )
+    )
+    await session.commit()
+    await session.refresh(task)
     return await _read(session, task, _settings(request))
 
 

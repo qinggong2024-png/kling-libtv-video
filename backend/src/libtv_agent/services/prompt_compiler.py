@@ -4,7 +4,12 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from libtv_agent.templates.motion_actions import ActionContext, MotionAction, render_action_ids
+from libtv_agent.templates.motion_actions import (
+    ActionContext,
+    MotionAction,
+    compatible_action_ids,
+    render_action_ids,
+)
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import (
     ActionIntensity,
@@ -27,6 +32,11 @@ class PromptCompileInput:
     site_profile: SiteStyleProfile | None = None
     action_context: ActionContext | None = None
     action_library: Mapping[str, MotionAction] | None = None
+    learning_guidance: str = ""
+    learning_preferred_action_ids: tuple[str, ...] = ()
+    learning_avoided_action_ids: tuple[str, ...] = ()
+    learning_profile_version: int | None = None
+    learning_evidence_count: int = 0
     prompt_budget: int = 3072
 
 
@@ -46,7 +56,7 @@ class CompiledVideoPlan:
     shot_instructions: tuple[ShotInstruction, ...]
     invariants: tuple[str, ...]
     negative_prompt: str
-    variant_seed: dict[str, str | int]
+    variant_seed: dict[str, object]
     site_profile_id: str | None = None
     site_profile_version: str | None = None
 
@@ -69,23 +79,23 @@ _NEGATIVE_PROFILE_PREFIXES = (
 _VARIANT_MODIFIERS: tuple[tuple[str, str, str], ...] = (
     (
         "模板主动作完整执行一次，结束时回到对应输入分镜支持的稳定姿态",
-        "放松、自然的轻微微笑，视线稳定",
-        "生活化UGC记录感，画面保留极轻微的自然呼吸",
+        "保持站点表演基调，视线稳定",
+        "自然呼吸感",
     ),
     (
         "把模板主动作拆成两个克制的小幅阶段，结束时保持对应输入分镜支持的稳定姿态",
-        "平静、自信，嘴角放松，视线短暂离镜后回到镜头",
-        "干净的日常lookbook式UGC，构图稳定",
+        "在站点表演基调内更克制，短暂离镜后回看",
+        "稳定lookbook构图",
     ),
     (
         "模板主动作中加入一次短暂停顿，结束时放松定姿",
-        "轻松、专注，表情自然变化一次后恢复放松",
-        "近距离朋友视角UGC，不呈现广告式炫技",
+        "在站点表演基调内增加一次自然表情变化",
+        "近距离朋友视角",
     ),
     (
         "模板主动作完成后回到起始稳定姿态，结束时克制定姿",
-        "克制、略带酷感，视线坚定，不做夸张表情",
-        "简洁编辑感UGC，构图克制，商品始终清晰",
+        "在站点表演基调内更冷静，视线坚定",
+        "简洁克制的编辑感",
     ),
 )
 
@@ -106,10 +116,15 @@ def _shot_rule(template: VideoTemplate, order: int, total: int) -> str:
         selected = rules.ending
     else:
         selected = rules.middle
-    return "；".join(selected)
+    rendered = "；".join(selected)
+    if total == 1:
+        return rendered.replace("按分镜顺序", "在输入支持范围内")
+    return rendered
 
 
 def _partition_profile_text(value: str) -> tuple[str, tuple[str, ...]]:
+    """Separate standalone prohibitions from positive profile guidance."""
+
     segments = re.split(
         rf"；|，(?=(?:{'|'.join(_NEGATIVE_PROFILE_PREFIXES)}))",
         value,
@@ -138,12 +153,34 @@ def _style_instruction(
     template_id: str,
     action_context: ActionContext | None,
     action_library: Mapping[str, MotionAction] | None,
-) -> tuple[str, tuple[str, ...]]:
+    learning_preferred_action_ids: tuple[str, ...],
+    learning_avoided_action_ids: tuple[str, ...],
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     if profile is None:
-        return "不额外套用站点风格，优先执行视频模板和输入分镜", ()
+        return "自然日常；镜头平稳跟随并有限推进", (), ()
+    base_action_ids = profile.preferred_actions
+    allowed = set(base_action_ids)
+    preferred = tuple(
+        action_id for action_id in learning_preferred_action_ids if action_id in allowed
+    )
+    avoided = set(action_id for action_id in learning_avoided_action_ids if action_id in allowed)
+    ordered_action_ids = tuple(
+        dict.fromkeys(
+            (
+                *preferred,
+                *(action_id for action_id in base_action_ids if action_id not in avoided),
+            )
+        )
+    )
+    selected_action_ids = compatible_action_ids(
+        template_id,
+        ordered_action_ids,
+        context=action_context,
+        library=action_library,
+    )
     preferred_actions = render_action_ids(
         template_id,
-        profile.preferred_actions,
+        selected_action_ids,
         context=action_context,
         library=action_library,
     )
@@ -152,17 +189,27 @@ def _style_instruction(
     pacing, pacing_negatives = _partition_profile_text(profile.pacing)
     return (
         "；".join(
-            (
-                "站点表达只作用于已有素材支持的动作、神态和拍摄触感，不新增或改写场景、道具、服装面与商品细节",
-                f"站点风格：{profile.tone.rstrip('。；')}",
-                f"人物表达（仅在面部清晰可见时执行）：{expression}",
-                f"镜头触感：{camera}",
-                f"可用动作：{preferred_actions}",
-                f"站点节奏：{pacing}；涉及输入未提供的商品面或场景时忽略对应描述",
+            part
+            for part in (
+                f"基调：{profile.tone.rstrip('。；')}",
+                f"表演（面部清晰时）：{expression}" if expression else "",
+                f"镜头：{camera}" if camera else "",
+                f"可用动作：{preferred_actions.rstrip('。；')}" if preferred_actions else "",
+                f"节奏：{pacing}" if pacing else "",
+                "仅采用输入支持的动作，不新增场景、道具或商品面",
             )
+            if part
         ),
+        selected_action_ids,
         (*expression_negatives, *camera_negatives, *pacing_negatives),
     )
+
+
+def _learning_instruction(value: str) -> str:
+    normalized = " ".join(value.replace("{{", "{").replace("}}", "}").split()).strip()
+    if not normalized:
+        return ""
+    return f"个人反馈偏好（不得覆盖素材约束和禁止项）：{normalized[:600]}"
 
 
 def compile_video_plan(
@@ -193,9 +240,9 @@ def compile_video_plan(
     variant_action, variant_expression, variant_style = _VARIANT_MODIFIERS[value.variant_index - 1]
     variant_modifier = "；".join(
         (
-            f"动作变化：{variant_action}",
-            f"神态变化：仅在面部清晰可见时执行，{variant_expression}",
-            f"视频风格变化：{variant_style}",
+            f"动作：{variant_action}",
+            f"神态（面部清晰时）：{variant_expression}",
+            f"呈现：{variant_style}",
         )
     )
     cut_instruction = (
@@ -203,11 +250,13 @@ def compile_video_plan(
         if value.storyboard_count == 1
         else _cut_instruction(value.cut_mode)
     )
-    style_instruction, style_negatives = _style_instruction(
+    style_instruction, selected_action_ids, style_negatives = _style_instruction(
         value.site_profile,
         template.id,
         value.action_context,
         value.action_library,
+        value.learning_preferred_action_ids,
+        value.learning_avoided_action_ids,
     )
     duration_seconds = value.duration_seconds or template.duration_seconds
     if not 3 <= duration_seconds <= 15:
@@ -222,54 +271,90 @@ def compile_video_plan(
                 duration if index == value.storyboard_count else index * shot_duration,
                 2,
             ),
-            instruction=f"分镜{index}：{_shot_rule(template, index, value.storyboard_count)}",
+            instruction=(
+                _shot_rule(template, index, value.storyboard_count)
+                if value.storyboard_count == 1
+                else f"分镜{index}：{_shot_rule(template, index, value.storyboard_count)}"
+            ),
         )
         for index in range(1, value.storyboard_count + 1)
     )
-    invariants = template.prompt_rules.invariants
+    invariants = tuple(
+        item
+        for item in template.prompt_rules.invariants
+        if value.storyboard_count > 1 or not item.startswith("按输入分镜顺序执行")
+    )
     profile_negatives = value.site_profile.forbidden_mismatches if value.site_profile else ()
-    negative_prompt = "；".join(
+    negatives = tuple(
         dict.fromkeys((*template.prompt_rules.negatives, *profile_negatives, *style_negatives))
     )
+    negative_prompt = "；".join(negatives)
     timeline = "；".join(
-        (f"{shot.start_seconds:g}-{shot.end_seconds:g}秒（输入图{shot.order}）：{shot.instruction}")
+        (
+            f"{shot.start_seconds:g}-{shot.end_seconds:g}秒：{shot.instruction}"
+            if value.storyboard_count == 1
+            else (
+                f"{shot.start_seconds:g}-{shot.end_seconds:g}秒/图{shot.order}：{shot.instruction}"
+            )
+        )
         for shot in shots
     )
+    learning_instruction = _learning_instruction(value.learning_guidance)
+    motion_instruction = "；".join(
+        part
+        for part in (
+            f"时间轴：{timeline}",
+            f"切镜：{cut_instruction}",
+            f"幅度：{action.instruction}",
+        )
+        if part
+    )
+    style_parts = [style_instruction, f"本条变化：{variant_modifier}"]
+    if value.site_profile is None:
+        style_parts.append(camera.instruction)
     prompt_parts = [
         (
-            f"按照输入的{value.storyboard_count}张有序分镜生成一条"
-            f"{duration_seconds}秒、{template.ratio}的{template.name}视频"
+            "任务："
+            + (
+                "基于输入图"
+                if value.storyboard_count == 1
+                else f"按{value.storyboard_count}张分镜顺序"
+            )
+            + f"生成{duration_seconds}秒、{template.ratio}的{template.name}视频"
         ),
-        (
-            "素材约束（最高优先级）："
-            f"{'；'.join(invariants)}；所有未明确允许变化的输入事实保持不变；"
-            "当前结果相对输入只允许改变动作细节、神态和拍摄表达"
-        ),
-        f"分镜与切镜：{cut_instruction}；切镜：{cut_instruction}；时间轴：{timeline}",
-        f"动作幅度：{action.instruction}",
-        camera.instruction if value.site_profile is None else "",
-        style_instruction,
-        f"本结果差异：{variant_modifier}",
-        "皮肤保留真实纹理和自然细节，避免过度磨皮、塑料感和蜡感",
-        "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
-        f"禁止项：{negative_prompt}",
-        "无声音，无字幕",
+        (f"保持：{'；'.join(invariants)}；其余输入事实不变；仅改变动作细节、神态和拍摄表达"),
+        f"动作：{motion_instruction}",
+        f"风格：{'；'.join(style_parts)}",
+        learning_instruction,
+        "质感：真实皮肤与布料，允许轻微自然手持；不过度磨皮，无塑料感、蜡感或精修广告感",
+        f"避免：{negative_prompt}",
     ]
     master_prompt = "。".join(part for part in prompt_parts if part)
     prompt_budget = min(value.prompt_budget, _MAX_KLING_PROMPT_CHARS)
     if prompt_budget < 1:
         raise ValueError("prompt budget must be positive")
     compression_level = "full"
+    if len(master_prompt) > prompt_budget and learning_instruction:
+        overflow = len(master_prompt) - prompt_budget
+        keep = max(0, len(learning_instruction) - overflow - 1)
+        learning_instruction = learning_instruction[:keep].rstrip("；，。 ")
+        prompt_parts[4] = learning_instruction
+        master_prompt = "。".join(part for part in prompt_parts if part)
+        compression_level = "trimmed-learning"
     if len(master_prompt) > prompt_budget:
-        tone = (
-            value.site_profile.tone.rstrip("。；") if value.site_profile is not None else "自然日常"
+        compact_style = (
+            f"基调：{value.site_profile.tone.rstrip('。；')}；"
+            if value.site_profile is not None
+            else ""
         )
-        prompt_parts[5] = f"站点风格：{tone}；仅采用输入支持的动作，不新增场景、道具或商品面"
+        prompt_parts[3] = (
+            f"风格：{compact_style}本条变化：{variant_modifier}；"
+            "仅采用输入支持的动作，不新增场景、道具或商品面"
+        )
         master_prompt = "。".join(part for part in prompt_parts if part)
         compression_level = "compact-style"
     if len(master_prompt) > prompt_budget:
-        prompt_parts[7] = "皮肤和布料保持真实"
-        prompt_parts[8] = ""
+        prompt_parts[5] = "质感：真实皮肤与布料"
         master_prompt = "。".join(part for part in prompt_parts if part)
         compression_level = "compact-quality"
     if len(master_prompt) > prompt_budget:
@@ -288,6 +373,9 @@ def compile_video_plan(
             "modifier": variant_modifier,
             "pacingSource": "site-profile" if value.site_profile else "template-default",
             "siteProfileId": value.site_profile.id if value.site_profile else "none",
+            "selectedActionIds": list(selected_action_ids),
+            "learningProfileVersion": value.learning_profile_version,
+            "learningEvidenceCount": value.learning_evidence_count,
             "promptCompressionLevel": compression_level,
         },
         site_profile_id=value.site_profile.id if value.site_profile else None,

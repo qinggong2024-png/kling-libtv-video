@@ -239,6 +239,77 @@
         }
       }
     },
+    "/api/v1/image-generation-outputs/{output_id}/quality-decision": {
+      "put": {
+        "tags": [
+          "image-generations"
+        ],
+        "summary": "Put Image Quality Decision",
+        "operationId": "put_image_quality_decision_api_v1_image_generation_outputs__output_id__quality_decision_put",
+        "parameters": [
+          {
+            "name": "output_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Output Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageQualityDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Put Image Quality Decision Api V1 Image Generation Outputs  Output Id  Quality Decision Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/kling/callback": {
       "post": {
         "tags": [
@@ -1089,6 +1160,152 @@
         }
       }
     },
+    "/api/v1/auth/preferences/video-learning": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get Video Learning Preference",
+        "operationId": "get_video_learning_preference_api_v1_auth_preferences_video_learning_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoLearningPreferenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Patch Video Learning Preference",
+        "operationId": "patch_video_learning_preference_api_v1_auth_preferences_video_learning_patch",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoLearningPreferenceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoLearningPreferenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Clear Video Learning Preference",
+        "operationId": "clear_video_learning_preference_api_v1_auth_preferences_video_learning_delete",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/password": {
       "post": {
         "tags": [
@@ -1601,6 +1818,85 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/VariantFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/variants/{variant_id}/final-approval": {
+      "put": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Put Variant Final Approval",
+        "operationId": "put_variant_final_approval_api_v1_tasks__task_id__variants__variant_id__final_approval_put",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "variant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Variant Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalApprovalRequest"
               }
             }
           }
@@ -2159,6 +2455,23 @@
             "schema": {
               "type": "string",
               "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-Source-Image-Output-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Source-Image-Output-Id"
             }
           },
           {
@@ -5614,6 +5927,18 @@
             "type": "string",
             "title": "Thumbnailurl"
           },
+          "sourceImageOutputId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceimageoutputid"
+          },
           "role": {
             "type": "string",
             "title": "Role",
@@ -6244,6 +6569,57 @@
         ],
         "title": "FeedbackValue"
       },
+      "FinalApprovalRequest": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Decision"
+          },
+          "productFidelityPass": {
+            "type": "boolean",
+            "title": "Productfidelitypass"
+          },
+          "editingAssemblyPass": {
+            "type": "boolean",
+            "title": "Editingassemblypass"
+          },
+          "humanCriticalPass": {
+            "type": "boolean",
+            "title": "Humancriticalpass"
+          },
+          "humanReviewSeconds": {
+            "type": "number",
+            "maximum": 28800.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Humanreviewseconds"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "productFidelityPass",
+          "editingAssemblyPass",
+          "humanCriticalPass",
+          "humanReviewSeconds"
+        ],
+        "title": "FinalApprovalRequest"
+      },
       "GenerationStatus": {
         "type": "string",
         "enum": [
@@ -6268,6 +6644,53 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ImageQualityDecisionRequest": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "QUALIFIED",
+              "REJECTED"
+            ],
+            "title": "Decision"
+          },
+          "productFidelityPass": {
+            "type": "boolean",
+            "title": "Productfidelitypass"
+          },
+          "humanCriticalPass": {
+            "type": "boolean",
+            "title": "Humancriticalpass"
+          },
+          "humanReviewSeconds": {
+            "type": "number",
+            "maximum": 28800.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Humanreviewseconds"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "productFidelityPass",
+          "humanCriticalPass",
+          "humanReviewSeconds"
+        ],
+        "title": "ImageQualityDecisionRequest"
       },
       "KlingCallbackOutput": {
         "properties": {
@@ -7320,6 +7743,7 @@
           "GENERATING",
           "DOWNLOADING",
           "VALIDATING",
+          "AWAITING_FINAL_APPROVAL",
           "PARTIALLY_DELIVERABLE",
           "DELIVERABLE",
           "ACTION_REQUIRED",
@@ -7646,6 +8070,16 @@
           "dynamicPrompt"
         ],
         "title": "PromptUpdateRequest"
+      },
+      "QualityDecisionStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "QUALIFIED",
+          "APPROVED",
+          "REJECTED"
+        ],
+        "title": "QualityDecisionStatus"
       },
       "ReconcileRequest": {
         "properties": {
@@ -8537,6 +8971,18 @@
           "thumbnailUrl": {
             "type": "string",
             "title": "Thumbnailurl"
+          },
+          "sourceImageOutputId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourceimageoutputid"
           }
         },
         "type": "object",
@@ -8708,6 +9154,61 @@
           "validationStatus": {
             "$ref": "#/components/schemas/ValidationStatus"
           },
+          "finalApprovalStatus": {
+            "$ref": "#/components/schemas/QualityDecisionStatus",
+            "default": "PENDING"
+          },
+          "qualityGates": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Qualitygates"
+          },
+          "finalApprovedBy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalapprovedby"
+          },
+          "finalApprovedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalapprovedat"
+          },
+          "humanReviewSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humanreviewseconds"
+          },
+          "reviewNotes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewnotes"
+          },
           "downloadArtifactId": {
             "anyOf": [
               {
@@ -8871,6 +9372,60 @@
           "provider"
         ],
         "title": "VariantRead"
+      },
+      "VideoLearningPreferenceRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "VideoLearningPreferenceRequest"
+      },
+      "VideoLearningPreferenceResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "feedbackCount": {
+            "type": "integer",
+            "title": "Feedbackcount"
+          },
+          "scopeCount": {
+            "type": "integer",
+            "title": "Scopecount"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "feedbackCount",
+          "scopeCount",
+          "summary",
+          "updatedAt"
+        ],
+        "title": "VideoLearningPreferenceResponse"
       },
       "VideoTaskCreate": {
         "properties": {

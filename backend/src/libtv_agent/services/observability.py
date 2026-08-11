@@ -21,8 +21,10 @@ from libtv_agent.domain.models import (
     DownloadArtifact,
     GenerationAttempt,
     GenerationCommand,
+    GenerationFeedback,
     GenerationReferenceAsset,
     GenerationVariant,
+    ImageGenerationOutput,
     MaterializationSaga,
     OperationalMetricSample,
     ParentTask,
@@ -274,6 +276,11 @@ async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
         )
         or 0
     )
+    approved_variants = list(
+        await session.scalars(
+            select(GenerationVariant).where(GenerationVariant.final_approval_status == "APPROVED")
+        )
+    )
     total_variants = int(
         await session.scalar(select(func.count()).select_from(GenerationVariant)) or 0
     )
@@ -308,23 +315,65 @@ async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
         if (elapsed := _elapsed_seconds(started, completed)) is not None
     ]
     generation_cost = sum(int(cost or 0) for _, cost, *_ in attempt_rows)
+    image_reviews = list(
+        await session.scalars(
+            select(ImageGenerationOutput).where(ImageGenerationOutput.reviewed_at.is_not(None))
+        )
+    )
+    reviewed_variants = list(
+        await session.scalars(
+            select(GenerationVariant).where(GenerationVariant.final_approved_at.is_not(None))
+        )
+    )
+    reviewed_items = [*image_reviews, *reviewed_variants]
+    review_seconds = sum(float(item.human_review_seconds or 0) for item in reviewed_items)
+    product_fidelity_failures = sum(
+        (item.quality_gates_json or {}).get("PRODUCT_FIDELITY", {}).get("outcome") == "FAIL"
+        for item in reviewed_items
+    )
+    feedback_rows = list(await session.scalars(select(GenerationFeedback)))
+    critical_reason_codes = {
+        "GARMENT_DISTORTED",
+        "COLOR_INACCURATE",
+        "LOGO_TEXT_INCORRECT",
+        "FACE_HAND_ARTIFACT",
+        "PRODUCT_UNCLEAR",
+    }
+    approved_ids = {item.id for item in approved_variants}
+    critical_escapes = sum(
+        feedback.variant_id in approved_ids
+        and feedback.value.value == "DISLIKE"
+        and bool(set(feedback.reason_codes_json or []) & critical_reason_codes)
+        for feedback in feedback_rows
+    )
+    review_count = len(reviewed_items)
     attempt_total = len(attempt_rows)
     succeeded_count = sum(status == AttemptStatus.SUCCEEDED for status, *_ in attempt_rows)
     retry_count = sum(
         status in failed_statuses or status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
         for status, *_ in attempt_rows
     )
-    measurement_gaps = ["human_review"]
+    measurement_gaps = []
+    if not review_count:
+        measurement_gaps.append("human_review")
     if not attempt_total:
         measurement_gaps.append("generation_attempts")
     return {
-        "status": "BASELINE_DATA_MISSING",
+        "status": "MEASURED" if review_count else "BASELINE_DATA_MISSING",
         "productionJobCount": job_count,
         "generatedVideoCount": generated_video_count,
         "finalDeliverableCount": final_deliverable_count,
-        "firstPassDeliverableRate": None,
-        "humanReviewMinutes": None,
-        "humanMinutesPerDeliverable": None,
+        "firstPassDeliverableRate": (
+            sum(item.revision == 1 for item in approved_variants) / len(approved_variants)
+            if approved_variants
+            else None
+        ),
+        "humanReviewMinutes": round(review_seconds / 60, 2),
+        "humanMinutesPerDeliverable": (
+            round(review_seconds / 60 / final_deliverable_count, 2)
+            if final_deliverable_count
+            else None
+        ),
         "averageWaitingSeconds": (
             round(sum(waiting_seconds) / len(waiting_seconds), 1) if waiting_seconds else None
         ),
@@ -334,11 +383,15 @@ async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
         "costCreditsPerDeliverable": (
             generation_cost / final_deliverable_count if final_deliverable_count else None
         ),
-        "criticalQualityEscapeRate": None,
-        "productFidelityFailureRate": None,
-        "qualityReviewSampleCount": 0,
-        "criticalQualityEscapeCount": 0,
-        "productFidelityFailureCount": 0,
+        "criticalQualityEscapeRate": (
+            critical_escapes / len(approved_variants) if approved_variants else None
+        ),
+        "productFidelityFailureRate": (
+            product_fidelity_failures / review_count if review_count else None
+        ),
+        "qualityReviewSampleCount": review_count,
+        "criticalQualityEscapeCount": critical_escapes,
+        "productFidelityFailureCount": product_fidelity_failures,
         "generationSuccessRate": succeeded_count / attempt_total if attempt_total else None,
         "retryRate": retry_count / attempt_total if attempt_total else None,
         "measurementStatus": "MEASUREMENT_GAP" if measurement_gaps else "MEASURED",
@@ -348,7 +401,13 @@ async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
 
 async def _human_review_queue(session: AsyncSession) -> dict[str, int]:
     """Expose required human gates as a queue, so operators do not poll for work."""
-    final_approval = 0
+    final_approval = int(
+        await session.scalar(
+            select(func.count()).select_from(ParentTask).where(
+                ParentTask.phase == ParentTaskPhase.AWAITING_FINAL_APPROVAL
+            )
+        ) or 0
+    )
     action_required = int(
         await session.scalar(
             select(func.count())
@@ -357,7 +416,14 @@ async def _human_review_queue(session: AsyncSession) -> dict[str, int]:
         )
         or 0
     )
-    product_fidelity = 0
+    product_fidelity = int(
+        await session.scalar(
+            select(func.count()).select_from(ImageGenerationOutput).where(
+                ImageGenerationOutput.reviewed_at.is_(None),
+                ImageGenerationOutput.qualification_status == "PENDING",
+            )
+        ) or 0
+    )
     return {
         "productFidelity": product_fidelity,
         "humanCritical": action_required,

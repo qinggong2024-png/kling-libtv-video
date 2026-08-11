@@ -1,6 +1,13 @@
 export type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'active'
 export type VariantKind = 'STABLE' | 'DYNAMIC'
 export type FeedbackValue = 'LIKE' | 'DISLIKE'
+export interface VideoLearningPreference {
+  enabled: boolean
+  feedbackCount: number
+  scopeCount: number
+  summary: string
+  updatedAt: string | null
+}
 export type FeedbackReason =
   | 'GARMENT_ACCURATE'
   | 'PRODUCT_CLEAR'
@@ -41,6 +48,12 @@ export interface Variant {
   generationStatus: string
   downloadStatus: string
   validationStatus: string
+  finalApprovalStatus: 'PENDING' | 'APPROVED' | 'REJECTED'
+  qualityGates: Record<string, { verification?: string; outcome?: string }>
+  finalApprovedBy: string | null
+  finalApprovedAt: string | null
+  humanReviewSeconds: number | null
+  reviewNotes: string | null
   downloadArtifactId: string | null
   errorCode: string | null
   provider: string
@@ -484,6 +497,10 @@ export interface ImageGenerationBatchOutput {
   url: string
   downloadUrl?: string | null
   artifactId?: string | null
+  qualificationStatus?: 'PENDING' | 'QUALIFIED' | 'REJECTED'
+  qualityGates?: Record<string, { verification?: string; outcome?: string }>
+  reviewedAt?: string | null
+  humanReviewSeconds?: number | null
 }
 
 export interface ImageGenerationBatchItem {

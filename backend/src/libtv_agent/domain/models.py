@@ -17,6 +17,7 @@ from libtv_agent.domain.enums import (
     OperationStatus,
     OutboxStatus,
     ParentTaskPhase,
+    QualityDecisionStatus,
     ReservationStatus,
     RunnerHostStatus,
     SagaStatus,
@@ -66,6 +67,7 @@ class User(Base):
     role: Mapped[UserRole] = enum_column(UserRole, default=UserRole.USER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_confirm_prompts: Mapped[bool] = mapped_column(Boolean, default=False)
+    video_learning_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -208,6 +210,9 @@ class StagedUpload(Base):
     claimed_task_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("parent_task.id"), index=True
     )
+    source_image_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("image_generation_output.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -231,6 +236,9 @@ class Asset(Base):
     height: Mapped[int] = mapped_column(Integer)
     object_key: Mapped[str | None] = mapped_column(String(500))
     thumbnail_key: Mapped[str | None] = mapped_column(String(500))
+    source_image_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("image_generation_output.id", ondelete="SET NULL"), index=True
+    )
     used_for_analysis: Mapped[bool] = mapped_column(Boolean, default=True)
     used_for_generation: Mapped[bool] = mapped_column(Boolean, default=True)
     libtv_node_key: Mapped[str | None] = mapped_column(String(160))
@@ -330,6 +338,14 @@ class GenerationVariant(Base):
     validation_status: Mapped[ValidationStatus] = enum_column(
         ValidationStatus, default=ValidationStatus.NOT_READY
     )
+    final_approval_status: Mapped[QualityDecisionStatus] = enum_column(
+        QualityDecisionStatus, default=QualityDecisionStatus.PENDING
+    )
+    quality_gates_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    final_approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    final_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    human_review_seconds: Mapped[float | None] = mapped_column(Float)
+    review_notes: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     parent_task: Mapped[ParentTask] = relationship(back_populates="variants")
     attempts: Mapped[list["GenerationAttempt"]] = relationship(
@@ -378,6 +394,61 @@ class GenerationFeedback(Base):
         default=func.now(),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class UserVideoLearningProfile(Base):
+    __tablename__ = "user_video_learning_profile"
+    __table_args__ = (
+        UniqueConstraint("user_id", "scope_key", name="uq_video_learning_profile_user_scope"),
+        Index("ix_video_learning_profile_user_updated", "user_id", "updated_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    scope_key: Mapped[str] = mapped_column(String(240))
+    template_id: Mapped[str] = mapped_column(String(80))
+    site_profile_id: Mapped[str] = mapped_column(String(80))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    deterministic_guidance: Mapped[str] = mapped_column(Text, default="")
+    llm_prompt_guidance: Mapped[str] = mapped_column(Text, default="")
+    preferred_action_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    avoided_action_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    llm_preferred_action_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    llm_avoided_action_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    positive_count: Mapped[int] = mapped_column(Integer, default=0)
+    negative_count: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    synthesized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FeedbackLearningJob(Base):
+    __tablename__ = "feedback_learning_job"
+    __table_args__ = (
+        UniqueConstraint("user_id", "scope_key", name="uq_feedback_learning_job_user_scope"),
+        Index("ix_feedback_learning_job_status_available", "status", "available_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    scope_key: Mapped[str] = mapped_column(String(240))
+    status: Mapped[str] = mapped_column(String(24), default="PENDING")
+    profile_version: Mapped[int] = mapped_column(Integer, default=1)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=func.now(), server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -784,6 +855,14 @@ class ImageGenerationOutput(Base):
     content_type: Mapped[str | None] = mapped_column(String(80))
     sha256: Mapped[str | None] = mapped_column(String(64))
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    qualification_status: Mapped[QualityDecisionStatus] = enum_column(
+        QualityDecisionStatus, default=QualityDecisionStatus.PENDING
+    )
+    quality_gates_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("app_user.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    human_review_seconds: Mapped[float | None] = mapped_column(Float)
+    review_notes: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     item: Mapped[ImageGenerationItem] = relationship(back_populates="outputs")
 

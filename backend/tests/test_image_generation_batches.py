@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,6 +19,7 @@ from libtv_agent.services.image_generations import (
     _submission_result,
     _validate_public_https_url,
 )
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -529,16 +532,23 @@ async def test_output_materialization_retries_without_exposing_remote_url(
         }
 
     materialize_attempts = 0
+    materialized_stream = io.BytesIO()
+    Image.new("RGB", (360, 640), "#315f41").save(materialized_stream, format="PNG")
+    materialized_bytes = materialized_stream.getvalue()
 
     async def flaky_materialize(_app: Any, output: Any) -> None:
         nonlocal materialize_attempts
         materialize_attempts += 1
         if materialize_attempts == 1:
             raise OSError("temporary CDN failure")
-        output.object_key = f"image-generations/{output.id}.webp"
-        output.content_type = "image/webp"
-        output.size_bytes = 10
-        output.sha256 = "0" * 64
+        local = tmp_path / f"{output.id}.png"
+        local.write_bytes(materialized_bytes)
+        output.object_key = await _app.state.object_store.put_file(
+            local, f"image-generations/{output.id}.png", "image/png"
+        )
+        output.content_type = "image/png"
+        output.size_bytes = len(materialized_bytes)
+        output.sha256 = hashlib.sha256(materialized_bytes).hexdigest()
 
     adapter.get_prediction = completed_prediction  # type: ignore[method-assign]
     monkeypatch.setattr(
@@ -570,8 +580,48 @@ async def test_output_materialization_retries_without_exposing_remote_url(
             assert second_poll.json()["status"] == "completed"
             output = second_poll.json()["items"][0]["outputs"][0]
             assert output["url"].startswith("/api/v1/image-generation-outputs/")
+            assert output["qualificationStatus"] == "PENDING"
             assert "private-signed-output" not in second_poll.text
             assert materialize_attempts == 2
+
+            blocked_upload = await client.post(
+                "/api/v1/uploads",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "unqualified-source-upload",
+                    "X-Source-Image-Output-Id": output["id"],
+                },
+                files={"file": ("candidate.png", materialized_bytes, "image/png")},
+            )
+            assert blocked_upload.status_code == 409
+            assert blocked_upload.json()["detail"]["code"] == "SOURCE_IMAGE_NOT_QUALIFIED"
+
+            qualified = await client.put(
+                f"/api/v1/image-generation-outputs/{output['id']}/quality-decision",
+                headers={"X-User-Id": settings.dev_user_id},
+                json={
+                    "decision": "QUALIFIED",
+                    "productFidelityPass": True,
+                    "humanCriticalPass": True,
+                    "humanReviewSeconds": 8,
+                    "notes": "pilot candidate ground truth",
+                },
+            )
+            assert qualified.status_code == 200, qualified.text
+            assert qualified.json()["qualificationStatus"] == "QUALIFIED"
+            assert qualified.json()["qualityGates"]["PRODUCT_FIDELITY"]["outcome"] == "PASS"
+
+            traced_upload = await client.post(
+                "/api/v1/uploads",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "qualified-source-upload",
+                    "X-Source-Image-Output-Id": output["id"],
+                },
+                files={"file": ("candidate.png", materialized_bytes, "image/png")},
+            )
+            assert traced_upload.status_code == 201, traced_upload.text
+            assert traced_upload.json()["sourceImageOutputId"] == output["id"]
 
 
 @pytest.mark.asyncio

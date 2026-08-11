@@ -133,6 +133,7 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
             )
         )
         upload.claimed_task_id = task_id
@@ -153,6 +154,7 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
                 used_for_analysis=True,
                 used_for_generation=payload.generation_provider == "kling",
             )
@@ -229,6 +231,7 @@ async def reuse_task(
                 height=source_asset.height,
                 object_key=source_asset.object_key or source_asset.thumbnail_key,
                 thumbnail_key=source_asset.thumbnail_key,
+                source_image_output_id=source_asset.source_image_output_id,
                 used_for_analysis=source_asset.used_for_analysis,
                 used_for_generation=source_asset.used_for_generation,
             )
@@ -438,6 +441,12 @@ def _build_task_read(
                 generation_status=variant.generation_status,
                 download_status=variant.download_status,
                 validation_status=variant.validation_status,
+                final_approval_status=variant.final_approval_status,
+                quality_gates=dict(variant.quality_gates_json or {}),
+                final_approved_by=variant.final_approved_by,
+                final_approved_at=variant.final_approved_at,
+                human_review_seconds=variant.human_review_seconds,
+                review_notes=variant.review_notes,
                 download_artifact_id=artifact.id if artifact else None,
                 error_code=attempt.last_error_code if attempt else None,
                 provider_error_message=attempt.error_message if attempt else None,
@@ -505,6 +514,7 @@ def _build_task_read(
                 height=asset.height,
                 size_bytes=asset.size_bytes,
                 thumbnail_url=f"/api/v1/assets/{asset.id}/thumbnail",
+                source_image_output_id=asset.source_image_output_id,
                 role=asset.role,
                 used_for_analysis=asset.used_for_analysis,
                 used_for_generation=asset.used_for_generation,

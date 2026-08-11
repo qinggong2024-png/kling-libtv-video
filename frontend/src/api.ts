@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -162,6 +162,14 @@ export const setPersonalPromptAutoConfirmation = (automatic: boolean) => request
   method: 'PATCH',
   body: JSON.stringify({ automatic }),
 })
+export const getPersonalVideoLearning = () => request<VideoLearningPreference>('/api/v1/auth/preferences/video-learning')
+export const setPersonalVideoLearning = (enabled: boolean) => request<VideoLearningPreference>('/api/v1/auth/preferences/video-learning', {
+  method: 'PATCH',
+  body: JSON.stringify({ enabled }),
+})
+export const clearPersonalVideoLearning = () => request<void>('/api/v1/auth/preferences/video-learning', {
+  method: 'DELETE',
+})
 export type TaskPage = { items: Task[]; nextCursor: string | null }
 
 export async function getTaskPage(cursor?: string): Promise<TaskPage> {
@@ -188,6 +196,22 @@ export const setVariantFeedback = (
   body: JSON.stringify({ feedback, ...details }),
 })
 
+export const setVariantFinalApproval = (
+  taskId: string,
+  variantId: string,
+  payload: {
+    decision: 'APPROVED' | 'REJECTED'
+    productFidelityPass: boolean
+    editingAssemblyPass: boolean
+    humanCriticalPass: boolean
+    humanReviewSeconds: number
+    notes?: string | null
+  },
+) => request<Task>(`/api/v1/tasks/${taskId}/variants/${variantId}/final-approval`, {
+  method: 'PUT',
+  body: JSON.stringify(payload),
+})
+
 export async function login(username: string, password: string): Promise<void> {
   const result = await request<{ csrfToken: string }>('/api/v1/auth/login', {
     method: 'POST',
@@ -208,10 +232,12 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   })
 }
 
-export async function uploadStoryboard(file: File, signal?: AbortSignal): Promise<UploadResult> {
+export async function uploadStoryboard(file: File, signal?: AbortSignal, sourceImageOutputId?: string): Promise<UploadResult> {
   const body = new FormData()
   body.append('file', file)
-  return request('/api/v1/uploads', { method: 'POST', body, headers: { 'Idempotency-Key': key() }, signal }, { timeoutMs: UPLOAD_TIMEOUT_MS })
+  const headers: Record<string, string> = { 'Idempotency-Key': key() }
+  if (sourceImageOutputId) headers['X-Source-Image-Output-Id'] = sourceImageOutputId
+  return request('/api/v1/uploads', { method: 'POST', body, headers, signal }, { timeoutMs: UPLOAD_TIMEOUT_MS })
 }
 
 export function getVideoTemplates(): Promise<VideoTemplateSummary[]> {

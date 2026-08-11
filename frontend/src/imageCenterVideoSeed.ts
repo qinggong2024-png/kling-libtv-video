@@ -4,6 +4,7 @@ import type { SubjectReferenceFiles } from './subjectFiles'
 export interface ImageCenterVideoSeed {
   id: string
   storyboards: File[]
+  storyboardOutputIds: string[]
   products: File[]
   subjectFiles: SubjectReferenceFiles
 }
@@ -11,12 +12,14 @@ export interface ImageCenterVideoSeed {
 export function createImageCenterVideoSeed(
   task: Pick<ImageGenerationTask, 'product'>,
   storyboards: File[],
+  storyboardOutputIds: string[],
   selectedSubject: File,
   id: string,
 ): ImageCenterVideoSeed {
   return {
     id,
     storyboards,
+    storyboardOutputIds,
     products: [task.product.front, task.product.back].filter((file): file is File => Boolean(file)),
     subjectFiles: {
       frontalImage: selectedSubject,

@@ -300,22 +300,21 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
     assert len(compiled.shot_instructions) == 3
     assert all(shot.instruction in compiled.master_prompt for shot in compiled.shot_instructions)
     assert "时间轴：" in compiled.master_prompt
-    assert "0-3.33秒（输入图1）" in compiled.master_prompt
-    assert "3.33-6.67秒（输入图2）" in compiled.master_prompt
-    assert "6.67-10秒（输入图3）" in compiled.master_prompt
+    assert "0-3.33秒/图1" in compiled.master_prompt
+    assert "3.33-6.67秒/图2" in compiled.master_prompt
+    assert "6.67-10秒/图3" in compiled.master_prompt
     assert "动作" in compiled.master_prompt
     assert "镜头" in compiled.master_prompt
     assert "切镜" in compiled.master_prompt
-    assert "保持人物身份、面部特征和体型一致" in compiled.master_prompt
-    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
-    assert "布料真实的厚度、重量、体积、垂坠、褶皱、包裹关系与接触阴影" in compiled.master_prompt
-    assert "避免服装出现贴图感、漂浮感和不自然反光" in compiled.master_prompt
-    assert "场景、背景陈设和光线条件不变" in compiled.master_prompt
-    assert "分镜结构、镜头对应关系及素材先后顺序" in compiled.master_prompt
-    assert "皮肤保留真实纹理和自然细节" in compiled.master_prompt
-    assert "避免过度磨皮、塑料感和蜡感" in compiled.master_prompt
-    assert "真实日常UGC记录感" in compiled.master_prompt
-    assert "不呈现精修商业广告感" in compiled.master_prompt
+    assert "人物身份、面部特征和体型一致" in compiled.master_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字不变" in compiled.master_prompt
+    assert "布料厚度、重量、体积、垂坠、褶皱及接触阴影真实" in compiled.master_prompt
+    assert "服装贴图、漂浮或异常反光" in compiled.master_prompt
+    assert "场景、陈设和光线" in compiled.master_prompt
+    assert "按输入分镜顺序执行" in compiled.master_prompt
+    assert "真实皮肤与布料" in compiled.master_prompt
+    assert "不过度磨皮" in compiled.master_prompt
+    assert "精修广告感" in compiled.master_prompt
     assert "发型" not in compiled.master_prompt
     assert "五官" not in compiled.master_prompt
     assert "背景里" not in compiled.master_prompt
@@ -379,7 +378,7 @@ def test_site_style_does_not_inject_unverified_shots_or_product_faces() -> None:
         )
     )
 
-    assert "站点表达只作用于已有素材支持" in compiled.master_prompt
+    assert "仅采用输入支持的动作，不新增场景、道具或商品面" in compiled.master_prompt
     assert "视频结构：" not in compiled.master_prompt
     assert "优先镜头：" not in compiled.master_prompt
     assert "商品呈现重点：" not in compiled.master_prompt
@@ -435,7 +434,7 @@ def test_variants_have_limited_differences_without_changing_invariants() -> None
     assert len(normalized_prompts) == 1
     for item in variants:
         modifier = str(item.variant_seed["modifier"])
-        assert all(label in modifier for label in ("动作变化：", "神态变化：", "视频风格变化："))
+        assert all(label in modifier for label in ("动作：", "神态（面部清晰时）：", "呈现："))
         assert "节奏变化：" not in modifier
         assert "自行调整" not in modifier
         assert "轻微动作组合" not in modifier
@@ -479,7 +478,7 @@ def test_profile_prohibitions_are_owned_by_the_negative_section() -> None:
         )
     )
 
-    positive_section, negative_section = compiled.master_prompt.split("。禁止项：", 1)
+    positive_section, negative_section = compiled.master_prompt.split("。避免：", 1)
     assert "不用高速甩镜" not in positive_section
     assert "不用高速甩镜" in negative_section
 
@@ -495,14 +494,15 @@ def test_prompt_budget_compresses_optional_sections_before_core_constraints() ->
             cut_mode="explicit_cuts",
             variant_index=1,
             site_profile=get_site_style_profile("geeksoutfit"),
-            prompt_budget=900,
+            learning_guidance="偏好自然移动和稳定展示。" * 40,
+            prompt_budget=800,
         )
     )
 
-    assert len(compiled.master_prompt) <= 900
+    assert len(compiled.master_prompt) <= 800
     assert compiled.variant_seed["promptCompressionLevel"] == "compact-style"
     assert "人物身份、面部特征和体型一致" in compiled.master_prompt
-    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字不变" in compiled.master_prompt
     assert "人物身份漂移" in compiled.master_prompt
 
 
@@ -522,6 +522,7 @@ def test_maximum_reference_roles_fit_final_kling_budget() -> None:
             cut_mode="explicit_cuts",
             variant_index=4,
             site_profile=get_site_style_profile("geeksoutfit"),
+            learning_guidance="偏好自然移动和稳定展示。" * 40,
             prompt_budget=3072 - len(role_prompt) - 1,
         )
     )
@@ -529,7 +530,7 @@ def test_maximum_reference_roles_fit_final_kling_budget() -> None:
 
     assert len(final_prompt) <= 3072
     assert "garment design, color, material, fit, print, logo, and visible text" in final_prompt
-    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in final_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字不变" in final_prompt
 
 
 def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None:
@@ -547,8 +548,13 @@ def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None
         )
     )
 
+    assert len(compiled.master_prompt) <= 900
+    assert compiled.master_prompt.count("声音、字幕") == 1
+    assert "分镜1：" not in compiled.master_prompt
     assert "切镜：单镜头连续展示，不新增切镜" in compiled.master_prompt
     assert "按照输入分镜顺序允许明确、干净的切镜" not in compiled.master_prompt
+    assert "站点表达只作用于" not in compiled.master_prompt
+    assert "本结果差异" not in compiled.master_prompt
 
 
 def test_restricted_site_profile_cannot_enter_production() -> None:
@@ -909,8 +915,8 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             assert len(task["compiledPlan"]["variants"]) == result_count
             for compiled_variant in task["compiledPlan"]["variants"]:
                 prompt = compiled_variant["master_prompt"]
-                assert "所有未明确允许变化的输入事实保持不变" in prompt
-                assert "当前结果相对输入只允许改变动作细节、神态和拍摄表达" in prompt
+                assert "其余输入事实不变" in prompt
+                assert "仅改变动作细节、神态和拍摄表达" in prompt
                 assert "本次生成的" not in prompt
                 assert "四个版本" not in prompt
             assert task["materialValidation"]["valid"] is True
