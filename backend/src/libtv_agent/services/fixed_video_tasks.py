@@ -26,6 +26,7 @@ from libtv_agent.services.content_catalog import (
     get_merged_site_style_profile,
     motion_action_library,
 )
+from libtv_agent.services.feedback_learning import apply_video_learning
 from libtv_agent.services.generation_safety import write_preview_file
 from libtv_agent.services.kling_preparation import prepare_kling_task
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
@@ -42,6 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
+AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v2"
 CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
 MAX_KLING_PROMPT_CHARS = 3072
 
@@ -89,29 +91,21 @@ def _reference_role_prompt(
     """Describe Kling content IDs without letting subject images redefine the shots."""
 
     storyboard_ids = ", ".join(f"@image_{index}" for index in range(1, storyboard_count + 1))
-    instructions = [
-        f"Reference roles: {storyboard_ids} are ordered storyboards and control scene, action, "
-        "composition, and camera order."
-    ]
+    instructions = [f"素材角色：{storyboard_ids}为按序分镜，决定场景、动作、构图与镜头顺序。"]
     if subject_image_count:
         first_subject_index = storyboard_count + 1
-        subject_roles = [f"@image_{first_subject_index} is the subject frontal reference"]
+        subject_roles = [f"@image_{first_subject_index}为人物正面参考"]
         if subject_image_count >= 2:
-            subject_roles.append(f"@image_{first_subject_index + 1} is the subject back reference")
+            subject_roles.append(f"@image_{first_subject_index + 1}为人物背面参考")
         for offset in range(2, subject_image_count):
-            subject_roles.append(
-                f"@image_{first_subject_index + offset} is a subject side/detail reference"
-            )
+            subject_roles.append(f"@image_{first_subject_index + offset}为人物侧面/细节参考")
         instructions.append(
-            "; ".join(subject_roles)
-            + ". Subject references constrain only identity, garment shape, color, print, logo, "
-            "and visible text; ignore their background, pose, and composition."
+            "；".join(subject_roles) + "。人物参考仅约束身份及服装外观，忽略其背景、姿势和构图。"
         )
     elif element_count:
         element_ids = ", ".join(f"@element_{index}" for index in range(1, element_count + 1))
         instructions.append(
-            f"{element_ids} are historical subject elements and constrain subject identity and "
-            "appearance without overriding storyboard scene or composition."
+            f"{element_ids}为历史人物元素，仅约束身份与外观，不覆盖分镜场景或构图。"
         )
     return " ".join(instructions)
 
@@ -237,6 +231,13 @@ async def create_fixed_video_task(
         element_count=len(payload.element_ids),
     )
     if payload.generation_mode == "automatic":
+        learning = await apply_video_learning(
+            session,
+            user_id=user_id,
+            template_id=template.id,
+            site_profile_id=site_profile.id,
+            settings=settings,
+        )
         plans = [
             compile_video_plan(
                 PromptCompileInput(
@@ -251,6 +252,11 @@ async def create_fixed_video_task(
                     site_profile=site_profile,
                     action_context=validation.action_context,
                     action_library=actions,
+                    learning_guidance=learning.prompt_guidance,
+                    learning_preferred_action_ids=learning.preferred_action_ids,
+                    learning_avoided_action_ids=learning.avoided_action_ids,
+                    learning_profile_version=learning.profile_version,
+                    learning_evidence_count=learning.evidence_count,
                 )
             )
             for index in range(1, payload.result_count + 1)
@@ -265,7 +271,7 @@ async def create_fixed_video_task(
         ]
         variant_seeds = [plan.variant_seed for plan in plans]
         plan_json = {
-            "compiler": "fixed-template-v1",
+            "compiler": AUTOMATIC_PROMPT_COMPILER_VERSION,
             "variants": [
                 {**asdict(plan), "master_prompt": prompt_text}
                 for plan, prompt_text in zip(plans, prompt_texts, strict=True)
@@ -350,6 +356,7 @@ async def create_fixed_video_task(
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
                 used_for_analysis=False,
                 used_for_generation=True,
             )
@@ -372,6 +379,7 @@ async def create_fixed_video_task(
                 height=upload.height,
                 object_key=upload.object_key,
                 thumbnail_key=upload.thumbnail_key,
+                source_image_output_id=upload.source_image_output_id,
                 used_for_analysis=False,
                 used_for_generation=True,
             )

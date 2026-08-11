@@ -6,7 +6,15 @@ from typing import Annotated
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from libtv_agent.api.dependencies import Actor, Session
-from libtv_agent.domain.models import Asset, ParentTask, StagedUpload
+from libtv_agent.domain.enums import QualityDecisionStatus
+from libtv_agent.domain.models import (
+    Asset,
+    ImageGenerationBatch,
+    ImageGenerationItem,
+    ImageGenerationOutput,
+    ParentTask,
+    StagedUpload,
+)
 from libtv_agent.domain.schemas import UploadRead
 from libtv_agent.services.idempotency import (
     IdempotencyConflictError,
@@ -27,6 +35,9 @@ async def upload_storyboard(
     request: Request,
     file: Annotated[UploadFile, File()],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    source_image_output_id: Annotated[
+        uuid.UUID | None, Header(alias="X-Source-Image-Output-Id")
+    ] = None,
 ) -> UploadRead:
     settings = request.app.state.settings
     data = await file.read(settings.max_input_image_bytes + 1)
@@ -35,9 +46,39 @@ async def upload_storyboard(
             status.HTTP_413_CONTENT_TOO_LARGE,
             detail={"code": "INPUT_TOO_LARGE", "message": "image exceeds the configured limit"},
         )
+    raw_sha256 = hashlib.sha256(data).hexdigest()
+    if source_image_output_id is not None:
+        source_output = await session.scalar(
+            select(ImageGenerationOutput)
+            .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
+            .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
+            .where(
+                ImageGenerationOutput.id == source_image_output_id,
+                ImageGenerationBatch.user_id == actor.id,
+            )
+        )
+        if source_output is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "source image output was not found")
+        if source_output.qualification_status != QualityDecisionStatus.QUALIFIED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "SOURCE_IMAGE_NOT_QUALIFIED",
+                    "message": "source image output requires human qualification",
+                },
+            )
+        if source_output.sha256 != raw_sha256:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "SOURCE_IMAGE_HASH_MISMATCH",
+                    "message": "uploaded bytes do not match the qualified source image",
+                },
+            )
     payload = {
         "filename": file.filename or "storyboard",
-        "sha256": hashlib.sha256(data).hexdigest(),
+        "sha256": raw_sha256,
+        "sourceImageOutputId": str(source_image_output_id) if source_image_output_id else None,
     }
     try:
         cached = await load_idempotent_response(
@@ -98,6 +139,7 @@ async def upload_storyboard(
             height=processed.height,
             object_key=object_key,
             thumbnail_key=thumbnail_key,
+            source_image_output_id=source_image_output_id,
         )
         session.add(upload)
         response = UploadRead(
@@ -109,6 +151,7 @@ async def upload_storyboard(
             mime_type=upload.mime_type,
             size_bytes=upload.size_bytes,
             thumbnail_url=f"/api/v1/uploads/{upload.id}/thumbnail",
+            source_image_output_id=upload.source_image_output_id,
         )
         await store_idempotent_response(
             session,

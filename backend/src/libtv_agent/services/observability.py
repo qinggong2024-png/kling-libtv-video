@@ -20,8 +20,10 @@ from libtv_agent.domain.models import (
     DownloadArtifact,
     GenerationAttempt,
     GenerationCommand,
+    GenerationFeedback,
     GenerationReferenceAsset,
     GenerationVariant,
+    ImageGenerationOutput,
     MaterializationSaga,
     OperationalMetricSample,
     ParentTask,
@@ -255,6 +257,132 @@ async def _pipeline_performance(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+async def _business_baseline(session: AsyncSession) -> dict[str, Any]:
+    job_count = int(await session.scalar(select(func.count()).select_from(ParentTask)) or 0)
+    generated_video_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationVariant)
+            .where(GenerationVariant.generation_status.in_(["SUCCEEDED", "PARTIAL"]))
+        )
+        or 0
+    )
+    final_deliverable_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(ParentTask)
+            .where(ParentTask.phase == ParentTaskPhase.DELIVERABLE)
+        )
+        or 0
+    )
+    approved_variants = list(
+        await session.scalars(
+            select(GenerationVariant).where(GenerationVariant.final_approval_status == "APPROVED")
+        )
+    )
+    total_variants = int(
+        await session.scalar(select(func.count()).select_from(GenerationVariant)) or 0
+    )
+    regeneration_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationVariant)
+            .where(GenerationVariant.revision > 1)
+        )
+        or 0
+    )
+    attempt_rows = list(
+        await session.execute(
+            select(
+                GenerationAttempt.status,
+                GenerationAttempt.credits_consumed,
+                GenerationAttempt.submitted_at,
+                GenerationAttempt.completed_at,
+            )
+        )
+    )
+    failed_statuses = {
+        AttemptStatus.FAILED_BEFORE_SUBMIT,
+        AttemptStatus.FAILED_TERMINAL,
+        AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+        AttemptStatus.NEEDS_MANUAL_REVIEW,
+    }
+    failure_count = sum(status in failed_statuses for status, *_ in attempt_rows)
+    waiting_seconds = [
+        elapsed
+        for _, _, started, completed in attempt_rows
+        if (elapsed := _elapsed_seconds(started, completed)) is not None
+    ]
+    generation_cost = sum(int(cost or 0) for _, cost, *_ in attempt_rows)
+    image_reviews = list(
+        await session.scalars(
+            select(ImageGenerationOutput).where(ImageGenerationOutput.reviewed_at.is_not(None))
+        )
+    )
+    reviewed_variants = list(
+        await session.scalars(
+            select(GenerationVariant).where(GenerationVariant.final_approved_at.is_not(None))
+        )
+    )
+    reviewed_items = [*image_reviews, *reviewed_variants]
+    review_seconds = sum(float(item.human_review_seconds or 0) for item in reviewed_items)
+    product_fidelity_failures = sum(
+        (item.quality_gates_json or {}).get("PRODUCT_FIDELITY", {}).get("outcome") == "FAIL"
+        for item in reviewed_items
+    )
+    feedback_rows = list(await session.scalars(select(GenerationFeedback)))
+    critical_reason_codes = {
+        "GARMENT_DISTORTED",
+        "COLOR_INACCURATE",
+        "LOGO_TEXT_INCORRECT",
+        "FACE_HAND_ARTIFACT",
+        "PRODUCT_UNCLEAR",
+    }
+    approved_ids = {item.id for item in approved_variants}
+    critical_escapes = sum(
+        feedback.variant_id in approved_ids
+        and feedback.value.value == "DISLIKE"
+        and bool(set(feedback.reason_codes_json or []) & critical_reason_codes)
+        for feedback in feedback_rows
+    )
+    review_count = len(reviewed_items)
+    return {
+        "status": "MEASURED" if review_count else "BASELINE_DATA_MISSING",
+        "productionJobCount": job_count,
+        "generatedVideoCount": generated_video_count,
+        "finalDeliverableCount": final_deliverable_count,
+        "firstPassDeliverableRate": (
+            sum(item.revision == 1 for item in approved_variants) / len(approved_variants)
+            if approved_variants
+            else None
+        ),
+        "humanReviewMinutes": round(review_seconds / 60, 2),
+        "humanMinutesPerDeliverable": (
+            round(review_seconds / 60 / final_deliverable_count, 2)
+            if final_deliverable_count
+            else None
+        ),
+        "averageWaitingSeconds": (
+            round(sum(waiting_seconds) / len(waiting_seconds), 1) if waiting_seconds else None
+        ),
+        "failureRate": failure_count / len(attempt_rows) if attempt_rows else None,
+        "regenerationRate": regeneration_count / total_variants if total_variants else None,
+        "generationCostCredits": generation_cost,
+        "costCreditsPerDeliverable": (
+            generation_cost / final_deliverable_count if final_deliverable_count else None
+        ),
+        "criticalQualityEscapeRate": (
+            critical_escapes / len(approved_variants) if approved_variants else None
+        ),
+        "productFidelityFailureRate": (
+            product_fidelity_failures / review_count if review_count else None
+        ),
+        "qualityReviewSampleCount": review_count,
+        "criticalQualityEscapeCount": critical_escapes,
+        "productFidelityFailureCount": product_fidelity_failures,
+    }
+
+
 async def operational_backlog_count(session: AsyncSession) -> int:
     prepared = int(
         await session.scalar(
@@ -454,6 +582,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     reservations.update({status.value: int(total or 0) for status, total in reservation_rows})
     duplicate_generation_total, cross_task_connection_total = await _integrity_metrics(session)
     pipeline_performance = await _pipeline_performance(session)
+    business_baseline = await _business_baseline(session)
     pipeline_backlog = pipeline_performance["backlog"]
     if config.get("globalPaused", True):
         current_constraint = "GLOBAL_PAUSED"
@@ -560,5 +689,6 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         ],
         "points": {**reservations, "chargeUnknownAttempts": charged_unknown},
         "pipelinePerformance": pipeline_performance,
+        "businessBaseline": business_baseline,
         "alerts": alerts,
     }

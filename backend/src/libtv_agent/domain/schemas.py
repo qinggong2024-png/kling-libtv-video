@@ -9,6 +9,7 @@ from libtv_agent.domain.enums import (
     FeedbackValue,
     GenerationStatus,
     ParentTaskPhase,
+    QualityDecisionStatus,
     ValidationStatus,
     VariantKind,
 )
@@ -82,6 +83,7 @@ class UploadRead(ApiModel):
     mime_type: str
     size_bytes: int
     thumbnail_url: str
+    source_image_output_id: uuid.UUID | None = None
 
 
 class StoryboardInput(ApiModel):
@@ -254,6 +256,7 @@ class AssetRead(ApiModel):
     height: int
     size_bytes: int = 0
     thumbnail_url: str
+    source_image_output_id: uuid.UUID | None = None
     role: str = "STORYBOARD"
     used_for_analysis: bool = True
     used_for_generation: bool = True
@@ -268,6 +271,12 @@ class VariantRead(ApiModel):
     generation_status: GenerationStatus
     download_status: DownloadStatus
     validation_status: ValidationStatus
+    final_approval_status: QualityDecisionStatus = QualityDecisionStatus.PENDING
+    quality_gates: dict[str, Any] = Field(default_factory=dict)
+    final_approved_by: uuid.UUID | None = None
+    final_approved_at: datetime | None = None
+    human_review_seconds: float | None = None
+    review_notes: str | None = None
     download_artifact_id: uuid.UUID | None = None
     error_code: str | None = None
     provider_error_message: str | None = None
@@ -315,6 +324,25 @@ class VariantFeedbackRequest(ApiModel):
                 raise ValueError("like feedback contains a dislike reason")
             if self.feedback == FeedbackValue.DISLIKE and set(self.reasons) & like_reasons:
                 raise ValueError("dislike feedback contains a like reason")
+        return self
+
+
+class FinalApprovalRequest(ApiModel):
+    decision: Literal["APPROVED", "REJECTED"]
+    product_fidelity_pass: bool
+    editing_assembly_pass: bool
+    human_critical_pass: bool
+    human_review_seconds: float = Field(gt=0, le=28_800)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "FinalApprovalRequest":
+        gates_pass = (
+            self.product_fidelity_pass and self.editing_assembly_pass and self.human_critical_pass
+        )
+        if (self.decision == "APPROVED") != gates_pass:
+            raise ValueError("APPROVED requires every human Required Hard Gate to pass")
+        self.notes = " ".join((self.notes or "").split()).strip() or None
         return self
 
 

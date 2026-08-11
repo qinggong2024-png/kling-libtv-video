@@ -5,10 +5,17 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from libtv_agent.api.dependencies import Actor, Session
-from libtv_agent.domain.models import AuditEvent, User, UserSession
+from libtv_agent.domain.models import (
+    AuditEvent,
+    FeedbackLearningJob,
+    GenerationFeedback,
+    User,
+    UserSession,
+    UserVideoLearningProfile,
+)
 from libtv_agent.services.auth import PasswordService
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -25,6 +32,18 @@ class ChangePasswordRequest(BaseModel):
 
 class PromptConfirmationPreferenceRequest(BaseModel):
     automatic: bool
+
+
+class VideoLearningPreferenceRequest(BaseModel):
+    enabled: bool
+
+
+class VideoLearningPreferenceResponse(BaseModel):
+    enabled: bool
+    feedbackCount: int
+    scopeCount: int
+    summary: str
+    updatedAt: datetime | None
 
 
 def _token_hash(value: str) -> str:
@@ -121,6 +140,111 @@ async def patch_prompt_confirmation_preference(
         )
         await session.commit()
     return {"automatic": actor.auto_confirm_prompts}
+
+
+async def _video_learning_preference(
+    session: Session,
+    actor: Actor,
+) -> VideoLearningPreferenceResponse:
+    profiles = list(
+        await session.scalars(
+            select(UserVideoLearningProfile)
+            .where(UserVideoLearningProfile.user_id == actor.id)
+            .order_by(UserVideoLearningProfile.updated_at.desc())
+        )
+    )
+    feedback_count = int(
+        await session.scalar(
+            select(func.count(GenerationFeedback.id)).where(GenerationFeedback.user_id == actor.id)
+        )
+        or 0
+    )
+    latest = profiles[0] if profiles else None
+    return VideoLearningPreferenceResponse(
+        enabled=actor.video_learning_enabled,
+        feedbackCount=feedback_count,
+        scopeCount=len(profiles),
+        summary=(
+            latest.summary
+            if latest
+            else (
+                f"已保存 {feedback_count} 条反馈，尚未形成固定模板偏好"
+                if feedback_count
+                else "尚未积累可应用的成片反馈"
+            )
+        ),
+        updatedAt=latest.updated_at if latest else None,
+    )
+
+
+@router.get(
+    "/preferences/video-learning",
+    response_model=VideoLearningPreferenceResponse,
+)
+async def get_video_learning_preference(
+    actor: Actor,
+    session: Session,
+) -> VideoLearningPreferenceResponse:
+    return await _video_learning_preference(session, actor)
+
+
+@router.patch(
+    "/preferences/video-learning",
+    response_model=VideoLearningPreferenceResponse,
+)
+async def patch_video_learning_preference(
+    payload: VideoLearningPreferenceRequest,
+    actor: Actor,
+    session: Session,
+) -> VideoLearningPreferenceResponse:
+    if actor.video_learning_enabled != payload.enabled:
+        actor.video_learning_enabled = payload.enabled
+        session.add(
+            AuditEvent(
+                actor_id=actor.id,
+                action="UPDATE_VIDEO_LEARNING_PREFERENCE",
+                entity_type="app_user",
+                entity_id=str(actor.id),
+                reason="video learning enabled" if payload.enabled else "video learning disabled",
+                correlation_id=str(uuid.uuid4()),
+                evidence_refs_json=[],
+            )
+        )
+        await session.commit()
+    return await _video_learning_preference(session, actor)
+
+
+@router.delete("/preferences/video-learning", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_video_learning_preference(
+    actor: Actor,
+    session: Session,
+) -> Response:
+    feedback_count = int(
+        await session.scalar(
+            select(func.count(GenerationFeedback.id)).where(GenerationFeedback.user_id == actor.id)
+        )
+        or 0
+    )
+    await session.execute(
+        delete(FeedbackLearningJob).where(FeedbackLearningJob.user_id == actor.id)
+    )
+    await session.execute(
+        delete(UserVideoLearningProfile).where(UserVideoLearningProfile.user_id == actor.id)
+    )
+    await session.execute(delete(GenerationFeedback).where(GenerationFeedback.user_id == actor.id))
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="CLEAR_VIDEO_LEARNING_MEMORY",
+            entity_type="app_user",
+            entity_id=str(actor.id),
+            reason=f"cleared {feedback_count} generation feedback records",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[],
+        )
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)

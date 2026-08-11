@@ -23,6 +23,7 @@ from libtv_agent.db import Database
 from libtv_agent.logging_config import configure_logging
 from libtv_agent.services.analysis_lifecycle import recover_stale_analyses
 from libtv_agent.services.credentials import load_admin_credentials
+from libtv_agent.services.feedback_learning import recover_feedback_learning_jobs
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
     load_kling_admin_config,
@@ -142,6 +143,28 @@ async def _shutdown_subject_element_jobs(app: FastAPI) -> None:
                 job.exception()
 
 
+async def _shutdown_feedback_learning_jobs(app: FastAPI) -> None:
+    jobs = set(app.state.feedback_learning_jobs)
+    if not jobs:
+        return
+    grace = app.state.settings.analysis_shutdown_grace_seconds
+    done, pending = await asyncio.wait(jobs, timeout=grace)
+    for job in pending:
+        job.cancel()
+    if pending:
+        cancelled, still_pending = await asyncio.wait(pending, timeout=grace)
+        done |= cancelled
+        if still_pending:
+            logger.error(
+                "feedback learning jobs ignored cancellation during shutdown",
+                extra={"pending_feedback_learning_jobs": len(still_pending)},
+            )
+    for job in done:
+        if not job.cancelled():
+            with suppress(Exception):
+                job.exception()
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.validate_shared_environment()
@@ -165,6 +188,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             # Database readiness remains the health endpoint's responsibility.
             logger.exception("reusable Kling subject job recovery failed")
+        try:
+            recovered_feedback_jobs = await recover_feedback_learning_jobs(app)
+            if recovered_feedback_jobs:
+                logger.info(
+                    "recovered feedback learning jobs",
+                    extra={"recovered_feedback_learning_jobs": recovered_feedback_jobs},
+                )
+        except Exception:
+            logger.exception("feedback learning job recovery failed")
         if app_settings.kling_enabled:
             try:
                 availability = await app.state.kling_adapter.check_availability()
@@ -189,6 +221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await _shutdown_analysis_jobs(app)
             await _shutdown_confirmation_jobs(app)
             await _shutdown_subject_element_jobs(app)
+            await _shutdown_feedback_learning_jobs(app)
             recovery_task.cancel()
             try:
                 await recovery_task
@@ -214,6 +247,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.confirmation_jobs = set()
     app.state.subject_element_jobs = set()
     app.state.subject_element_job_keys = set()
+    app.state.feedback_learning_jobs = set()
+    app.state.feedback_learning_job_keys = set()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.app_public_origins,

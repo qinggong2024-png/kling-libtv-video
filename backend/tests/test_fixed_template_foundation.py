@@ -292,22 +292,21 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
     assert len(compiled.shot_instructions) == 3
     assert all(shot.instruction in compiled.master_prompt for shot in compiled.shot_instructions)
     assert "时间轴：" in compiled.master_prompt
-    assert "0-3.33秒（输入图1）" in compiled.master_prompt
-    assert "3.33-6.67秒（输入图2）" in compiled.master_prompt
-    assert "6.67-10秒（输入图3）" in compiled.master_prompt
+    assert "0-3.33秒/图1" in compiled.master_prompt
+    assert "3.33-6.67秒/图2" in compiled.master_prompt
+    assert "6.67-10秒/图3" in compiled.master_prompt
     assert "动作" in compiled.master_prompt
     assert "镜头" in compiled.master_prompt
     assert "切镜" in compiled.master_prompt
-    assert "保持人物身份、面部特征和体型一致" in compiled.master_prompt
-    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
-    assert "布料真实的厚度、重量、体积、垂坠、褶皱、包裹关系与接触阴影" in compiled.master_prompt
-    assert "避免服装出现贴图感、漂浮感和不自然反光" in compiled.master_prompt
-    assert "场景、背景陈设和光线条件不变" in compiled.master_prompt
-    assert "分镜结构、镜头对应关系及素材先后顺序" in compiled.master_prompt
-    assert "皮肤保留真实纹理和自然细节" in compiled.master_prompt
-    assert "避免过度磨皮、塑料感和蜡感" in compiled.master_prompt
-    assert "真实日常UGC记录感" in compiled.master_prompt
-    assert "不呈现精修商业广告感" in compiled.master_prompt
+    assert "人物身份、面部特征和体型一致" in compiled.master_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字不变" in compiled.master_prompt
+    assert "布料厚度、重量、体积、垂坠、褶皱及接触阴影真实" in compiled.master_prompt
+    assert "服装贴图、漂浮或异常反光" in compiled.master_prompt
+    assert "场景、陈设和光线" in compiled.master_prompt
+    assert "按输入分镜顺序执行" in compiled.master_prompt
+    assert "真实皮肤与布料" in compiled.master_prompt
+    assert "不过度磨皮" in compiled.master_prompt
+    assert "精修广告感" in compiled.master_prompt
     assert "发型" not in compiled.master_prompt
     assert "五官" not in compiled.master_prompt
     assert "背景里" not in compiled.master_prompt
@@ -332,7 +331,7 @@ def test_prompt_compiler_injects_site_style_without_rewriting_image_facts() -> N
     assert compiled.site_profile_id == "classyoutlaw"
     assert compiled.site_profile_version == profile.version
     assert "叛逆、超现实、强图形" in compiled.master_prompt
-    assert profile.expression_language.rstrip("。；") in compiled.master_prompt
+    assert profile.expression_language.split("；", 1)[0] in compiled.master_prompt
     assert "肩胯错位停格" in compiled.master_prompt
     assert "身体变形" in compiled.negative_prompt
     assert "发型" not in compiled.master_prompt
@@ -371,7 +370,7 @@ def test_site_style_does_not_inject_unverified_shots_or_product_faces() -> None:
         )
     )
 
-    assert "站点表达只作用于已有素材支持" in compiled.master_prompt
+    assert "仅采用输入支持的动作，不新增场景、道具或商品面" in compiled.master_prompt
     assert "视频结构：" not in compiled.master_prompt
     assert "优先镜头：" not in compiled.master_prompt
     assert "商品呈现重点：" not in compiled.master_prompt
@@ -427,7 +426,7 @@ def test_variants_have_limited_differences_without_changing_invariants() -> None
     assert len(normalized_prompts) == 1
     for item in variants:
         modifier = str(item.variant_seed["modifier"])
-        assert all(label in modifier for label in ("动作变化：", "神态变化：", "视频风格变化："))
+        assert all(label in modifier for label in ("动作：", "神态（面部清晰时）：", "呈现："))
         assert "节奏变化：" not in modifier
         assert "自行调整" not in modifier
         assert "轻微动作组合" not in modifier
@@ -455,6 +454,29 @@ def test_all_production_prompt_combinations_fit_kling_limit() -> None:
                     )
                 )
                 assert len(compiled.master_prompt) <= 3072
+
+
+def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None:
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("ootd_walk"),
+            storyboard_count=1,
+            result_count=2,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=2,
+            duration_seconds=8,
+            site_profile=get_site_style_profile("geeksoutfit"),
+        )
+    )
+
+    assert len(compiled.master_prompt) <= 800
+    assert compiled.master_prompt.count("声音、字幕") == 1
+    assert "分镜1：" not in compiled.master_prompt
+    assert "切镜：" not in compiled.master_prompt
+    assert "站点表达只作用于" not in compiled.master_prompt
+    assert "本结果差异" not in compiled.master_prompt
 
 
 def test_restricted_site_profile_cannot_enter_production() -> None:
@@ -815,8 +837,8 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             assert len(task["compiledPlan"]["variants"]) == result_count
             for compiled_variant in task["compiledPlan"]["variants"]:
                 prompt = compiled_variant["master_prompt"]
-                assert "所有未明确允许变化的输入事实保持不变" in prompt
-                assert "当前结果相对输入只允许改变动作细节、神态和拍摄表达" in prompt
+                assert "其余输入事实不变" in prompt
+                assert "仅改变动作细节、神态和拍摄表达" in prompt
                 assert "本次生成的" not in prompt
                 assert "四个版本" not in prompt
             assert task["materialValidation"]["valid"] is True
@@ -888,8 +910,7 @@ async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_co
     assert task["compiledPlan"]["userPrompt"] == user_prompt
     assert len(task["variants"]) == 2
     assert {variant["promptText"] for variant in task["variants"]} == {
-        f"{user_prompt} Reference roles: @image_1 are ordered storyboards and control "
-        "scene, action, composition, and camera order."
+        f"{user_prompt} 素材角色：@image_1为按序分镜，决定场景、动作、构图与镜头顺序。"
     }
     assert all(
         variant["promptText"].startswith(user_prompt)
@@ -1150,7 +1171,7 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
     assert all(asset.used_for_generation for asset in assets)
     assert all(not asset.used_for_analysis for asset in assets)
     assert "@image_1" in variants[0].prompt_text
-    assert "@image_2 is the subject frontal reference" in variants[0].prompt_text
+    assert "@image_2为人物正面参考" in variants[0].prompt_text
     assert len(adapter.created) == 1
     assert adapter.calls == 2
     assert adapter.created[0].element_name.startswith("linen-shirt-")

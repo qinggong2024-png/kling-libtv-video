@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     analysis_recovery_poll_seconds: float = Field(default=30.0, gt=0, le=300)
     analysis_shutdown_grace_seconds: float = Field(default=15.0, gt=0, le=300)
     materialization_stale_after_seconds: float = Field(default=300.0, gt=0, le=3600)
+    feedback_learning_enabled: bool = True
+    feedback_learning_llm_enabled: bool = True
+    feedback_learning_max_history: int = Field(default=40, ge=1, le=200)
+    feedback_learning_max_attempts: int = Field(default=3, ge=1, le=10)
     ai_adapter_mode: Literal["fake", "replay", "openai"] = "fake"
     ai_replay_fixture: Path = Path("backend/tests/fixtures/ai/analysis.json")
 

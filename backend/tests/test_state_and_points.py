@@ -10,6 +10,7 @@ from libtv_agent.domain.enums import (
     DownloadStatus,
     GenerationStatus,
     ParentTaskPhase,
+    QualityDecisionStatus,
     ReservationStatus,
     ValidationStatus,
 )
@@ -53,26 +54,38 @@ def test_parent_phase_stays_generating_until_every_variant_is_terminal() -> None
         generation_status=GenerationStatus.SUCCEEDED,
         download_status=DownloadStatus.READY,
         validation_status=ValidationStatus.PASSED,
+        final_approval_status=QualityDecisionStatus.PENDING,
     )
     running = SimpleNamespace(
         generation_status=GenerationStatus.RUNNING,
         download_status=DownloadStatus.NOT_READY,
         validation_status=ValidationStatus.NOT_READY,
+        final_approval_status=QualityDecisionStatus.PENDING,
     )
     failed = SimpleNamespace(
         generation_status=GenerationStatus.FAILED,
         download_status=DownloadStatus.NOT_READY,
         validation_status=ValidationStatus.NOT_READY,
+        final_approval_status=QualityDecisionStatus.PENDING,
     )
     unknown = SimpleNamespace(
         generation_status=GenerationStatus.UNKNOWN,
         download_status=DownloadStatus.NOT_READY,
         validation_status=ValidationStatus.NOT_READY,
+        final_approval_status=QualityDecisionStatus.PENDING,
+    )
+    approved = SimpleNamespace(
+        generation_status=GenerationStatus.SUCCEEDED,
+        download_status=DownloadStatus.READY,
+        validation_status=ValidationStatus.PASSED,
+        final_approval_status=QualityDecisionStatus.APPROVED,
     )
 
     assert aggregate_parent_phase([ready, running]) == ParentTaskPhase.GENERATING
-    assert aggregate_parent_phase([ready, failed]) == ParentTaskPhase.PARTIALLY_DELIVERABLE
-    assert aggregate_parent_phase([ready, ready]) == ParentTaskPhase.DELIVERABLE
+    assert aggregate_parent_phase([ready, failed]) == ParentTaskPhase.ACTION_REQUIRED
+    assert aggregate_parent_phase([approved, failed]) == ParentTaskPhase.PARTIALLY_DELIVERABLE
+    assert aggregate_parent_phase([ready, ready]) == ParentTaskPhase.AWAITING_FINAL_APPROVAL
+    assert aggregate_parent_phase([approved, approved]) == ParentTaskPhase.DELIVERABLE
     assert aggregate_parent_phase([failed, failed]) == ParentTaskPhase.ACTION_REQUIRED
     assert aggregate_parent_phase([unknown, running]) == ParentTaskPhase.ACTION_REQUIRED
 

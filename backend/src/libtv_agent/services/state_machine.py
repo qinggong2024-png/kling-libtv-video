@@ -7,6 +7,7 @@ from libtv_agent.domain.enums import (
     DownloadStatus,
     GenerationStatus,
     ParentTaskPhase,
+    QualityDecisionStatus,
     ValidationStatus,
 )
 from libtv_agent.domain.models import GenerationAttempt, ParentTask
@@ -24,18 +25,24 @@ class VariantDeliveryState(Protocol):
     generation_status: GenerationStatus
     download_status: DownloadStatus
     validation_status: ValidationStatus
+    final_approval_status: QualityDecisionStatus
 
 
 def aggregate_parent_phase(
     variants: Sequence[VariantDeliveryState],
 ) -> ParentTaskPhase:
     """Derive the parent phase without treating an intermediate result as task completion."""
-    deliverable = [
+    technically_valid = [
         item
         for item in variants
         if item.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
         and item.download_status == DownloadStatus.READY
         and item.validation_status in {ValidationStatus.PASSED, ValidationStatus.WARNING}
+    ]
+    deliverable = [
+        item
+        for item in technically_valid
+        if item.final_approval_status == QualityDecisionStatus.APPROVED
     ]
     if variants and len(deliverable) == len(variants):
         return ParentTaskPhase.DELIVERABLE
@@ -54,6 +61,44 @@ def aggregate_parent_phase(
             ParentTaskPhase.PARTIALLY_DELIVERABLE
             if deliverable
             else ParentTaskPhase.ACTION_REQUIRED
+        )
+
+    awaiting_approval = [
+        item
+        for item in technically_valid
+        if item.final_approval_status == QualityDecisionStatus.PENDING
+    ]
+    rejected = [
+        item
+        for item in technically_valid
+        if item.final_approval_status == QualityDecisionStatus.REJECTED
+    ]
+    if rejected:
+        return (
+            ParentTaskPhase.PARTIALLY_DELIVERABLE
+            if deliverable
+            else ParentTaskPhase.ACTION_REQUIRED
+        )
+    active = [
+        item
+        for item in variants
+        if item.generation_status in {GenerationStatus.PENDING, GenerationStatus.RUNNING}
+        or item.download_status
+        in {DownloadStatus.NOT_READY, DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING}
+        or item.validation_status
+        in {
+            ValidationStatus.NOT_READY,
+            ValidationStatus.TECHNICAL_CHECKING,
+            ValidationStatus.AI_CHECKING,
+        }
+    ]
+    if active:
+        return ParentTaskPhase.GENERATING
+    if awaiting_approval:
+        return (
+            ParentTaskPhase.PARTIALLY_DELIVERABLE
+            if deliverable
+            else ParentTaskPhase.AWAITING_FINAL_APPROVAL
         )
 
     # Pending generation, download, or validation work keeps the whole task active.

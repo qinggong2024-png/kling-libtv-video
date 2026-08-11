@@ -42,6 +42,7 @@ import {
   WandSparkles,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -52,6 +53,7 @@ import {
   analyzeTask,
   cancelTask,
   changePassword,
+  clearPersonalVideoLearning,
   confirmTask,
   createAdminUser,
   createVideoTask,
@@ -81,6 +83,7 @@ import {
   getWaveSpeedConfig,
   getOperations,
   getPersonalPromptAutoConfirmation,
+  getPersonalVideoLearning,
   updateAdminCredentials,
   updateKlingConfig,
   refreshKlingCapabilities,
@@ -93,10 +96,12 @@ import {
   saveTaskPrompts,
   setPromptAutoConfirmation,
   setPersonalPromptAutoConfirmation,
+  setPersonalVideoLearning,
+  setVariantFinalApproval,
   setVariantFeedback,
 } from './api'
 import { mapWithConcurrency } from './concurrency'
-import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoTemplateSummary, WaveSpeedConfig } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, FeedbackValue, KlingConfig, KlingElement, KlingStatus, MotionActionSummary, SiteStyleProfileSummary, StatusTone, SystemStatus, Task, Variant, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig } from './types'
 import { CustomPromptField } from './CustomPromptField'
 import { ErrorBoundary } from './ErrorBoundary'
 import { GenerationFeedbackPanel } from './GenerationFeedback'
@@ -157,8 +162,8 @@ import { loadVideoComposerSettings, saveVideoComposerSettings } from './videoCom
 type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type UploadBucket = 'storyboard' | 'product'
-type Material = { id: string; file: File }
-type RemixSeed = { id: string; storyboards: File[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
+type Material = { id: string; file: File; sourceImageOutputId?: string }
+type RemixSeed = { id: string; storyboards: File[]; storyboardOutputIds?: string[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
 type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 type InPageTaskToast = {
   id: string
@@ -213,7 +218,7 @@ async function imageCenterOutputFile(
 }
 
 const ACTIVE_PHASES = new Set(['DRAFT', 'ANALYZING', 'PREPARING', 'WAITING_FOR_SEAL', 'QUEUED', 'GENERATING', 'DOWNLOADING', 'VALIDATING'])
-const RESULT_PHASES = new Set(['DELIVERABLE', 'PARTIALLY_DELIVERABLE'])
+const RESULT_PHASES = new Set(['AWAITING_FINAL_APPROVAL', 'DELIVERABLE', 'PARTIALLY_DELIVERABLE'])
 const COMPLETED_PHASES = new Set(['DELIVERABLE'])
 const TERMINAL_PHASES = new Set(['DELIVERABLE', 'PARTIALLY_DELIVERABLE', 'ACTION_REQUIRED', 'CANCELLED'])
 
@@ -741,7 +746,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   actorId: string | null
 }) {
   const [storedSettings] = useState(() => loadVideoComposerSettings(localStorage))
-  const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file) => ({ id: createUuid(), file })) ?? [])
+  const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file, index) => ({ id: createUuid(), file, sourceImageOutputId: seed.storyboardOutputIds?.[index] })) ?? [])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
   const [profiles, setProfiles] = useState<SiteStyleProfileSummary[]>([])
   const [elements, setElements] = useState<KlingElement[]>([])
@@ -900,9 +905,9 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       let completedUploads = 0
       const subjectReferences = subjectMode === 'upload' ? buildSubjectImageReferences(subjectFiles) : []
       const uploadCount = storyboards.length + subjectReferences.length
-      const uploadOne = async (file: File, label: string) => {
+      const uploadOne = async (file: File, label: string, sourceImageOutputId?: string) => {
         try {
-          const uploaded = await uploadStoryboard(file, uploadController.signal)
+          const uploaded = await uploadStoryboard(file, uploadController.signal, sourceImageOutputId)
           completedUploads += 1
           setStage(`正在上传${label} ${completedUploads}/${uploadCount}`)
           setProgress(Math.round((completedUploads / uploadCount) * 52))
@@ -919,7 +924,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         mapWithConcurrency(
           storyboards,
           UPLOAD_CONCURRENCY,
-          (material) => uploadOne(material.file, '分镜与主体素材'),
+          (material) => uploadOne(material.file, '分镜与主体素材', material.sourceImageOutputId),
         ),
         mapWithConcurrency(
           subjectReferences,
@@ -1103,14 +1108,17 @@ function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen: () => 
   const unknownVariant = task.variants.find((variant) => variant.generationStatus === 'UNKNOWN')
   const unknown = Boolean(unknownVariant)
   const isWaiting = task.phase === 'AWAITING_CONFIRMATION'
+  const isFinalApproval = task.phase === 'AWAITING_FINAL_APPROVAL'
   const reason = task.phase === 'AWAITING_CONFIRMATION'
     ? '等待确认视频动作方案'
+    : isFinalApproval
+      ? '技术验证已完成，等待人工确认产品保真与关键质量'
     : unknown
       ? variantExecutionMessage(unknownVariant!, task.generationProvider)
       : isAnalysisFailure(task)
         ? taskFailureMessage(task)
         : '视频生成遇到问题，需要处理'
-  const action = task.phase === 'AWAITING_CONFIRMATION' ? '立即确认' : unknown ? '查询状态' : isAnalysisFailure(task) ? '重新分析' : '查看原因'
+  const action = task.phase === 'AWAITING_CONFIRMATION' ? '立即确认' : isFinalApproval ? '开始人工审核' : unknown ? '查询状态' : isAnalysisFailure(task) ? '重新分析' : '查看原因'
   return <article className="attention-item">
     <button type="button" className="attention-item-dismiss" onClick={onDismiss} aria-label={`关闭“${task.title}”的提醒`} title="关闭此提醒"><X size={16} /></button>
     <TaskThumb task={task} />
@@ -1147,6 +1155,13 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
   const [feedbackPanel, setFeedbackPanel] = useState<FeedbackValue | null>(null)
   const [downloadBusy, setDownloadBusy] = useState(false)
   const [downloadError, setDownloadError] = useState('')
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [productFidelityPass, setProductFidelityPass] = useState(false)
+  const [editingAssemblyPass, setEditingAssemblyPass] = useState(false)
+  const [humanCriticalPass, setHumanCriticalPass] = useState(false)
+  const [reviewNotes, setReviewNotes] = useState('')
+  const reviewStartedAtRef = useRef<number | null>(null)
   const feedbackAnchorRef = useRef<HTMLDivElement>(null)
   const submitFeedback = async (value: FeedbackValue) => {
     const nextValue = variant.feedback === value ? null : value
@@ -1193,6 +1208,33 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
       setDownloadBusy(false)
     }
   }
+  const openReview = () => {
+    reviewStartedAtRef.current = performance.now()
+    setReviewOpen(true)
+    setFeedbackMessage('')
+  }
+  const submitFinalApproval = async (decision: 'APPROVED' | 'REJECTED') => {
+    setReviewBusy(true)
+    setFeedbackMessage('')
+    try {
+      const startedAt = reviewStartedAtRef.current ?? performance.now() - 1000
+      const changed = await setVariantFinalApproval(task.id, variant.id, {
+        decision,
+        productFidelityPass,
+        editingAssemblyPass,
+        humanCriticalPass,
+        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
+        notes: reviewNotes.trim() || null,
+      })
+      onFeedbackChanged(changed)
+      setReviewOpen(false)
+      setFeedbackMessage(decision === 'APPROVED' ? '最终审核通过，已进入正式交付集合' : '已拒绝交付并保存质量 Ground Truth')
+    } catch (cause) {
+      setFeedbackMessage(cause instanceof Error ? cause.message : '最终审核提交失败，请重试')
+    } finally {
+      setReviewBusy(false)
+    }
+  }
   return <article className={`result-card${feedbackPanel ? ' has-feedback-panel' : ''}`}>
     <button className="result-cover" onClick={ready ? onPlay : onOpen} aria-label={ready ? `播放 ${task.title}` : `查看 ${task.title}`}>
       {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
@@ -1202,6 +1244,20 @@ function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged 
     </button>
     <div className="result-body"><div><strong>{task.title}</strong><span>{variantDisplayName(variant)} · {formatTime(task.updatedAt)}</span></div>
     {ready ? <div ref={feedbackAnchorRef} className="result-feedback">
+      <div className={`final-approval-status is-${variant.finalApprovalStatus?.toLowerCase() ?? 'pending'}`}>
+        <ShieldCheck size={16} />
+        <span>{variant.finalApprovalStatus === 'APPROVED' ? '已批准交付' : variant.finalApprovalStatus === 'REJECTED' ? '交付已拒绝' : '等待 Required Hard Gates 人工审核'}</span>
+        {variant.finalApprovalStatus !== 'APPROVED' ? <button type="button" className="compact-button" onClick={openReview}>质量审核</button> : null}
+      </div>
+      {reviewOpen ? <section className="final-approval-panel" aria-label="最终视频质量审核">
+        <strong>最终交付审核</strong>
+        <p>技术关键项已由系统验证；请逐项核对尚未机器验证的 Required Hard Gates。</p>
+        <label><input type="checkbox" checked={productFidelityPass} onChange={(event) => setProductFidelityPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构与源素材一致</label>
+        <label><input type="checkbox" checked={editingAssemblyPass} onChange={(event) => setEditingAssemblyPass(event.target.checked)} />成片已真实完成所需镜头剪辑／组装，不是单段占位结果</label>
+        <label><input type="checkbox" checked={humanCriticalPass} onChange={(event) => setHumanCriticalPass(event.target.checked)} />人物、手脸、动作、镜头与成片观感无关键缺陷</label>
+        <label><span>审核备注（可选）</span><textarea value={reviewNotes} maxLength={500} onChange={(event) => setReviewNotes(event.target.value)} /></label>
+        <div><button type="button" className="secondary-button" disabled={reviewBusy} onClick={() => void submitFinalApproval('REJECTED')}>拒绝交付</button><button type="button" className="primary-button" disabled={reviewBusy || !productFidelityPass || !editingAssemblyPass || !humanCriticalPass} onClick={() => void submitFinalApproval('APPROVED')}>{reviewBusy ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}批准交付</button></div>
+      </section> : null}
       <span className="feedback-copy" aria-live="polite">{feedbackMessage || (variant.feedback ? '感谢反馈，系统会持续学习' : '这个结果怎么样？')}</span>
       <span className="feedback-buttons">
         <button className={`feedback-button${variant.feedback === 'LIKE' ? ' is-selected is-positive' : ''}${animatedFeedback === 'LIKE' ? ' is-animating' : ''}`} disabled={feedbackBusy !== null} onClick={() => void submitFeedback('LIKE')} aria-label={variant.feedback === 'LIKE' ? '取消点赞' : '点赞此视频'} aria-pressed={variant.feedback === 'LIKE'} title="点赞"><span>{feedbackBusy === 'LIKE' ? <LoaderCircle className="spin" size={17} /> : <ThumbsUp size={18} />}</span></button>
@@ -1243,10 +1299,35 @@ type AnalysisResult = {
   dynamicPlan?: VariantPlan
 }
 
+async function copyText(value: string) {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Fall through for browsers that expose the API but deny clipboard access.
+    }
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, value.length)
+  try {
+    if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected')
+  } finally {
+    textarea.remove()
+  }
+}
+
 function PromptBlock({ variant, value, disabled, dirty, onChange }: { variant: Variant; value: string; disabled: boolean; dirty: boolean; onChange: (value: string) => void }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1600)
   }
@@ -1378,17 +1459,21 @@ function HistoricalPrompt({
   variant: Variant
   selected: boolean
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const copy = async () => {
-    await navigator.clipboard.writeText(variant.promptText)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1600)
+    try {
+      await copyText(variant.promptText)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('failed')
+    }
+    window.setTimeout(() => setCopyStatus('idle'), 1600)
   }
   return <article className={`history-prompt${selected ? ' is-selected' : ''}`}>
     <header>
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
       <span><strong>{variantDisplayName(variant)}</strong><small>{task.workflowKind === 'FIXED_TEMPLATE' ? task.settings?.generationMode === 'custom' ? '自定义直达快照' : '自动化编译快照' : selected ? '将复用此提示词' : '本次不复用'}</small></span>
-      <button className="compact-button" type="button" onClick={() => void copy()}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? '已复制' : '复制'}</button>
+      <button className="compact-button" type="button" onClick={() => void copy()} aria-live="polite">{copyStatus === 'copied' ? <Check size={15} /> : <Copy size={15} />}{copyStatus === 'copied' ? '已复制' : copyStatus === 'failed' ? '复制失败' : '复制'}</button>
     </header>
     <p>{variant.promptText}</p>
   </article>
@@ -1618,7 +1703,7 @@ function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPla
 }
 
 function HomeView({ tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged }: { tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void }) {
-  const actionableTasks = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
+  const actionableTasks = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'AWAITING_FINAL_APPROVAL' || task.phase === 'ACTION_REQUIRED' || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
     task.phaseReasonCode ?? '',
@@ -2434,6 +2519,94 @@ function PersonalPromptConfirmationSetting() {
   </section>
 }
 
+function PersonalVideoLearningSetting() {
+  const [preference, setPreference] = useState<VideoLearningPreference | null>(null)
+  const [busy, setBusy] = useState<'load' | 'toggle' | 'clear' | null>('load')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    setBusy('load')
+    try {
+      setPreference(await getPersonalVideoLearning())
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '无法读取成片学习设置')
+    } finally {
+      setBusy(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
+
+  const toggle = async (enabled: boolean) => {
+    setBusy('toggle')
+    setError('')
+    setNotice('')
+    try {
+      const next = await setPersonalVideoLearning(enabled)
+      setPreference(next)
+      setNotice(enabled ? '后续自动生成会应用你的成片偏好。' : '已暂停应用，已有记忆仍保留。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '成片学习设置保存失败')
+      await load()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const clear = async () => {
+    if (!window.confirm('确定清空你的全部成片反馈和已学习偏好吗？此操作无法撤销。')) return
+    setBusy('clear')
+    setError('')
+    setNotice('')
+    try {
+      await clearPersonalVideoLearning()
+      setPreference((current) => current ? {
+        ...current,
+        feedbackCount: 0,
+        scopeCount: 0,
+        summary: '尚未积累可应用的成片反馈',
+        updatedAt: null,
+      } : current)
+      setNotice('成片反馈记忆已清空。')
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : '成片反馈记忆清空失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const enabled = preference?.enabled ?? false
+  const learned = (preference?.feedbackCount ?? 0) > 0
+  return <section className="settings-section video-learning-section">
+    <div className="settings-section-heading">
+      <div><span>个性化生成</span><h2>根据成片反馈持续学习</h2><p>{preference?.summary ?? '正在读取个人成片偏好'}</p></div>
+      <div className="prompt-confirmation-control">
+        <span className={`prompt-confirmation-state${enabled ? ' is-active' : ''}`}>{busy === 'load' ? '读取中' : enabled ? '已开启' : '已关闭'}</span>
+        <label className="settings-switch" title="根据成片反馈持续学习">
+          <input type="checkbox" checked={enabled} disabled={busy !== null || !preference} aria-label="根据成片反馈持续学习" onChange={(event) => void toggle(event.target.checked)} />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+    </div>
+    <div className="video-learning-details">
+      <div className="video-learning-stats" aria-label="个人成片学习统计">
+        <span><strong>{preference?.feedbackCount ?? 0}</strong>条反馈</span>
+        <span><strong>{preference?.scopeCount ?? 0}</strong>个生成风格</span>
+      </div>
+      <button className="danger-button" type="button" disabled={busy !== null || !learned} onClick={() => void clear()}>{busy === 'clear' ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}{busy === 'clear' ? '正在清空' : '清空反馈记忆'}</button>
+    </div>
+    <div className="prompt-confirmation-feedback" aria-live="polite">
+      {notice ? <p><CheckCircle2 size={15} />{notice}</p> : null}
+      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{error}</div> : null}
+    </div>
+  </section>
+}
+
 function PersonalPasswordSetting() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -2497,6 +2670,7 @@ function SettingsView({
   }, [])
   return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>偏好设置</h1><p>这里只保留会影响你个人工作流的选项；生成模型、API 通道与固定生产规格由管理员统一维护。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}</div></div>
     {system?.sharedAuthentication ? <PersonalPasswordSetting /> : null}
+    <PersonalVideoLearningSetting />
     <PersonalPromptConfirmationSetting />
     <BrowserNotificationSetting
       enabled={browserNotificationsEnabled}
@@ -3282,7 +3456,7 @@ function App() {
             ? task.product.back
             : storyboards[0]
         if (!selectedSubject) throw new Error(`“${task.outfitName}”缺少可用主体图。`)
-        return createImageCenterVideoSeed(task, storyboards, selectedSubject, createUuid())
+        return createImageCenterVideoSeed(task, storyboards, outputs.slice(0, 6).map((output) => output.id), selectedSubject, createUuid())
       }))
       pendingImageVideoSeedsRef.current = seeds.slice(1)
       pendingImageSelectionClearRef.current = onSubmitted

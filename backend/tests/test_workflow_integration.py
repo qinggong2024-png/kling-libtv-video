@@ -718,12 +718,42 @@ async def test_complete_fake_flow_is_deliverable_and_idempotent(tmp_path: Path) 
         )
         assert response.status_code == 200, response.text
         completed = response.json()
-        assert completed["phase"] == "DELIVERABLE"
+        assert completed["phase"] == "AWAITING_FINAL_APPROVAL"
         assert {variant["kind"] for variant in completed["variants"]} == {
             "STABLE",
             "DYNAMIC",
         }
         assert all(variant["downloadStatus"] == "READY" for variant in completed["variants"])
+        blocked_approval = await client.put(
+            f"/api/v1/tasks/{task['id']}/variants/{completed['variants'][0]['id']}/final-approval",
+            headers=user_headers(),
+            json={
+                "decision": "APPROVED",
+                "productFidelityPass": True,
+                "editingAssemblyPass": False,
+                "humanCriticalPass": True,
+                "humanReviewSeconds": 3,
+            },
+        )
+        assert blocked_approval.status_code == 422
+        for index, variant in enumerate(completed["variants"]):
+            approval = await client.put(
+                f"/api/v1/tasks/{task['id']}/variants/{variant['id']}/final-approval",
+                headers=user_headers(),
+                json={
+                    "decision": "APPROVED",
+                    "productFidelityPass": True,
+                    "editingAssemblyPass": True,
+                    "humanCriticalPass": True,
+                    "humanReviewSeconds": 12,
+                    "notes": "pilot ground truth",
+                },
+            )
+            assert approval.status_code == 200, approval.text
+            completed = approval.json()
+            assert completed["phase"] == (
+                "PARTIALLY_DELIVERABLE" if index < len(completed["variants"]) - 1 else "DELIVERABLE"
+            )
         completed_timings = {stage["key"]: stage for stage in completed["timing"]["stages"]}
         assert completed_timings["MATERIALIZATION"]["status"] == "COMPLETED"
         assert completed_timings["GENERATION"]["status"] == "COMPLETED"
@@ -773,7 +803,7 @@ async def test_single_output_flow_only_generates_the_requested_variant(
 
         assert response.status_code == 200, response.text
         completed = response.json()
-        assert completed["phase"] == "DELIVERABLE"
+        assert completed["phase"] == "AWAITING_FINAL_APPROVAL"
         assert [item["kind"] for item in completed["variants"]] == [variant]
         assert completed["variants"][0]["downloadStatus"] == "READY"
         async with app.state.database.session_factory() as session:
@@ -831,6 +861,21 @@ async def test_completed_task_reuse_clones_assets_and_only_selected_prompts(
         )
         assert completed_response.status_code == 200, completed_response.text
         completed = completed_response.json()
+        for item in completed["variants"]:
+            approval = await client.put(
+                f"/api/v1/tasks/{completed['id']}/variants/{item['id']}/final-approval",
+                headers=user_headers(),
+                json={
+                    "decision": "APPROVED",
+                    "productFidelityPass": True,
+                    "editingAssemblyPass": True,
+                    "humanCriticalPass": True,
+                    "humanReviewSeconds": 5,
+                },
+            )
+            assert approval.status_code == 200, approval.text
+            completed = approval.json()
+        assert completed["phase"] == "DELIVERABLE"
         source_dynamic = next(item for item in completed["variants"] if item["kind"] == "DYNAMIC")
 
         payload = {
@@ -872,7 +917,7 @@ async def test_completed_task_reuse_clones_assets_and_only_selected_prompts(
         )
         assert confirmed_response.status_code == 200, confirmed_response.text
         confirmed = confirmed_response.json()
-        assert confirmed["phase"] == "DELIVERABLE"
+        assert confirmed["phase"] == "AWAITING_FINAL_APPROVAL"
         assert [item["kind"] for item in confirmed["variants"]] == ["DYNAMIC"]
 
 
@@ -1016,7 +1061,7 @@ async def test_unknown_is_reconciled_read_only_without_resubmit(tmp_path: Path) 
             )
         assert reconciled_attempts == 2
         final = await client.get(f"/api/v1/tasks/{task['id']}", headers=user_headers())
-        assert final.json()["phase"] == "DELIVERABLE"
+        assert final.json()["phase"] == "AWAITING_FINAL_APPROVAL"
         async with app.state.database.session_factory() as session:
             assert await session.scalar(select(func.count()).select_from(GenerationCommand)) == 2
 
@@ -1031,12 +1076,12 @@ async def test_partial_success_and_materialization_fault(tmp_path: Path) -> None
             json={"expectedStateVersion": task["stateVersion"]},
         )
         assert response.status_code == 200
-        assert response.json()["phase"] == "PARTIALLY_DELIVERABLE"
+        assert response.json()["phase"] == "ACTION_REQUIRED"
         assert [variant["generationStatus"] for variant in response.json()["variants"]].count(
             "SUCCEEDED"
         ) == 1
         partial_timings = {stage["key"]: stage for stage in response.json()["timing"]["stages"]}
-        assert partial_timings["DOWNLOAD"]["status"] == "COMPLETED"
+        assert partial_timings["DOWNLOAD"]["status"] == "FAILED"
 
     async with running_app(tmp_path / "materialize", "upload_fail_1") as (client, _):
         task = await create_analyzed_task(client, colors=["#113355"])
@@ -1123,8 +1168,8 @@ async def test_batch_confirmation_and_remote_restore_do_not_recharge(tmp_path: P
         assert batch["failedCount"] == 0
         confirmed_tasks = [result["task"] for result in batch["results"]]
         assert [task["phase"] for task in confirmed_tasks] == [
-            "DELIVERABLE",
-            "DELIVERABLE",
+            "AWAITING_FINAL_APPROVAL",
+            "AWAITING_FINAL_APPROVAL",
         ]
 
         stable = next(
@@ -1171,7 +1216,7 @@ async def test_batch_confirmation_and_remote_restore_do_not_recharge(tmp_path: P
         )
         assert restored.status_code == 200, restored.text
         refreshed = await client.get(f"/api/v1/tasks/{first['id']}", headers=user_headers())
-        assert refreshed.json()["phase"] == "DELIVERABLE"
+        assert refreshed.json()["phase"] == "AWAITING_FINAL_APPROVAL"
         async with app.state.database.session_factory() as session:
             ledger_after = await session.scalar(select(func.count()).select_from(PointsLedger))
             artifact_count = await session.scalar(
@@ -1254,7 +1299,7 @@ async def test_new_supervisor_resumes_ready_commands_after_api_restart(
             transport=ASGITransport(app=restarted), base_url="http://test"
         ) as client:
             response = await client.get(f"/api/v1/tasks/{task_id}", headers=user_headers())
-            assert response.json()["phase"] == "DELIVERABLE"
+            assert response.json()["phase"] == "AWAITING_FINAL_APPROVAL"
 
 
 @pytest.mark.asyncio
@@ -1329,7 +1374,7 @@ async def test_materialization_retry_resumes_same_saga(tmp_path: Path) -> None:
         )
         assert recovered.status_code == 200, recovered.text
         current = await client.get(f"/api/v1/tasks/{task['id']}", headers=user_headers())
-        assert current.json()["phase"] == "DELIVERABLE"
+        assert current.json()["phase"] == "AWAITING_FINAL_APPROVAL"
         assert app.state.libtv_adapter.upload_count == 2
 
 
@@ -1343,7 +1388,7 @@ async def test_download_interruption_retries_without_new_generation(tmp_path: Pa
             json={"expectedStateVersion": task["stateVersion"]},
         )
         assert response.status_code == 200, response.text
-        assert response.json()["phase"] == "DELIVERABLE"
+        assert response.json()["phase"] == "AWAITING_FINAL_APPROVAL"
         assert app.state.libtv_adapter.run_count == 2
         assert app.state.libtv_adapter.download_count == 3
 
@@ -1361,7 +1406,7 @@ async def test_complete_synthetic_replay_flow_is_deliverable(tmp_path: Path) -> 
             json={"expectedStateVersion": task["stateVersion"]},
         )
         assert response.status_code == 200, response.text
-        assert response.json()["phase"] == "DELIVERABLE"
+        assert response.json()["phase"] == "AWAITING_FINAL_APPROVAL"
         assert all(variant["downloadStatus"] == "READY" for variant in response.json()["variants"])
 
 

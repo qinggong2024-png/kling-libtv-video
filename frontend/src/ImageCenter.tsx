@@ -8,7 +8,7 @@ import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
-import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset } from './api'
+import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset, setImageOutputQualityDecision } from './api'
 import { CustomPromptField } from './CustomPromptField'
 import {
   IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
@@ -305,11 +305,12 @@ function OutputSelectionButton({ selected, label, className, onToggle }: {
   >{selected ? <Check size={17} strokeWidth={2.6} /> : null}</button>
 }
 
-function OutputCard({ taskId, output, selected, onToggle, onPreview }: {
+function OutputCard({ taskId, output, selected, onToggle, onReject, onPreview }: {
   taskId: string
   output: ImageGenerationOutput
   selected: boolean
   onToggle: () => void
+  onReject: () => void
   onPreview: () => void
 }) {
   const download = () => {
@@ -331,6 +332,8 @@ function OutputCard({ taskId, output, selected, onToggle, onPreview }: {
       <span><strong>{output.label}</strong><small>{output.kind === 'fusion' ? '多图融合' : '分镜图'}</small></span>
     </button>
     <OutputSelectionButton selected={selected} label={output.label} className="image-output-card__selection" onToggle={onToggle} />
+    <button type="button" className="image-output-card__reject" onClick={(event) => { event.stopPropagation(); onReject() }} title="标记为不合格" aria-label={`标记${output.label}为不合格`}><X size={14} /></button>
+    <span className={`image-output-card__quality is-${(output.qualificationStatus ?? 'PENDING').toLowerCase()}`}>{output.qualificationStatus === 'QUALIFIED' ? '已合格' : output.qualificationStatus === 'REJECTED' ? '已拒绝' : '待人工审核'}</span>
     {output.url ? <button type="button" className="image-output-card__download" onClick={download} title="下载图片" aria-label={`下载${output.label}`}><Download size={14} /></button> : null}
   </article>
 }
@@ -691,12 +694,58 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
     setNotice(`已载入「${source.outfitName}」的素材与生成配置。`)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
-  const toggleOutput = (id: string) => {
+  const updateOutputQuality = (id: string, values: Partial<ImageGenerationOutput>) => {
+    updateDraft((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => ({
+        ...task,
+        outputs: task.outputs.map((output) => output.id === id ? { ...output, ...values } : output),
+      })),
+    }))
+  }
+  const toggleOutput = async (id: string) => {
     const owner = draft.tasks.find((task) => task.outputs.some((output) => output.id === id))
+    const output = owner?.outputs.find((item) => item.id === id)
+    if (!owner || !output) return
     const alreadySelected = selectedIds.has(id)
     const selectedFromOwner = owner?.outputs.filter((output) => selectedIds.has(output.id)).length ?? 0
     if (!alreadySelected && selectedFromOwner >= 6) { setNotice('每套视频最多选择 6 张分镜，另保留 1 个主体引用名额。'); return }
+    if (!alreadySelected && output.qualificationStatus !== 'QUALIFIED') {
+      const startedAt = performance.now()
+      const confirmed = window.confirm('确认该图片已人工核对：商品颜色、图案、Logo、文字和服装结构一致，且人物与画面无关键缺陷？')
+      if (!confirmed) return
+      try {
+        const result = await setImageOutputQualityDecision(output.id, {
+          decision: 'QUALIFIED',
+          productFidelityPass: true,
+          humanCriticalPass: true,
+          humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
+        })
+        updateOutputQuality(id, result)
+      } catch (cause) {
+        setNotice(cause instanceof Error ? cause.message : '图片质量审核保存失败')
+        return
+      }
+    }
     updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.includes(id) ? current.selectedOutputIds.filter((item) => item !== id) : [...current.selectedOutputIds, id] }))
+  }
+  const rejectOutput = async (id: string) => {
+    const output = draft.tasks.flatMap((task) => task.outputs).find((item) => item.id === id)
+    if (!output || !window.confirm('确认将该图片标记为不合格，并禁止进入视频生成？')) return
+    const startedAt = performance.now()
+    try {
+      const result = await setImageOutputQualityDecision(output.id, {
+        decision: 'REJECTED',
+        productFidelityPass: false,
+        humanCriticalPass: false,
+        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
+        notes: 'Operator rejected candidate asset',
+      })
+      updateOutputQuality(id, result)
+      updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((item) => item !== id) }))
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : '图片拒绝决定保存失败')
+    }
   }
   const placeOutput = (taskId: string, outputId: string, beforeOutputId?: string) => {
     const owner = draft.tasks.find((task) => task.id === taskId && task.outputs.some((output) => output.id === outputId))
@@ -724,6 +773,10 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
     if (preparingVideos) return
     const selectedTasks = getOrderedSelectedTasks(draft.tasks, draft.selectedOutputIds)
     if (!selectedTasks.length) return
+    if (selectedTasks.some(({ outputs }) => outputs.some((output) => output.qualificationStatus !== 'QUALIFIED'))) {
+      setNotice('只有已完成人工 Required Hard Gates 审核并标记为合格的图片才能进入视频生成。')
+      return
+    }
     const preparedOutputIds = new Set(selectedTasks.flatMap(({ outputs }) => outputs.map((output) => output.id)))
     setPreparingVideos(true)
     try {
@@ -790,7 +843,7 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = taskStatusPresentation[task.status]
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
-        return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => toggleOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
+        return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => void toggleOutput(output.id)} onReject={() => void rejectOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
       })}</div>}
     </section>}
     {active && draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">

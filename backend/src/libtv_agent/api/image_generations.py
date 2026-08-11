@@ -6,12 +6,15 @@ import io
 import re
 import tempfile
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.domain.enums import QualityDecisionStatus
+from libtv_agent.domain.models import AuditEvent
 from libtv_agent.services.image_generations import (
     ImageBatchConflictError,
     ImageItemSpec,
@@ -68,6 +71,22 @@ FUSION_INFERRED_BACK_LOCK = (
 
 class ManifestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ImageQualityDecisionRequest(ManifestModel):
+    decision: Literal["QUALIFIED", "REJECTED"]
+    product_fidelity_pass: bool = Field(alias="productFidelityPass")
+    human_critical_pass: bool = Field(alias="humanCriticalPass")
+    human_review_seconds: float = Field(alias="humanReviewSeconds", gt=0, le=28_800)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> ImageQualityDecisionRequest:
+        gates_pass = self.product_fidelity_pass and self.human_critical_pass
+        if (self.decision == "QUALIFIED") != gates_pass:
+            raise ValueError("QUALIFIED requires every human Required Hard Gate to pass")
+        self.notes = " ".join((self.notes or "").split()).strip() or None
+        return self
 
 
 class ReferenceRole(ManifestModel):
@@ -214,8 +233,7 @@ def _expand_manifest(manifest: ImageBatchManifest, file_count: int) -> list[Imag
                     "front",
                     "正面融合图",
                     (references["model.front"], references["product.front"]),
-                    "当前生成正面融合图：图一为人物正面，图二为球衣正面。"
-                    f"{FUSION_SOURCE_LOCK}",
+                    f"当前生成正面融合图：图一为人物正面，图二为球衣正面。{FUSION_SOURCE_LOCK}",
                 )
             ]
             if _generate_back(manifest, item):
@@ -235,9 +253,7 @@ def _expand_manifest(manifest: ImageBatchManifest, file_count: int) -> list[Imag
                     else ""
                 )
                 source_lock = (
-                    FUSION_SOURCE_LOCK
-                    if model_role == "model.back"
-                    else FUSION_INFERRED_BACK_LOCK
+                    FUSION_SOURCE_LOCK if model_role == "model.back" else FUSION_INFERRED_BACK_LOCK
                 )
                 views.append(
                     (
@@ -351,6 +367,12 @@ def batch_response(batch: Any) -> dict[str, Any]:
                         "url": local_url,
                         "downloadUrl": local_url,
                         "artifactId": str(output.id),
+                        "qualificationStatus": output.qualification_status.value,
+                        "qualityGates": dict(output.quality_gates_json or {}),
+                        "reviewedAt": (
+                            output.reviewed_at.isoformat() if output.reviewed_at else None
+                        ),
+                        "humanReviewSeconds": output.human_review_seconds,
                     }
                 )
         error = next(
@@ -627,3 +649,65 @@ async def download_image_generation_output(
         media_type=output.content_type or "application/octet-stream",
         filename=f"generated-{output.id}{extension}",
     )
+
+
+@router.put("/image-generation-outputs/{output_id}/quality-decision")
+async def put_image_quality_decision(
+    output_id: uuid.UUID,
+    payload: ImageQualityDecisionRequest,
+    actor: Actor,
+    session: Session,
+) -> dict[str, Any]:
+    output = await owned_output(session, user_id=actor.id, output_id=output_id)
+    if output is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "image output was not found")
+    if not output.object_key or not output.sha256:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "IMAGE_TECHNICAL_HARD_GATE_NOT_PASSED",
+                "message": "quality decision requires a materialized, checksummed image",
+            },
+        )
+    previous = output.qualification_status
+    output.qualification_status = QualityDecisionStatus(payload.decision)
+    output.quality_gates_json = {
+        "PRODUCT_FIDELITY": {
+            "verification": "HUMAN_REQUIRED",
+            "outcome": "PASS" if payload.product_fidelity_pass else "FAIL",
+        },
+        "HUMAN_CRITICAL": {
+            "verification": "HUMAN_REQUIRED",
+            "outcome": "PASS" if payload.human_critical_pass else "FAIL",
+        },
+        "TECHNICAL_CRITICAL": {
+            "verification": "MACHINE_VERIFIED",
+            "outcome": "PASS",
+            "sha256": output.sha256,
+        },
+    }
+    output.reviewed_by = actor.id
+    output.reviewed_at = datetime.now(UTC)
+    output.human_review_seconds = payload.human_review_seconds
+    output.review_notes = payload.notes
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="IMAGE_QUALITY_DECISION",
+            entity_type="image_generation_output",
+            entity_id=str(output.id),
+            from_state=previous.value,
+            to_state=output.qualification_status.value,
+            reason=payload.notes or "Required Hard Gates reviewed",
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[f"image_generation_item:{output.item_id}"],
+        )
+    )
+    await session.commit()
+    return {
+        "id": str(output.id),
+        "qualificationStatus": output.qualification_status.value,
+        "qualityGates": output.quality_gates_json,
+        "reviewedAt": output.reviewed_at.isoformat(),
+        "humanReviewSeconds": output.human_review_seconds,
+    }
