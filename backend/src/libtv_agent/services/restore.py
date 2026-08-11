@@ -22,7 +22,11 @@ from libtv_agent.domain.models import (
     ParentTask,
     PointsReservation,
 )
-from libtv_agent.services.media import download_with_retries, technical_validate
+from libtv_agent.services.media import (
+    download_with_retries,
+    technical_validate,
+    technical_validation_options,
+)
 from libtv_agent.services.points import settle_points
 from libtv_agent.services.state_machine import aggregate_parent_phase
 from sqlalchemy import select
@@ -103,7 +107,9 @@ async def restore_remote_output(
         / f"restore-{kind.value.lower()}-v{latest_revision + 1}.mp4"
     )
     await download_with_retries(download_adapter, url=output_url, destination=destination)
-    validation = await technical_validate(Path(destination))
+    validation = await technical_validate(
+        Path(destination), **technical_validation_options(variant.generation_config_json)
+    )
     if not validation.passed:
         raise ValueError("restored video failed technical validation")
     output_key = (

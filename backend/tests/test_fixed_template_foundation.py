@@ -23,6 +23,7 @@ from libtv_agent.services.fixed_video_tasks import (
 )
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
+from libtv_agent.services.tasks import _provider_for_read
 from libtv_agent.templates.motion_actions import (
     ActionCapability,
     ActionContext,
@@ -47,6 +48,12 @@ def png_bytes(color: str = "#217a58") -> bytes:
     stream = io.BytesIO()
     Image.new("RGB", (360, 640), color).save(stream, format="PNG")
     return stream.getvalue()
+
+
+def test_legacy_generic_provider_uses_explicit_preflight_error_owner() -> None:
+    assert _provider_for_read("kling", "BACH_ELEMENTS_NOT_IN_P1") == "bach"
+    assert _provider_for_read("kling", "WAVESPEED_INVALID_INPUT") == "wavespeed_video"
+    assert _provider_for_read("kling", "KLING_CAPABILITY_UNSUPPORTED") == "kling"
 
 
 def material(index: int, *, sha256: str | None = None) -> MaterialDescriptor:
@@ -827,7 +834,7 @@ async def test_fixed_video_task_compiles_indexed_kling_results_without_command_w
             assert response.status_code == 201, response.text
             task = response.json()
             assert task["workflowKind"] == "FIXED_TEMPLATE"
-            assert task["generationProvider"] == "kling"
+            assert task["generationProvider"] == "kling_official_api"
             assert task["phase"] == "ACTION_REQUIRED"
             assert task["phaseReasonCode"] == "KLING_CAPABILITY_UNSUPPORTED"
             assert [variant["variantIndex"] for variant in task["variants"]] == list(
@@ -908,6 +915,8 @@ async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_co
     assert task["settings"]["generationMode"] == "custom"
     assert task["compiledPlan"]["compiler"] == "custom-direct-v1"
     assert task["compiledPlan"]["userPrompt"] == user_prompt
+    assert task["phase"] != "AWAITING_CONFIRMATION"
+    assert task["actionCapabilities"]["canConfirm"] is False
     assert len(task["variants"]) == 2
     assert {variant["promptText"] for variant in task["variants"]} == {
         f"{user_prompt} 素材角色：@image_1为按序分镜，决定场景、动作、构图与镜头顺序。"
@@ -918,6 +927,84 @@ async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_co
         and "动作变化" not in variant["promptText"]
         for variant in task["variants"]
     )
+
+
+@pytest.mark.asyncio
+async def test_bach_product_reference_failure_keeps_real_provider_and_never_submits(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def allow_bach(*args, **kwargs) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr(
+        "libtv_agent.services.fixed_video_tasks.ensure_provider_submission_allowed",
+        allow_bach,
+    )
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        object_store_mode="local",
+        artifact_root=tmp_path / "artifacts-bach-product",
+        runner_root=tmp_path / "runner-bach-product",
+        kling_provider_backend="bach",
+        bach_enabled=True,
+        bach_access_key="bach-access-key",
+        bach_secret_key="bach-secret-key",
+        kling_admin_config_file=tmp_path / "kling-bach-product.json",
+        bach_admin_config_file=tmp_path / "bach-product.json",
+        _env_file=None,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        async with app.state.database.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            upload_ids = []
+            for key, name, color in (
+                ("bach-storyboard", "storyboard.png", "#76444a"),
+                ("bach-product", "product.png", "#335577"),
+            ):
+                uploaded = await client.post(
+                    "/api/v1/uploads",
+                    headers={
+                        "X-User-Id": settings.dev_user_id,
+                        "Idempotency-Key": key,
+                    },
+                    files={"file": (name, png_bytes(color), "image/png")},
+                )
+                assert uploaded.status_code == 201, uploaded.text
+                upload_ids.append(uploaded.json()["id"])
+
+            response = await client.post(
+                "/api/v1/video-tasks",
+                headers={
+                    "X-User-Id": settings.dev_user_id,
+                    "Idempotency-Key": "bach-product-create",
+                },
+                json={
+                    "clientTaskId": "bach-product",
+                    "title": "Bach product reference",
+                    "storyboards": [{"uploadId": upload_ids[0], "order": 1, "required": True}],
+                    "subjectImages": [{"uploadId": upload_ids[1], "order": 1}],
+                    "generationMode": "custom",
+                    "customPrompt": "人物自然展示服装。",
+                    "resultCount": 1,
+                    "paidSubmissionConsent": True,
+                },
+            )
+
+        assert response.status_code == 201, response.text
+        task = response.json()
+        assert task["generationProvider"] == "bach"
+        assert task["variants"][0]["provider"] == "bach"
+        assert task["phase"] == "ACTION_REQUIRED"
+        assert task["phaseReasonCode"] == "BACH_ELEMENTS_NOT_IN_P1"
+        async with app.state.database.session_factory() as session:
+            attempt_count = await session.scalar(
+                select(func.count()).select_from(GenerationAttempt)
+            )
+            assert attempt_count == 0
 
 
 @pytest.mark.asyncio

@@ -54,6 +54,12 @@ describe('video composer settings', () => {
     })
   })
 
+  it('restores Bach durations below the other providers minimum', () => {
+    const storage = memoryStorage({ 'fixed-duration-seconds': '1' })
+
+    expect(loadVideoComposerSettings(storage).durationSeconds).toBe(1)
+  })
+
   it('persists the complete video form as one settings snapshot', () => {
     const storage = memoryStorage()
     saveVideoComposerSettings(storage, {

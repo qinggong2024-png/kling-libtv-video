@@ -44,7 +44,11 @@ from libtv_agent.services.generation_safety import (
     PaidGenerationBlockedError,
     require_paid_generation_authorized,
 )
-from libtv_agent.services.media import download_with_retries, technical_validate
+from libtv_agent.services.media import (
+    download_with_retries,
+    technical_validate,
+    technical_validation_options,
+)
 from libtv_agent.services.points import business_date, settle_points
 from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
@@ -71,12 +75,20 @@ def _video_execution_backend(provider: str, settings: Settings) -> str:
     normalized = provider.strip().lower()
     if normalized == settings.wavespeed_video_provider_name.strip().lower():
         return "WAVESPEED_VIDEO_API"
+    if normalized == settings.bach_provider_name.strip().lower():
+        return "BACH_API"
     if normalized in {"kling", settings.kling_api_provider_name.strip().lower()}:
         return "KLING_OFFICIAL_API"
     return "KLING_OFFICIAL_CLI"
 
 
 def _video_timeout_error(provider: str, settings: Settings) -> tuple[str, str]:
+    if provider.strip().lower() == settings.bach_provider_name.strip().lower():
+        return (
+            "BACH_TASK_TIMEOUT",
+            "Bach video task exceeded the configured wait time; "
+            "the remote task was not resubmitted",
+        )
     if provider.strip().lower() == settings.wavespeed_video_provider_name.strip().lower():
         return (
             "WAVESPEED_VIDEO_TASK_TIMEOUT",
@@ -570,7 +582,7 @@ class RunnerSupervisor:
                 task_trace_id=task.id.hex,
                 resolution=str(
                     variant.generation_config_json.get("resolution")
-                    or self.settings.kling_api_resolution
+                    or self.settings.active_video_resolution
                 ),
                 audio=str(
                     variant.generation_config_json.get("audio")
@@ -587,7 +599,11 @@ class RunnerSupervisor:
                     )
                 ),
                 external_task_id=attempt.intent_hash,
-                callback_url=self.settings.kling_api_callback_url,
+                callback_url=(
+                    self.settings.kling_api_callback_url
+                    if self.settings.kling_provider_backend != "bach"
+                    else None
+                ),
                 element_references=tuple(
                     VideoElementReference(
                         element_id=str(element_id),
@@ -1093,21 +1109,7 @@ class RunnerSupervisor:
             await session.commit()
             await self._aggregate_task(session, variant.id)
             return
-        expected_duration = float(
-            variant.generation_config_json.get("duration")
-            or variant.generation_config_json.get("durationSeconds")
-            or 10
-        )
-        expected_ratio = {
-            "16:9": 16 / 9,
-            "9:16": 9 / 16,
-            "1:1": 1.0,
-        }.get(str(variant.generation_config_json.get("aspectRatio") or "9:16"), 9 / 16)
-        allow_audio = str(
-            variant.generation_config_json.get("audio")
-            or variant.generation_config_json.get("sound")
-            or "off"
-        ).lower() in {"native", "original", "on", "true"}
+        validation_options = technical_validation_options(variant.generation_config_json)
         try:
             await download_with_retries(
                 download_adapter or self.adapter,
@@ -1116,10 +1118,7 @@ class RunnerSupervisor:
             )
             validation = await technical_validate(
                 destination,
-                duration_min=max(0.1, expected_duration - 1),
-                duration_max=expected_duration + 1,
-                target_ratio=expected_ratio,
-                allow_audio=allow_audio,
+                **validation_options,
             )
         except Exception:
             variant.download_status = DownloadStatus.FAILED

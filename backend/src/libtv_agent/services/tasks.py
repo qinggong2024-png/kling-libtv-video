@@ -38,6 +38,16 @@ class TaskNotFoundError(RuntimeError):
     pass
 
 
+def _provider_for_read(provider: object, phase_reason_code: str | None) -> str:
+    normalized = str(provider or "libtv")
+    if normalized == "kling" and phase_reason_code:
+        if phase_reason_code.startswith("BACH_"):
+            return "bach"
+        if phase_reason_code.startswith("WAVESPEED_"):
+            return "wavespeed_video"
+    return normalized
+
+
 async def list_tasks(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -397,6 +407,18 @@ def _build_task_read(
     consumed = summary.consumed_points if summary else 0
     reserved = summary.reserved_points if summary else 0
     uncertain = summary.uncertain_points if summary else 0
+    preference_snapshot = next(
+        (
+            variant.generation_config_json
+            for variant in task.variants
+            if variant.generation_config_json
+        ),
+        {},
+    )
+    task_provider = _provider_for_read(
+        preference_snapshot.get("generationProvider"),
+        task.phase_reason_code,
+    )
     variant_reads: list[VariantRead] = []
     for variant in sorted(
         task.variants,
@@ -430,9 +452,14 @@ def _build_task_read(
                 provider_error_message=attempt.error_message if attempt else None,
                 provider_error_details=(attempt.provider_error_details_json if attempt else None),
                 provider_error_retryable=(attempt.provider_error_retryable if attempt else None),
-                provider=attempt.provider
-                if attempt
-                else str(variant.generation_config_json.get("generationProvider") or "libtv"),
+                provider=(
+                    attempt.provider
+                    if attempt
+                    else _provider_for_read(
+                        variant.generation_config_json.get("generationProvider"),
+                        task.phase_reason_code,
+                    )
+                ),
                 provider_task_id=attempt.task_id if attempt else None,
                 provider_status=attempt.provider_status if attempt else None,
                 execution_backend=attempt.runner_execution_backend if attempt else None,
@@ -457,14 +484,6 @@ def _build_task_read(
         ParentTaskPhase.QUEUED,
     }
     can_download = any(item.download_status.value == "READY" for item in variant_reads)
-    preference_snapshot = next(
-        (
-            variant.generation_config_json
-            for variant in task.variants
-            if variant.generation_config_json
-        ),
-        {},
-    )
     return TaskRead(
         id=task.id,
         user_id=task.user_id,
@@ -473,7 +492,7 @@ def _build_task_read(
         asset_count=task.asset_count,
         user_requirement=task.user_requirement_raw,
         analysis_model=str(preference_snapshot.get("analysisModel") or "gpt-5.6-luna"),
-        generation_provider=str(preference_snapshot.get("generationProvider") or "libtv"),
+        generation_provider=task_provider,
         phase=task.phase,
         phase_reason_code=task.phase_reason_code,
         consistency_level=task.consistency_level,

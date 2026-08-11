@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   generationProviderKind,
+  providerActionRequiredMessage,
   providerProgress,
   providerTimingStageLabel,
   variantExecutionMessage,
@@ -12,6 +13,7 @@ describe('provider presentation', () => {
     expect(generationProviderKind('kling')).toBe('kling')
     expect(generationProviderKind('kling_official_cli')).toBe('kling')
     expect(generationProviderKind('kling_official_api')).toBe('kling')
+    expect(generationProviderKind('bach')).toBe('bach')
     expect(generationProviderKind('libtv')).toBe('legacy')
   })
 
@@ -19,6 +21,7 @@ describe('provider presentation', () => {
     expect(providerProgress('QUEUED', 'kling').label).toContain('可灵官方 API')
     expect(providerProgress('QUEUED', 'kling_official_api').label).toContain('可灵官方 API')
     expect(providerProgress('QUEUED', 'libtv').label).toContain('历史生成通道')
+    expect(providerProgress('QUEUED', 'bach').label).toContain('Bach Image-to-Video API')
     expect(providerTimingStageLabel('MATERIALIZATION', 'kling')).toBe(
       '可灵官方 API 素材准备',
     )
@@ -49,5 +52,21 @@ describe('provider presentation', () => {
       providerErrorRetryable: true,
       provider: 'kling_official_api',
     })).toBe('可灵官方 API：KLING_API_RATE_LIMITED · Too many requests · 可以重试')
+  })
+
+  it('explains that unsupported Bach product references were never submitted', () => {
+    const message = providerActionRequiredMessage('BACH_ELEMENTS_NOT_IN_P1', 'bach')
+    expect(message).toContain('不能使用单独的产品参考图')
+    expect(message).toContain('没有调用任何生成 API')
+    expect(variantExecutionMessage({
+      generationStatus: 'PENDING',
+      downloadStatus: 'PENDING',
+      downloadArtifactId: null,
+      errorCode: null,
+      provider: 'bach',
+      providerTaskId: null,
+    }, 'bach', 'ACTION_REQUIRED')).toBe(
+      'Bach Image-to-Video API：预检未通过，未提交生成',
+    )
   })
 })

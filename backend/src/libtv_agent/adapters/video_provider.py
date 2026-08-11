@@ -25,6 +25,7 @@ class ProviderCapabilities:
     supported_models: tuple[str, ...]
     supported_tools: tuple[str, ...]
     video_durations: tuple[str, ...] = ()
+    tail_image_video_durations: tuple[str, ...] = ()
     aspect_ratios: tuple[str, ...] = ()
     image_input_limit: int = 1
     supports_tail_image: bool = False

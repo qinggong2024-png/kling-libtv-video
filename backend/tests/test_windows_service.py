@@ -5,7 +5,11 @@ import pytest
 from libtv_agent.adapters.libtv import LibTVError
 from libtv_agent.config import Settings
 from libtv_agent.domain.models import Base
-from libtv_agent.runner.service_runtime import _refresh_libtv_auth_state
+from libtv_agent.runner import service_runtime
+from libtv_agent.runner.service_runtime import (
+    _load_video_provider_admin_configs,
+    _refresh_libtv_auth_state,
+)
 from libtv_agent.runner.windows_service import (
     SERVICE_ACCOUNT,
     SERVICE_NAME,
@@ -35,6 +39,39 @@ def test_windows_runner_preflight_has_no_missing_dependencies(
     assert result["serviceName"] == SERVICE_NAME
     assert result["serviceAccount"] == SERVICE_ACCOUNT
     assert result["issues"] == []
+
+
+def test_runner_loads_every_video_provider_admin_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(_env_file=None)
+    loaded: list[str] = []
+
+    monkeypatch.setattr(
+        service_runtime,
+        "load_kling_admin_config",
+        lambda _settings: loaded.append("kling"),
+    )
+    monkeypatch.setattr(
+        service_runtime,
+        "load_wavespeed_admin_config",
+        lambda _settings: loaded.append("wavespeed"),
+    )
+    monkeypatch.setattr(
+        service_runtime,
+        "load_bach_admin_config",
+        lambda _settings: loaded.append("bach"),
+    )
+    monkeypatch.setattr(
+        service_runtime,
+        "_video_provider_admin_config_signatures",
+        lambda _settings: ((1, 1), (2, 2), (3, 3)),
+    )
+
+    signatures = _load_video_provider_admin_configs(settings)
+
+    assert loaded == ["kling", "wavespeed", "bach"]
+    assert signatures == ((1, 1), (2, 2), (3, 3))
 
 
 @pytest.mark.asyncio

@@ -146,7 +146,6 @@ function validCallbackUrl(value: string): boolean {
 export function buildKlingConfigPatch(draft: KlingConfigDraft): KlingConfigPatch {
   const apiKey = draft.apiKey.trim()
   return {
-    backend: draft.backend,
     ...(apiKey ? { apiKey } : {}),
     ...(draft.clearApiKey ? { clearApiKey: true } : {}),
     baseUrl: draft.baseUrl.trim().replace(/\/+$/, ''),

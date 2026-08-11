@@ -18,6 +18,10 @@ from libtv_agent.domain.enums import RunnerHostStatus
 from libtv_agent.domain.models import AuditEvent, RunnerHost
 from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.runner.supervisor import RunnerSupervisor
+from libtv_agent.services.bach_config import (
+    bach_admin_config_signature,
+    load_bach_admin_config,
+)
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -40,6 +44,25 @@ from libtv_agent.services.wavespeed_config import (
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+
+def _video_provider_admin_config_signatures(
+    settings: Settings,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None, tuple[int, int] | None]:
+    return (
+        kling_admin_config_signature(settings),
+        wavespeed_admin_config_signature(settings),
+        bach_admin_config_signature(settings),
+    )
+
+
+def _load_video_provider_admin_configs(
+    settings: Settings,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None, tuple[int, int] | None]:
+    load_kling_admin_config(settings)
+    load_wavespeed_admin_config(settings)
+    load_bach_admin_config(settings)
+    return _video_provider_admin_config_signatures(settings)
 
 
 def _atomic_service_instance_id(path: Path) -> str:
@@ -109,10 +132,7 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     os.chdir(project_root)
     settings = Settings()
     settings.validate_shared_environment()
-    load_kling_admin_config(settings)
-    load_wavespeed_admin_config(settings)
-    kling_config_signature = kling_admin_config_signature(settings)
-    wavespeed_config_signature = wavespeed_admin_config_signature(settings)
+    provider_config_signatures = _load_video_provider_admin_configs(settings)
     database = Database(settings.database_url)
     adapter = create_libtv_adapter(settings)
     kling_adapter = create_kling_adapter(settings)
@@ -144,18 +164,13 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     try:
         while not stopping.is_set():
             try:
-                current_kling_config_signature = kling_admin_config_signature(settings)
-                current_wavespeed_config_signature = wavespeed_admin_config_signature(settings)
-                if (
-                    current_kling_config_signature != kling_config_signature
-                    or current_wavespeed_config_signature != wavespeed_config_signature
-                ):
-                    load_kling_admin_config(settings)
-                    load_wavespeed_admin_config(settings)
+                current_provider_config_signatures = _video_provider_admin_config_signatures(
+                    settings
+                )
+                if current_provider_config_signatures != provider_config_signatures:
+                    provider_config_signatures = _load_video_provider_admin_configs(settings)
                     kling_adapter = create_kling_adapter(settings)
                     supervisor.replace_kling_adapter(kling_adapter)
-                    kling_config_signature = kling_admin_config_signature(settings)
-                    wavespeed_config_signature = wavespeed_admin_config_signature(settings)
                 disk = manager.disk_status(
                     settings.runner_log_disk_warning_percent,
                     settings.runner_log_disk_stop_percent,

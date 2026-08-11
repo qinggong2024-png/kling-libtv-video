@@ -2814,6 +2814,172 @@
         }
       }
     },
+    "/api/v1/admin/bach/config": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Read Bach Config",
+        "operationId": "read_bach_config_api_v1_admin_bach_config_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BachConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Patch Bach Config",
+        "operationId": "patch_bach_config_api_v1_admin_bach_config_patch",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BachConfigUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BachConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KlingErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/admin/wavespeed/config": {
       "get": {
         "tags": [
@@ -5802,6 +5968,254 @@
         ],
         "title": "AssetRead"
       },
+      "BachConfigResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "accessKeyConfigured": {
+            "type": "boolean",
+            "title": "Accesskeyconfigured"
+          },
+          "secretKeyConfigured": {
+            "type": "boolean",
+            "title": "Secretkeyconfigured"
+          },
+          "credentialsConfigured": {
+            "type": "boolean",
+            "title": "Credentialsconfigured"
+          },
+          "credentialSource": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "environment",
+              "none"
+            ],
+            "title": "Credentialsource"
+          },
+          "baseUrl": {
+            "type": "string",
+            "title": "Baseurl"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "resolution": {
+            "type": "string",
+            "title": "Resolution"
+          },
+          "duration": {
+            "type": "integer",
+            "title": "Duration"
+          },
+          "aspectRatio": {
+            "type": "string",
+            "title": "Aspectratio"
+          },
+          "generateAudio": {
+            "type": "boolean",
+            "title": "Generateaudio"
+          },
+          "maxSubmitConcurrency": {
+            "type": "integer",
+            "title": "Maxsubmitconcurrency"
+          },
+          "maxPollConcurrency": {
+            "type": "integer",
+            "title": "Maxpollconcurrency"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "accessKeyConfigured",
+          "secretKeyConfigured",
+          "credentialsConfigured",
+          "credentialSource",
+          "baseUrl",
+          "model",
+          "resolution",
+          "duration",
+          "aspectRatio",
+          "generateAudio",
+          "maxSubmitConcurrency",
+          "maxPollConcurrency",
+          "provider",
+          "updatedAt"
+        ],
+        "title": "BachConfigResponse"
+      },
+      "BachConfigUpdateRequest": {
+        "properties": {
+          "accessKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accesskey"
+          },
+          "secretKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secretkey"
+          },
+          "clearAccessKey": {
+            "type": "boolean",
+            "title": "Clearaccesskey",
+            "default": false
+          },
+          "clearSecretKey": {
+            "type": "boolean",
+            "title": "Clearsecretkey",
+            "default": false
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "baseUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseurl"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(720p|1080p)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 8.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "aspectRatio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(16:9|9:16|1:1)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aspectratio"
+          },
+          "generateAudio": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generateaudio"
+          },
+          "maxSubmitConcurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 20.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxsubmitconcurrency"
+          },
+          "maxPollConcurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxpollconcurrency"
+          }
+        },
+        "type": "object",
+        "title": "BachConfigUpdateRequest"
+      },
       "BatchConfirmationItem": {
         "properties": {
           "taskId": {
@@ -6534,7 +6948,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^(api|wavespeed)$"
+                "pattern": "^(api|wavespeed|bach)$"
               },
               {
                 "type": "null"
@@ -9109,7 +9523,7 @@
           "durationSeconds": {
             "type": "integer",
             "maximum": 15.0,
-            "minimum": 3.0,
+            "minimum": 1.0,
             "title": "Durationseconds",
             "default": 10
           },

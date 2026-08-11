@@ -1,4 +1,4 @@
-export type GenerationProviderKind = 'legacy' | 'kling' | 'wavespeed'
+export type GenerationProviderKind = 'legacy' | 'kling' | 'wavespeed' | 'bach'
 
 export type ProviderPresentation = {
   kind: GenerationProviderKind
@@ -10,6 +10,7 @@ export type ProviderPresentation = {
 export function generationProviderKind(provider?: string | null): GenerationProviderKind {
   const normalized = provider?.trim().toLowerCase() ?? ''
   if (normalized === 'wavespeed' || normalized.startsWith('wavespeed_')) return 'wavespeed'
+  if (normalized === 'bach' || normalized.startsWith('bach_')) return 'bach'
   return normalized === 'kling' || normalized.startsWith('kling_') ? 'kling' : 'legacy'
 }
 
@@ -25,6 +26,14 @@ export function providerPresentation(provider?: string | null): ProviderPresenta
       displayName: 'WaveSpeed',
       displayLabel: 'WaveSpeed 视频 API',
       cssClass: 'provider--wavespeed',
+    }
+  }
+  if (generationProviderKind(provider) === 'bach') {
+    return {
+      kind: 'bach',
+      displayName: 'Bach',
+      displayLabel: 'Bach Image-to-Video API',
+      cssClass: 'provider--bach',
     }
   }
   return {
@@ -81,9 +90,22 @@ export function providerTimingStageLabel(key: string, provider?: string | null):
   if (key === 'GENERATION') {
     return meta.kind === 'wavespeed'
       ? 'WaveSpeed 云端生成'
-      : meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
+      : meta.kind === 'bach'
+        ? 'Bach 云端生成'
+        : meta.kind === 'kling' ? '可灵云端生成' : '历史任务生成'
   }
   return '成品下载'
+}
+
+export function providerActionRequiredMessage(
+  reasonCode?: string | null,
+  provider?: string | null,
+): string {
+  if (reasonCode === 'BACH_ELEMENTS_NOT_IN_P1') {
+    return 'Bach 当前的 Image-to-Video 通道仅支持首帧或首尾帧，不能使用单独的产品参考图。本次已在提交前拦截，没有调用任何生成 API；请移除产品图后重新制作。'
+  }
+  const meta = providerPresentation(provider)
+  return `${meta.displayLabel} 预检未通过，本次没有提交生成。请展开技术信息查看错误代码。`
 }
 
 type VariantExecution = {
@@ -103,8 +125,12 @@ type VariantExecution = {
 export function variantExecutionMessage(
   variant: VariantExecution,
   taskProvider?: string | null,
+  taskPhase?: string | null,
 ): string {
   const meta = providerPresentation(variant.provider ?? taskProvider)
+  if (taskPhase === 'ACTION_REQUIRED' && !variant.providerTaskId) {
+    return `${meta.displayLabel}：预检未通过，未提交生成`
+  }
   if (variant.downloadArtifactId) return '成品文件已就绪'
   if (variant.downloadStatus === 'DOWNLOADING') return `${meta.displayLabel} 已返回结果，正在下载成品`
   if (variant.generationStatus === 'UNKNOWN') {

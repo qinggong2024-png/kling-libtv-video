@@ -8,6 +8,8 @@ from libtv_agent.adapters.kling_official_api import ApiHttpResponse, KlingOffici
 from libtv_agent.adapters.kling_provider import create_kling_adapter
 from libtv_agent.adapters.libtv import create_libtv_adapter
 from libtv_agent.adapters.object_store import create_object_store
+from libtv_agent.adapters.video_provider import ProviderAvailability
+from libtv_agent.adapters.wavespeed import WaveSpeedHttpResponse
 from libtv_agent.adapters.wavespeed_video import WaveSpeedVideoAdapter
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
@@ -66,6 +68,21 @@ async def test_admin_can_switch_new_video_work_to_wavespeed(tmp_path: Path) -> N
             )
             assert wavespeed.status_code == 200, wavespeed.text
 
+            async def verify_http(
+                method: str,
+                url: str,
+                request_headers: dict[str, str],
+                body: bytes | None,
+                request_timeout: float,
+            ) -> WaveSpeedHttpResponse:
+                del method, url, request_headers, body, request_timeout
+                return WaveSpeedHttpResponse(404, {}, b'{"message":"not found"}')
+
+            app.state.wavespeed_adapter._http_request = verify_http
+            verified = await client.post("/api/v1/admin/wavespeed/verify", headers=headers)
+            assert verified.status_code == 200, verified.text
+            assert verified.json()["available"] is True
+
             switched = await client.patch(
                 "/api/v1/admin/kling/config",
                 headers=headers,
@@ -75,11 +92,24 @@ async def test_admin_can_switch_new_video_work_to_wavespeed(tmp_path: Path) -> N
             assert switched.json()["backend"] == "wavespeed"
             assert switched.json()["provider"] == "wavespeed_video"
             assert isinstance(app.state.kling_adapter, WaveSpeedVideoAdapter)
+            app.state.kling_adapter._availability = ProviderAvailability(
+                status="WAVESPEED_CONFIGURED_UNVERIFIED",
+                available=False,
+                authenticated=False,
+                reason="stale wrapper state",
+            )
 
             system = await client.get("/api/v1/system/status", headers=headers)
             assert system.status_code == 200
             assert system.json()["kling"]["backend"] == "wavespeed"
             assert system.json()["kling"]["provider"] == "wavespeed_video"
+            assert system.json()["videoGeneration"] == system.json()["kling"]
+            assert system.json()["videoGeneration"]["available"] is True
+            assert system.json()["videoGeneration"]["authenticated"] is True
+            assert system.json()["videoGeneration"]["model"] == (
+                "kwaivgi/kling-video-o3-std/reference-to-video"
+            )
+            assert system.json()["videoGeneration"]["imageInputLimit"] == 7
 
     reloaded = kling_settings(database_url, tmp_path)
     assert load_kling_admin_config(reloaded) is True

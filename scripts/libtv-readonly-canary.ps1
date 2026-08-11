@@ -1,7 +1,30 @@
-param([string]$ModelKey = 'kling-v3-omni')
+param(
+    [string]$ModelKey = 'kling-v3-omni',
+    [string]$ConfigDir = ''
+)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $ConfigDir) {
+    $ConfigDir = $env:LIBTV_CONFIG_DIR
+    $dotenvPath = Join-Path $projectRoot '.env'
+    if (-not $ConfigDir -and (Test-Path -LiteralPath $dotenvPath)) {
+        $configLine = Get-Content -LiteralPath $dotenvPath |
+            Where-Object { $_ -match '^\s*LIBTV_CONFIG_DIR\s*=' } |
+            Select-Object -First 1
+        if ($configLine) {
+            $ConfigDir = ($configLine -split '=', 2)[1].Trim().Trim('"').Trim("'")
+        }
+    }
+    if (-not $ConfigDir) {
+        $ConfigDir = Join-Path $projectRoot 'var\runtime\libtv'
+    }
+}
+if (-not [IO.Path]::IsPathRooted($ConfigDir)) {
+    $ConfigDir = Join-Path $projectRoot $ConfigDir
+}
+$resolvedConfigDir = [IO.Path]::GetFullPath($ConfigDir)
+$env:LIBTV_CONFIG_DIR = $resolvedConfigDir
 $evidenceRoot = Join-Path $projectRoot 'var\evidence\libtv-readonly'
 $reportRoot = Join-Path $projectRoot 'var\reports'
 New-Item -ItemType Directory -Force -Path $evidenceRoot, $reportRoot | Out-Null
@@ -112,6 +135,10 @@ try {
         schemaVersion = '1.0'
         status = if ($canaryPassed -and $balanceFieldPresent) { 'PASS' } elseif ($canaryPassed) { 'PASS_WITH_LIMITATION' } else { 'FAIL' }
         canaryType = 'READ_ONLY'
+        configScope = [ordered]@{
+            directory = $resolvedConfigDir
+            source = 'LIBTV_CONFIG_DIR'
+        }
         startedAt = $startedAt.ToString('o')
         completedAt = [DateTimeOffset]::UtcNow.ToString('o')
         cli = [ordered]@{ version = $versionText; expected = '1.1.1'; compatible = $cliCompatible }
@@ -149,6 +176,10 @@ catch {
         schemaVersion = '1.0'
         status = 'BLOCKED'
         canaryType = 'READ_ONLY'
+        configScope = [ordered]@{
+            directory = $resolvedConfigDir
+            source = 'LIBTV_CONFIG_DIR'
+        }
         startedAt = $startedAt.ToString('o')
         completedAt = [DateTimeOffset]::UtcNow.ToString('o')
         error = $_.Exception.Message
