@@ -41,6 +41,14 @@ None in the local implementation after this adaptation. A non-empty
 is a runtime `CRITICAL` condition and automatically blocks the paid path through the
 existing pause/reconciliation controls.
 
+The formal runtime activation remains separately blocked: a read-only request to
+`http://192.168.30.126:5173/api/v1/system/status` on 2026-08-11 returned
+`sourceRevision=3422174e7c731a4c4f00e2ae0b15badd14aa3b64514794530ade9b9decc8f63d`
+and did not expose `schemaRevision`, `configRevision`, or `runtimeVersion`. This is
+deployment evidence, not a code defect. The formal runtime must not execute a guarded
+paid Pilot until it is deployed from the synchronized `main` branch and the four
+revisions match the Pilot lock.
+
 ## Non-Blocking Gaps
 
 - Provider cost in currency remains a proxy (`generationCostCredits`) unless the
@@ -60,8 +68,10 @@ existing pause/reconciliation controls.
 ## Evidence
 
 Validated with `backend/tests/test_observability_metrics.py`, including empty-data
-measurement gaps and a mismatched runtime lock. Production-equivalent execution must
-still be performed on the isolated test stack before any real paid batch; this audit
-does not authorize or execute paid provider calls.
+measurement gaps, asset contamination, and a mismatched runtime lock. The code was
+synchronized to both `codex/testing` and `main`. The formal runtime read-only check
+above proves that deployment activation remains guarded; this audit does not authorize
+or execute paid provider calls.
 
-Outcome: `PASS_WITH_GUARDRAILS`
+Implementation outcome: `PASS_WITH_GUARDRAILS`  
+Formal runtime activation outcome: `BLOCKED_RUNTIME_DRIFT`
