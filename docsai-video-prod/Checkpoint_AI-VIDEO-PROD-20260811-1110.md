@@ -20,3 +20,25 @@ Do not use formal `http://192.168.30.126:5173/` for the guarded pilot while it r
 
 Do not mark any output deliverable without persisted human Ground Truth for every required
 non-machine-verified input and final hard gate.
+
+## Canonical contract package completion — 2026-08-11
+
+```text
+CANONICAL_CONTRACT_PACKAGE = docs/ai-video-prod/contracts/
+CORE_FILE_COUNT = 6 / 6
+SHA256_STATUS = PASS
+L1_STATUS = LOCATED / VERIFIED / CONSISTENT
+L2_STATUS = LOCATED / VERIFIED / CONSISTENT
+L3_STATUS = LOCATED / VERIFIED / CONSISTENT
+L4_STATUS = LOCATED / VERIFIED / CONSISTENT
+CONTRACT_GAP_STATUS = CLOSED
+PILOT_IMPACT = NO REGRESSION / EXISTING GUARDRAILS REMAIN REQUIRED
+NEXT_AUTONOMOUS_ACTION = PREPARE_GUARDED_REAL_BATCH_PILOT
+```
+
+The package-normalized L1–L3 recover historical frozen semantics; they do not reopen or
+invalidate the verified implementation and E2E evidence recorded by this checkpoint.
+
+The package Master Prompt names historical `UAP-AE/2.0`; the later canonical/frozen project
+governance `UAP-AE/2.1` supersedes that governance-version reference without changing the
+product contracts or pilot critical path.
