@@ -265,6 +265,79 @@ async def test_hard_metrics_are_calculated_from_database_and_process_evidence(
     assert snapshot["metrics"]["crossTaskConnectionTotal"] == 1
     assert snapshot["metrics"]["runnerOrphanProcesses"] == 2
     assert snapshot["metricEvidence"]["runnerOrphanProcesses"]["processIds"] == []
+    assert any(
+        alert["code"] == "DATA_INTEGRITY_ASSET_CONTAMINATION" and alert["severity"] == "CRITICAL"
+        for alert in snapshot["alerts"]
+    )
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pilot_monitoring_exposes_review_queue_measurement_gap_and_critical_integrity_alert(
+    tmp_path: Path,
+) -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        settings = Settings(
+            object_store_mode="local",
+            runner_root=tmp_path / "runner",
+            deployment_source_revision="pilot-source",
+            _env_file=None,
+        )
+        snapshot = await operations_snapshot(session, settings)
+        assert snapshot["humanReviewQueue"] == {
+            "productFidelity": 0,
+            "humanCritical": 0,
+            "finalApproval": 0,
+            "total": 0,
+        }
+        assert snapshot["businessBaseline"]["measurementStatus"] == "MEASUREMENT_GAP"
+        assert "generation_attempts" in snapshot["businessBaseline"]["measurementGaps"]
+        assert snapshot["runtimeRevisions"]["drift"] is False
+        assert {item["severity"] for item in snapshot["alerts"]} <= {
+            "INFO",
+            "ACTION_REQUIRED",
+            "CRITICAL",
+        }
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pilot_runtime_lock_drift_is_critical_and_blocks_paid_path(tmp_path: Path) -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        from libtv_agent.domain.models import RuntimeConfigVersion
+
+        settings = Settings(
+            object_store_mode="local",
+            runner_root=tmp_path / "runner",
+            deployment_source_revision="current-source",
+            _env_file=None,
+        )
+        session.add(
+            RuntimeConfigVersion(
+                version=1,
+                config_json={
+                    "globalPaused": False,
+                    "paidSubmissionsPaused": False,
+                    "pilotRuntimeLock": {"sourceRevision": "locked-source"},
+                },
+                change_reason="test",
+            )
+        )
+        await session.commit()
+        snapshot = await operations_snapshot(session, settings)
+        assert snapshot["runtimeRevisions"]["drift"] is True
+        assert any(
+            alert["code"] == "PILOT_BLOCKED_RUNTIME_DRIFT" and alert["severity"] == "CRITICAL"
+            for alert in snapshot["alerts"]
+        )
     await engine.dispose()
 
 
