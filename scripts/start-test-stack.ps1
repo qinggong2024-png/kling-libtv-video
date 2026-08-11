@@ -232,6 +232,7 @@ try {
     }
     if ($Profile -eq 'Full') {
         $adminHeaders = @{ 'X-User-Id' = '00000000-0000-0000-0000-000000000099' }
+        $expectedProvider = if ($useBach) { 'bach' } else { 'kling_official_api' }
         $systemStatus = Invoke-RestMethod `
             -Headers $adminHeaders `
             -Uri "http://127.0.0.1:$ApiPort/api/v1/system/status" `
@@ -243,7 +244,7 @@ try {
         if (
             $systemStatus.environment -ne 'development' -or
             $systemStatus.paidGenerationAuthorized -ne $true -or
-            $klingStatus.provider -ne 'kling_official_api' -or
+            $klingStatus.provider -ne $expectedProvider -or
             $klingStatus.available -ne $true
         ) {
             throw 'Full test stack started, but its live-provider readiness checks failed.'
