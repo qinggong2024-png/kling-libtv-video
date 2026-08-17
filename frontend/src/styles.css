@@ -1063,7 +1063,12 @@ main { min-height: 100dvh; }
 .kling-config-heading > span { min-height: 28px; display: inline-flex; align-items: center; flex: 0 0 auto; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .kling-config-heading > span.is-configured { background: var(--success-soft); color: var(--success); }
 .kling-config-heading > span.is-missing { background: var(--warning-soft); color: var(--warning); }
-.kling-api-key-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.kling-api-key-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 10px; }
+.kling-api-key-row > .credential-field { display: contents; }
+.kling-api-key-row > .credential-field > label { grid-column: 1; grid-row: 1; }
+.kling-api-key-row > .credential-field > .secret-input { grid-column: 1; grid-row: 2; }
+.kling-api-key-row > .credential-field > small { grid-column: 1; grid-row: 3; }
+.kling-api-key-row > .danger-button { grid-column: 2; grid-row: 2; align-self: stretch; }
 .kling-api-key-row .danger-button { min-height: 44px; }
 .kling-cli-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .kling-cli-actions button { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; }
@@ -1071,8 +1076,8 @@ main { min-height: 100dvh; }
 .kling-settings-grid > label { min-width: 0; display: grid; align-content: start; gap: 6px; color: var(--text-secondary); font-size: 13px; }
 .kling-settings-grid > label > strong { color: var(--text-secondary); font-size: 13px; }
 .kling-settings-grid > label > small { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.kling-settings-grid select, .kling-settings-grid input[type="number"] { width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font-size: 13px; transition: border-color .18s ease, box-shadow .18s ease; }
-.kling-settings-grid select:focus, .kling-settings-grid input[type="number"]:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
+.kling-settings-grid select, .kling-settings-grid > label > input { width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font-size: 13px; transition: border-color .18s ease, box-shadow .18s ease; }
+.kling-settings-grid select:focus, .kling-settings-grid > label > input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
 .kling-elements-section { display: grid; gap: 16px; }
 .kling-element-form { display: grid; gap: 14px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .kling-element-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -1830,7 +1835,7 @@ body.modal-open { overflow: hidden; }
   .reuse-controls > div > small { text-align: left; }
   .video-modal { width: 100%; min-width: 0; }.modal-backdrop { padding: 12px; }
   .image-preview-modal, .image-preview-stage img { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
-  .settings-section { padding: 15px; }.settings-section-heading { align-items: stretch; flex-direction: column; gap: 14px; }.settings-section-heading .primary-button { width: 100%; }.provider-actions { display: grid; grid-template-columns: 1fr; }.provider-actions button { justify-content: center; }.api-status-card { grid-template-columns: 44px minmax(0, 1fr); }.api-status-state { grid-column: 1 / -1; justify-self: start; }.kling-backend-options, .kling-settings-grid, .kling-api-key-row, .kling-element-fields { grid-template-columns: 1fr; }.kling-api-key-row .danger-button { width: 100%; }.masked-field small { position: static; margin-left: 8px; }.kling-element-submit { align-items: stretch; flex-direction: column; }.kling-element-submit button { justify-content: center; }.kling-element-row { grid-template-columns: auto minmax(0, 1fr) auto; }.kling-element-row > .status, .kling-element-row > small { grid-column: 2; justify-self: start; }.kling-element-row > button { grid-column: 3; grid-row: 1; }
+  .settings-section { padding: 15px; }.settings-section-heading { align-items: stretch; flex-direction: column; gap: 14px; }.settings-section-heading .primary-button { width: 100%; }.provider-actions { display: grid; grid-template-columns: 1fr; }.provider-actions button { justify-content: center; }.api-status-card { grid-template-columns: 44px minmax(0, 1fr); }.api-status-state { grid-column: 1 / -1; justify-self: start; }.kling-backend-options, .kling-settings-grid, .kling-api-key-row, .kling-element-fields { grid-template-columns: 1fr; }.kling-api-key-row > .danger-button { grid-column: 1; grid-row: 4; width: 100%; }.masked-field small { position: static; margin-left: 8px; }.kling-element-submit { align-items: stretch; flex-direction: column; }.kling-element-submit button { justify-content: center; }.kling-element-row { grid-template-columns: auto minmax(0, 1fr) auto; }.kling-element-row > .status, .kling-element-row > small { grid-column: 2; justify-self: start; }.kling-element-row > button { grid-column: 3; grid-row: 1; }
   .system-health { width: 100%; }.save-toast { top: 12px; left: 12px; right: 12px; min-width: 0; }.task-toast-region { top: 12px; right: 12px; left: 12px; width: auto; }.task-toast { padding-left: 12px; }
   .task-timing-header { grid-template-columns: 1fr; gap: 10px; padding: 12px 14px; }.task-timing-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }.task-timing-summary > div { padding: 0 9px; }.task-timing-summary > div:first-child { padding-left: 0; border-left: 0; }.task-timing-summary > div:last-child { padding-right: 0; }.task-timing-summary dd { font-size: 12px; white-space: normal; }.task-timing-stages { padding: 13px 5px 12px; }.task-timing-stage { grid-template-rows: 28px auto auto; gap: 3px; padding: 0 2px; }.task-timing-marker { width: 28px; height: 28px; }.task-timing-stage:not(:last-child)::after { top: 13px; }.task-timing-label-full, .task-timing-copy small { display: none; }.task-timing-label-short { display: inline; }.task-timing-copy strong { font-size: 12px; }.task-timing-duration { font-size: 12px; }
   .notification-permission-banner { grid-template-columns: auto minmax(0, 1fr) auto; margin: 12px 14px 0; }.notification-permission-banner .secondary-button { grid-column: 1 / -1; grid-row: 2; width: 100%; }.notification-permission-banner .icon-button { grid-column: 3; grid-row: 1; }
