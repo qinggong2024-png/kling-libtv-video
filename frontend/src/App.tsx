@@ -892,7 +892,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       const first = valid[0]
       setStoryboards(first.storyboards.map((file) => ({ id: createUuid(), file })))
       setSubjectMode('upload')
-      setSubjectFiles({ frontalImage: first.product, backImage: null, detailImages: [] })
+      setSubjectFiles({ frontalImage: first.productFront, backImage: first.productBack, detailImages: [] })
     }
     setNotice([
       valid.length ? `已识别 ${valid.length} 组素材，将批量创建 ${valid.length} 个任务` : '没有识别到完整素材组',
@@ -943,8 +943,8 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
       const subjectReferences = subjectMode === 'upload' ? buildSubjectImageReferences(subjectFiles) : []
       const submissionGroups = validBatchGroups.length
         ? validBatchGroups
-        : [{ key: storyboards[0]?.file.name.replace(/\.[^.]+$/, '') || 'video', product: subjectMode === 'upload' ? subjectFiles.frontalImage : null, storyboards: storyboards.map((item) => item.file), errors: [] }]
-      const uploadCount = submissionGroups.reduce((total, group) => total + group.storyboards.length + (group.product ? 1 : 0), 0)
+        : [{ key: storyboards[0]?.file.name.replace(/\.[^.]+$/, '') || 'video', productFront: subjectMode === 'upload' ? subjectFiles.frontalImage : null, productBack: subjectMode === 'upload' ? subjectFiles.backImage : null, storyboards: storyboards.map((item) => item.file), errors: [] }]
+      const uploadCount = submissionGroups.reduce((total, group) => total + group.storyboards.length + (group.productFront ? 1 : 0) + (group.productBack ? 1 : 0), 0)
       const uploadOne = async (file: File, label: string, sourceImageOutputId?: string) => {
         try {
           const uploaded = await uploadStoryboard(file, uploadController.signal)
@@ -965,7 +965,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         const [uploads, subjectUploads] = await Promise.all([
           mapWithConcurrency(group.storyboards, UPLOAD_CONCURRENCY, (file) => uploadOne(file, '分镜与主体素材')),
           validBatchGroups.length
-            ? (group.product ? mapWithConcurrency([group.product], UPLOAD_CONCURRENCY, (file) => uploadOne(file, '分镜与主体素材')) : Promise.resolve([]))
+            ? mapWithConcurrency([group.productFront, group.productBack].filter((file): file is File => Boolean(file)), UPLOAD_CONCURRENCY, (file) => uploadOne(file, '分镜与主体素材'))
             : mapWithConcurrency(subjectReferences, UPLOAD_CONCURRENCY, (reference) => uploadOne(reference.file, '分镜与主体素材')),
         ])
         setStage(generationMode === 'custom' ? `正在校验第 ${groupIndex + 1}/${submissionGroups.length} 组` : `正在创建第 ${groupIndex + 1}/${submissionGroups.length} 组任务`)
@@ -1036,7 +1036,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           <div className="upload-panel-head"><div><h2>有序分镜</h2><small>至少 1 张，最多 {storyboardLimit} 张；拖拽图片调整顺序</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
           <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '拖拽或点击上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
           <button type="button" className="text-button upload-batch-button" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />按命名批量导入产品图与分镜</button>
-          {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.product ? '1 产品图' : '缺产品图'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
+          {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.productFront ? '正面已识别' : '缺正面'} · {group.productBack ? '背面已识别' : '无背面'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
           {storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表">{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} />)}</div> : null}
         </section>
         <SubjectInputPanel
