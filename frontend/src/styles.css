@@ -1557,6 +1557,11 @@ body.modal-open { overflow: hidden; }
   .section-kicker { margin-bottom: 3px; }
   .upload-panel .upload-icon { width: 40px; height: 40px; }
 
+  /* Keep the storyboard dropzone flush with the subject upload tiles. */
+  .upload-panels--with-subject > .upload-panel--storyboard:not(.upload-panel--has-items) .upload-zone--compact {
+    min-height: 124px;
+  }
+
   .subject-input-panel--align-uploaded-media .subject-input-panel__upload {
     padding-top: 63px;
   }
