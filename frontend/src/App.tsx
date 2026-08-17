@@ -1849,6 +1849,15 @@ const ACTION_CATEGORY_LABELS: Record<MotionActionSummary['category'], string> = 
   product: '商品交互',
 }
 
+function styleStatus(profile: SiteStyleProfileSummary) {
+  if (profile.status === 'draft') return { label: '研究草稿', warning: true }
+  if (profile.status === 'retired') return { label: '已停用', warning: true }
+  return {
+    label: profile.libraryScope === 'brand' ? '站点已验证' : '规则已验证',
+    warning: profile.evidenceLevel !== 'verified_site',
+  }
+}
+
 function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
   actorId: string | null
   canDeleteSubjects: boolean
@@ -1960,6 +1969,11 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
         : [...current, saved])
     } else {
       const saved = item as SiteStyleProfileSummary
+      if (saved.status === 'retired') {
+        setProfiles((current) => current.filter((profile) => profile.id !== saved.id))
+        setEditor(null)
+        return
+      }
       setProfiles((current) => current.some((profile) => profile.id === saved.id)
         ? current.map((profile) => profile.id === saved.id ? saved : profile)
         : [...current, saved])
@@ -2017,9 +2031,11 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     </section> : null}
 
     {!loading && !error && tab === 'styles' ? <section className="style-library-grid" aria-label="站点视频风格列表">
-      {visibleProfiles.map((profile) => <article className="style-library-card" key={profile.id}>
+      {visibleProfiles.map((profile) => {
+        const status = styleStatus(profile)
+        return <article className="style-library-card" key={profile.id}>
         <header>
-          <div><span className={profile.evidenceLevel === 'verified_site' ? 'library-status library-status--verified' : 'library-status library-status--warning'}>{profile.evidenceLevel === 'verified_site' ? (profile.libraryScope === 'brand' ? '站点已验证' : '规则已验证') : '证据受限'}</span><span className="library-version">{profile.version}</span></div>
+          <div><span className={status.warning ? 'library-status library-status--warning' : 'library-status library-status--verified'}>{status.label}</span><span className="library-version">{profile.version}</span></div>
           {canEditCatalog ? <button type="button" className="secondary-button library-edit-button" onClick={() => setEditor({ kind: 'style', item: profile })}><Pencil size={15} />编辑风格</button> : null}
         </header>
         <div className="style-card-title"><div><h2>{profile.name}</h2><p>{profile.tone}</p></div><span className="style-card-mark"><Clapperboard size={20} /></span></div>
@@ -2031,13 +2047,15 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
         </div>
         <div className="style-camera"><span>镜头触感</span><p>{profile.cameraLanguage}</p><small>{profile.pacing}</small></div>
         <details className="library-details style-library-details"><summary>镜头、动作与商品规则<ChevronRight size={16} /></summary><div>
+          <section><strong>适用受众</strong><p>{profile.audience}</p></section>
+          <section><strong>视觉语言</strong><p>{profile.typography}</p>{profile.palette.length ? <div className="detail-chip-row">{profile.palette.map((item) => <i key={item}>{item}</i>)}</div> : null}</section>
           <section><strong>优先镜头</strong><div className="detail-chip-row">{profile.preferredShots.map((item) => <i key={item}>{item}</i>)}</div></section>
           <section><strong>关联动作</strong><div className="detail-chip-row">{profile.preferredActions.map((id) => <i key={id}>{actionNames.get(id) ?? id}</i>)}</div></section>
           <section><strong>商品重点</strong><ul>{profile.productPriorities.map((item) => <li key={item}>{item}</li>)}</ul></section>
           <section className="style-avoid"><strong>禁止错配</strong><ul>{profile.forbiddenMismatches.map((item) => <li key={item}>{item}</li>)}</ul></section>
-          <section className="style-evidence"><strong>研究说明</strong><p>{profile.researchNote}</p></section>
+          <section className="style-evidence"><strong>研究说明</strong><p>{profile.researchNote}</p><small>复核日期 {profile.retrievedAt} · {profile.sourceUrls.length} 条证据来源</small></section>
         </div></details>
-      </article>)}
+      </article>})}
     </section> : null}
 
     {tab === 'subjects' ? <KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /> : null}
