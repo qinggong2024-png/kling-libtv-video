@@ -389,7 +389,7 @@ async def create_fixed_video_task(
             prompt_text=prompt_text,
             prompt_hash=sha256_json(prompt_text),
             prompt_template_version=(
-                template.version
+                AUTOMATIC_PROMPT_COMPILER_VERSION
                 if payload.generation_mode == "automatic"
                 else CUSTOM_PROMPT_COMPILER_VERSION
             ),
