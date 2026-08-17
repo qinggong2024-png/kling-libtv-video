@@ -114,6 +114,8 @@ import { LoginFlowLines } from './LoginFlowLines'
 import { OperationsPanel } from './OperationsPanel'
 import { SubjectInputPanel } from './SubjectInputPanel'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
+import { groupBatchUploadFiles } from './batchUpload'
+import type { BatchUploadGroup } from './batchUpload'
 import {
   buildSubjectImageReferences,
   createEmptySubjectReferenceFiles,
@@ -758,6 +760,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
 }) {
   const [storedSettings] = useState(() => loadVideoComposerSettings(localStorage))
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file, index) => ({ id: createUuid(), file, sourceImageOutputId: seed.storyboardOutputIds?.[index] })) ?? [])
+  const [batchGroups, setBatchGroups] = useState<BatchUploadGroup[]>([])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
   const [profiles, setProfiles] = useState<SiteStyleProfileSummary[]>([])
   const [elements, setElements] = useState<KlingElement[]>([])
@@ -785,6 +788,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [resetting, setResetting] = useState(false)
   const [preview, setPreview] = useState<{ file: File; label: string } | null>(null)
   const storyboardInputRef = useRef<HTMLInputElement>(null)
+  const batchInputRef = useRef<HTMLInputElement>(null)
   const resetTimerRef = useRef<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
   const videoGeneration = system?.videoGeneration ?? system?.kling
@@ -885,6 +889,22 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     setNotice(notices.join('；'))
     setStoryboards((items) => [...items, ...accepted])
   }
+  const addBatchFiles = (files: File[]) => {
+    const result = groupBatchUploadFiles(files)
+    setBatchGroups(result.groups)
+    const valid = result.groups.filter((group) => !group.errors.length)
+    if (valid.length) {
+      const first = valid[0]
+      setStoryboards(first.storyboards.map((file) => ({ id: createUuid(), file })))
+      setSubjectMode('upload')
+      setSubjectFiles({ frontalImage: first.product, backImage: null, detailImages: [] })
+    }
+    setNotice([
+      valid.length ? `已识别 ${valid.length} 组素材，将批量创建 ${valid.length} 个任务` : '没有识别到完整素材组',
+      result.rejected.length ? `${result.rejected.length} 个文件未匹配命名规则` : '',
+      ...result.groups.filter((group) => group.errors.length).map((group) => `${group.key}：${group.errors.join('、')}`),
+    ].filter(Boolean).join('；'))
+  }
   const dropAt = (event: React.DragEvent, target: number) => {
     event.preventDefault()
     event.stopPropagation()
@@ -924,8 +944,12 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
     try {
       const uploadStartedAt = performance.now()
       let completedUploads = 0
+      const validBatchGroups = batchGroups.filter((group) => !group.errors.length)
       const subjectReferences = subjectMode === 'upload' ? buildSubjectImageReferences(subjectFiles) : []
-      const uploadCount = storyboards.length + subjectReferences.length
+      const submissionGroups = validBatchGroups.length
+        ? validBatchGroups
+        : [{ key: storyboards[0]?.file.name.replace(/\.[^.]+$/, '') || 'video', product: subjectMode === 'upload' ? subjectFiles.frontalImage : null, storyboards: storyboards.map((item) => item.file), errors: [] }]
+      const uploadCount = submissionGroups.reduce((total, group) => total + group.storyboards.length + (group.product ? 1 : 0), 0)
       const uploadOne = async (file: File, label: string, sourceImageOutputId?: string) => {
         try {
           const uploaded = await uploadStoryboard(file, uploadController.signal, sourceImageOutputId)
@@ -941,48 +965,48 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           throw cause
         }
       }
-      const [uploads, subjectUploads] = await Promise.all([
-        mapWithConcurrency(
-          storyboards,
-          UPLOAD_CONCURRENCY,
-          (material) => uploadOne(material.file, '分镜与主体素材', material.sourceImageOutputId),
-        ),
-        mapWithConcurrency(
-          subjectReferences,
-          UPLOAD_CONCURRENCY,
-          (reference) => uploadOne(reference.file, '分镜与主体素材'),
-        ),
-      ])
-      setStage(generationMode === 'custom'
-        ? `正在校验自定义提示词并执行 ${activeProvider.displayName} 预检`
-        : subjectUploads.length ? '正在并发匹配提示词并创建主体档案' : `正在编译自动化方案并执行 ${activeProvider.displayName} 预检`)
-      setProgress(68)
       const sourceUploadDurationSeconds = (performance.now() - uploadStartedAt) / 1000
-      const baseName = storyboards[0].file.name.replace(/\.[^.]+$/, '').trim().slice(0, 80) || '服装广告视频'
-      const task = await createVideoTask(
-        `${baseName} · ${formatTime(new Date().toISOString())}`,
-        uploads,
-        {
-          generationMode,
-          customPrompt: generationMode === 'custom' ? customPrompt.trim() : undefined,
-          templateId,
-          siteProfileId: generationMode === 'automatic' ? siteProfileId : undefined,
-          elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
-          subjectUploads,
-          resultCount,
-          durationSeconds: normalizedDurationSeconds,
-          actionIntensity,
-          cutMode,
-        },
-        sourceUploadDurationSeconds,
-      )
+      let firstTask: Task | null = null
+      for (const [groupIndex, group] of submissionGroups.entries()) {
+        const [uploads, subjectUploads] = await Promise.all([
+          mapWithConcurrency(group.storyboards, UPLOAD_CONCURRENCY, (file) => uploadOne(file, '分镜与主体素材')),
+          validBatchGroups.length
+            ? (group.product ? mapWithConcurrency([group.product], UPLOAD_CONCURRENCY, (file) => uploadOne(file, '分镜与主体素材')) : Promise.resolve([]))
+            : mapWithConcurrency(subjectReferences, UPLOAD_CONCURRENCY, (reference) => uploadOne(reference.file, '分镜与主体素材')),
+        ])
+        setStage(generationMode === 'custom' ? `正在校验第 ${groupIndex + 1}/${submissionGroups.length} 组` : `正在创建第 ${groupIndex + 1}/${submissionGroups.length} 组任务`)
+        setProgress(Math.round(52 + ((groupIndex + 1) / submissionGroups.length) * 46))
+        const task = await createVideoTask(
+          `${group.key.slice(0, 80)} · ${formatTime(new Date().toISOString())}`,
+          uploads,
+          {
+            generationMode,
+            customPrompt: generationMode === 'custom' ? customPrompt.trim() : undefined,
+            templateId,
+            siteProfileId: generationMode === 'automatic' ? siteProfileId : undefined,
+            elementIds: subjectMode === 'history' && elementId ? [elementId] : [],
+            subjectUploads,
+            resultCount,
+            durationSeconds: normalizedDurationSeconds,
+            actionIntensity,
+            cutMode,
+          },
+          sourceUploadDurationSeconds,
+        )
+        if (!firstTask) firstTask = task
+        onCreated(task)
+      }
+      const task = firstTask
+      if (!task) throw new Error('没有可提交的素材组')
       setProgress(100)
-      onCreated(task)
-      setSubmittedNotice(task.phase === 'ACTION_REQUIRED'
+      setSubmittedNotice(submissionGroups.length > 1
+        ? `已批量创建 ${submissionGroups.length} 个独立任务`
+        : task.phase === 'ACTION_REQUIRED'
         ? `“${task.title}”已创建，但 ${activeProvider.displayName} 预检需要处理：${task.phaseReasonCode ?? '请查看任务详情'}`
         : `“${task.title}”已进入 ${activeProvider.displayName} 生成队列，可以继续上传下一组素材`)
       const clearSubmittedMaterials = () => {
         setStoryboards([])
+        setBatchGroups([])
         setSubjectMode('none')
         setSubjectFiles(createEmptySubjectReferenceFiles())
         setElementId('')
@@ -1014,8 +1038,11 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           event.dataTransfer.dropEffect = event.dataTransfer.types.includes(MATERIAL_DRAG_TYPE) ? 'move' : 'copy'
         }} onDrop={(event) => { if (!formLocked) handleDrop(event, storyboards.length) }}>
           <input ref={storyboardInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
+          <input ref={batchInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addBatchFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
           <div className="upload-panel-head"><div><h2>有序分镜</h2><small>至少 1 张，最多 {storyboardLimit} 张；拖拽图片调整顺序</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
           <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '拖拽或点击上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
+          <button type="button" className="text-button upload-batch-button" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />按命名批量导入产品图与分镜</button>
+          {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.product ? '1 产品图' : '缺产品图'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
           {storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表">{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} />)}</div> : null}
         </section>
         <SubjectInputPanel
