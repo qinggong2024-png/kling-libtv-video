@@ -107,7 +107,8 @@ def _reference_role_prompt(
             )
         instructions.append(
             "; ".join(subject_roles)
-            + ". Subject references constrain identity and garment appearance only; "
+            + ". Subject references constrain identity, face, body shape, garment design, "
+            "color, material, fit, print, logo, and visible text only; "
             "ignore their background, pose, and composition."
         )
     elif element_count:

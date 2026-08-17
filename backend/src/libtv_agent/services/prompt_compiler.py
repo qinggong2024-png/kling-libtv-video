@@ -212,7 +212,11 @@ def compile_video_plan(
             f"呈现：{variant_style}",
         )
     )
-    cut_instruction = _cut_instruction(value.cut_mode)
+    cut_instruction = (
+        "单镜头连续展示，不新增切镜"
+        if value.storyboard_count == 1
+        else _cut_instruction(value.cut_mode)
+    )
     style_instruction, selected_action_ids = _style_instruction(
         value.site_profile,
         template.id,

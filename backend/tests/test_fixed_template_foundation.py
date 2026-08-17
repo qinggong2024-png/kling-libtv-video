@@ -481,7 +481,8 @@ def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None
     assert len(compiled.master_prompt) <= 900
     assert compiled.master_prompt.count("声音、字幕") == 1
     assert "分镜1：" not in compiled.master_prompt
-    assert "切镜：" in compiled.master_prompt
+    assert "切镜：单镜头连续展示，不新增切镜" in compiled.master_prompt
+    assert "按照输入分镜顺序允许明确、干净的切镜" not in compiled.master_prompt
     assert "站点表达只作用于" not in compiled.master_prompt
     assert "本结果差异" not in compiled.master_prompt
 
@@ -1260,6 +1261,10 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
     assert all(not asset.used_for_analysis for asset in assets)
     assert "@image_1" in variants[0].prompt_text
     assert "@image_2 is a frontal subject reference" in variants[0].prompt_text
+    assert (
+        "garment design, color, material, fit, print, logo, and visible text"
+        in variants[0].prompt_text
+    )
     assert len(adapter.created) == 1
     assert adapter.calls == 2
     assert adapter.created[0].element_name.startswith("linen-shirt-")
