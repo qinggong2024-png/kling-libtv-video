@@ -960,7 +960,6 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
           throw cause
         }
       }
-      const sourceUploadDurationSeconds = (performance.now() - uploadStartedAt) / 1000
       let firstTask: Task | null = null
       for (const [groupIndex, group] of submissionGroups.entries()) {
         const [uploads, subjectUploads] = await Promise.all([
@@ -986,7 +985,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
             actionIntensity,
             cutMode,
           },
-          sourceUploadDurationSeconds,
+          (performance.now() - uploadStartedAt) / 1000,
         )
         if (!firstTask) firstTask = task
         onCreated(task)
