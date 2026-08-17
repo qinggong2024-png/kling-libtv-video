@@ -339,7 +339,7 @@ def test_prompt_compiler_injects_site_style_without_rewriting_image_facts() -> N
     assert compiled.site_profile_id == "classyoutlaw"
     assert compiled.site_profile_version == profile.version
     assert "叛逆、超现实、强图形" in compiled.master_prompt
-    assert profile.expression_language.rstrip("。；") in compiled.master_prompt
+    assert profile.expression_language.split("；", 1)[0] in compiled.master_prompt
     assert "肩胯错位停格" in compiled.master_prompt
     assert "身体变形" in compiled.negative_prompt
     assert "发型" not in compiled.master_prompt
@@ -462,6 +462,25 @@ def test_all_production_prompt_combinations_fit_kling_limit() -> None:
                     )
                 )
                 assert len(compiled.master_prompt) <= 3072
+
+
+def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None:
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("ootd_walk"),
+            storyboard_count=1,
+            result_count=2,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=2,
+            duration_seconds=8,
+            site_profile=get_site_style_profile("geeksoutfit"),
+        )
+    )
+
+    assert "切镜：单镜头连续展示，不新增切镜" in compiled.master_prompt
+    assert "按照输入分镜顺序允许明确、干净的切镜" not in compiled.master_prompt
 
 
 def test_restricted_site_profile_cannot_enter_production() -> None:
@@ -964,9 +983,7 @@ async def test_bach_product_reference_failure_keeps_real_provider_and_never_subm
                 json={
                     "clientTaskId": "bach-product",
                     "title": "Bach product reference",
-                    "storyboards": [
-                        {"uploadId": upload_ids[0], "order": 1, "required": True}
-                    ],
+                    "storyboards": [{"uploadId": upload_ids[0], "order": 1, "required": True}],
                     "subjectImages": [{"uploadId": upload_ids[1], "order": 1}],
                     "generationMode": "custom",
                     "customPrompt": "人物自然展示服装。",
@@ -1239,7 +1256,11 @@ async def test_fixed_video_task_uses_subject_images_and_creates_reusable_element
     assert all(asset.used_for_generation for asset in assets)
     assert all(not asset.used_for_analysis for asset in assets)
     assert "@image_1" in variants[0].prompt_text
-    assert "@image_2 is the subject frontal reference" in variants[0].prompt_text
+    assert "@image_2 is a frontal subject reference" in variants[0].prompt_text
+    assert (
+        "garment design, color, material, fit, print, logo, and visible text"
+        in variants[0].prompt_text
+    )
     assert len(adapter.created) == 1
     assert adapter.calls == 2
     assert adapter.created[0].element_name.startswith("linen-shirt-")

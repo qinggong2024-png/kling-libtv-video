@@ -166,7 +166,11 @@ def compile_video_plan(
             f"视频风格变化：{variant_style}",
         )
     )
-    cut_instruction = _cut_instruction(value.cut_mode)
+    cut_instruction = (
+        "单镜头连续展示，不新增切镜"
+        if value.storyboard_count == 1
+        else _cut_instruction(value.cut_mode)
+    )
     style_instruction = _style_instruction(
         value.site_profile,
         template.id,
@@ -222,9 +226,7 @@ def compile_video_plan(
     if prompt_budget < 1:
         raise ValueError("prompt budget must be positive")
     if len(master_prompt) > prompt_budget:
-        raise ValueError(
-            f"compiled prompt exceeds budget: {len(master_prompt)} > {prompt_budget}"
-        )
+        raise ValueError(f"compiled prompt exceeds budget: {len(master_prompt)} > {prompt_budget}")
     return CompiledVideoPlan(
         template_id=template.id,
         template_version=template.version,
