@@ -31,4 +31,14 @@ describe('groupBatchUploadFiles', () => {
     expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['pw1(1).jpg', 'pw1(2).jpg'])
     expect(result.groups[1].errors).toEqual([])
   })
+
+  it('accepts mixed JPG, PNG, and WEBP files in one group', () => {
+    const result = groupBatchUploadFiles([
+      file('pw1正.png'), file('pw1背.webp'), file('pw1(1).jpg'), file('pw1(2).png'), file('pw1(3).webp'),
+    ])
+    expect(result.rejected).toEqual([])
+    expect(result.groups[0].productFront?.name).toBe('pw1正.png')
+    expect(result.groups[0].productBack?.name).toBe('pw1背.webp')
+    expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['pw1(1).jpg', 'pw1(2).png', 'pw1(3).webp'])
+  })
 })
