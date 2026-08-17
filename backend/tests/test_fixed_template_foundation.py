@@ -190,6 +190,8 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
     assert {profile.id for profile in profiles if profile.status == "active"} == {
         "geeksoutfit",
         "guidingcross",
+        "nerdywave",
+        "pagewings",
         "teachersgram",
         "classyoutlaw",
         "theretrotee",
@@ -199,7 +201,7 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "boldoversize",
     }
     restricted = {profile.id for profile in profiles if profile.evidence_level == "restricted_site"}
-    assert restricted == {"nerdywave", "pagewings", "goodnurselife", "magicstation"}
+    assert restricted == {"magicstation"}
     assert all(
         profile.status == "draft"
         for profile in profiles
@@ -498,7 +500,7 @@ def test_restricted_site_profile_cannot_enter_production() -> None:
                 camera_tempo="standard",
                 cut_mode="explicit_cuts",
                 variant_index=1,
-                site_profile=get_site_style_profile("nerdywave"),
+                site_profile=get_site_style_profile("magicstation"),
             )
         )
 
@@ -560,6 +562,8 @@ async def test_site_style_profile_api_exposes_evidence_gated_status() -> None:
     assert {item["id"] for item in profiles if item["status"] == "active"} == {
         "geeksoutfit",
         "guidingcross",
+        "nerdywave",
+        "pagewings",
         "teachersgram",
         "classyoutlaw",
         "theretrotee",
@@ -647,7 +651,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
             profile = next(
                 item for item in profiles_response.json() if item["id"] == "goodnurselife"
             )
-            assert profile.pop("version") == "0.1.0-research"
+            assert profile.pop("version") == "0.2.0-research"
             profile["researchNote"] = f"{profile['researchNote']} edited"
 
             update_profile_response = await client.put(
@@ -656,7 +660,7 @@ async def test_catalog_editor_preserves_action_safety_capabilities_and_versions_
                 json=profile,
             )
             assert update_profile_response.status_code == 200, update_profile_response.text
-            assert update_profile_response.json()["version"] == "0.1.1"
+            assert update_profile_response.json()["version"] == "0.2.1"
 
 
 @pytest.mark.asyncio

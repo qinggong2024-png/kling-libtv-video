@@ -142,24 +142,32 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
     ),
     "nerdywave": SiteStyleProfile(
         id="nerdywave",
-        version="0.1.0-research",
-        status="draft",
+        version="1.0.0",
+        status="active",
         name="暗黑 / NerdyWave",
         site_url="https://www.nerdywave.com/",
-        source_urls=("https://www.nerdywave.com/",),
-        retrieved_at=_RETRIEVED_AT,
-        evidence_level="restricted_site",
-        tone="冷漠、克制、带受控攻击性的暗黑表达；人物不讨好镜头，但商品必须清晰",
-        expression_language=(
-            "人物保持冷漠直视、短促掠视或微压下颌，肩线更明确、动作力度更干脆；"
-            "攻击性必须受控，不龇牙、不吼叫、不做恐怖或身体变形表演。"
+        source_urls=(
+            "https://www.nerdywave.com/",
+            "https://www.instagram.com/nerdywave_apparel/",
+            "https://www.tiktok.com/@nerdywave_apparel",
+            "https://www.youtube.com/channel/UCqHz2Agwp4JCUh3pxD-6eYw",
         ),
-        audience="待站内证据确认",
-        palette=("low_saturation", "black", "shadowed_neutral"),
-        typography="待验证",
-        camera_language="以低幅度侧向观察、有限低机位和斜向构图制造张力；允许一次克制推进，不用恐怖特效或失控甩镜",
-        opening_rule="以侧面或三分之四中景建立暗色轮廓，不用闪烁特效",
-        middle_rule="沿用通用转身或走动骨架，以冷漠直视、短促掠视和更明确的肩线增加受控攻击性，并保留印花可读停留",
+        retrieved_at="2026-08-17",
+        evidence_level="verified_site",
+        tone="暗黑另类、复古 fandom、恐怖与神秘学母题并存；以黑色材质层次和图形可读性为核心",
+        expression_language=(
+            "人物自信、冷感并可带轻微玩味，使用稳定直视、短促掠视或微压下颌；"
+            "姿态有张力但不龇牙、不吼叫，不用身体变形制造暗黑感。"
+        ),
+        audience="偏好恐怖、神秘学、cryptid、cult film、游戏与暗黑街头图形服饰的用户",
+        palette=("black", "white", "muted red", "washed gray"),
+        typography="Instrument Sans 主体字，搭配高对比衬线展示字和手写标志",
+        camera_language="以眼平或极轻低机位的侧面、三分之四中景建立张力；允许一次克制推进，清楚轮廓后再切印花近景",
+        opening_rule="先以侧面或三分之四中景建立暗色轮廓和完整上装，不用闪烁特效",
+        middle_rule=(
+            "沿用受控转身或走动骨架，以稳定直视和明确肩线展示 mesh、水洗层次与图形，"
+            "并保留印花可读停留"
+        ),
         ending_rule="停在清晰轮廓与低饱和层次仍可辨认的稳定画面",
         preferred_shots=("侧面中景", "有限低机位", "印花近景"),
         preferred_actions=(
@@ -168,53 +176,76 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "controlled_gaze",
             "print_detail_pause",
         ),
-        pacing="slow_to_standard，先验证再放大动作",
-        product_priorities=("轮廓", "黑色/低饱和层次", "印花可读性"),
-        forbidden_mismatches=("恐怖特效", "身体变形", "过度闪烁", "未经证据确认的赛博或哥特符号"),
+        pacing="slow_to_standard；商品姿态保留 2–3.5 秒，氛围切镜不得牺牲图形可读性",
+        product_priorities=(
+            "mesh jersey 与水洗材质",
+            "黑白/暗红层次",
+            "恐怖与 fandom 图形可读性",
+            "完整轮廓",
+        ),
+        forbidden_mismatches=("身体变形", "过度闪烁", "纯赛博霓虹", "特效遮挡图形或材质"),
         research_note=(
-            "2026-07-30 站内自动化访问返回 403；冷漠表情、受控攻击性和张力镜头"
-            "来自用户确认的品牌方向，仍需样片验证后激活。"
+            "2026-08-17 通过 Chrome MCP 直访首页复核：黑底高对比、Instrument Sans、mesh jersey、"
+            "水洗单品及 occult/cryptid/horror/gaming/film 分类均可直接观察；"
+            "动作仍只继承已验证通用骨架。"
         ),
     ),
     "pagewings": SiteStyleProfile(
         id="pagewings",
-        version="0.1.0-research",
-        status="draft",
+        version="1.0.0",
+        status="active",
         name="泛读书 / PageWings",
         site_url="https://www.pagewings.com/",
-        source_urls=("https://www.pagewings.com/",),
-        retrieved_at=_RETRIEVED_AT,
-        evidence_level="restricted_site",
-        tone="温暖、有氛围、安静而有叙事感的泛阅读气质；人物自然亲和，不过度表演",
-        expression_language=(
-            "人物温和、松弛、像沉浸在安静片刻中；使用柔和视线、轻微自然微笑和低幅呼吸感姿态，"
-            "不假装阅读，也不凭空与书本或眼镜互动。"
+        source_urls=(
+            "https://www.pagewings.com/",
+            "https://www.instagram.com/pagewings_brand/",
+            "https://www.youtube.com/watch?v=8t6Rbf0K4BU",
+            "https://www.youtube.com/watch?v=E3HB8sxEe2c",
         ),
-        audience="待站内证据确认",
-        palette=("paper_neutral", "ink_black", "muted_accent"),
-        typography="待验证",
-        camera_language="以温暖稳定的观察、柔和轻推和较长停留建立氛围；保留环境呼吸感，不凭空补入文学道具",
-        opening_rule="先建立人物与现有环境的关系，以稳定中景留出叙事空间",
-        middle_rule="沿用通用视线移动与轻微重心变化，以柔和表情、自然呼吸感和文字细节停留推进画面",
-        ending_rule="在安静的中景或文字仍可读的近景自然停留",
-        preferred_shots=("环境中景", "轻推近景", "已有物件关系镜头"),
+        retrieved_at="2026-08-17",
+        evidence_level="verified_site",
+        tone="明亮、活泼、彩色复古图形感；文学、公共图书馆与人权是商品主题，不等于安静学院风",
+        expression_language=(
+            "人物自然亲和、明快并带轻松自信，使用开放视线、自然微笑和低幅度完整动作；"
+            "只有输入已存在书本时才建立阅读关系，不凭空增加书本或眼镜。"
+        ),
+        audience="书迷、公共图书馆支持者、文学与人权主题图形服饰用户",
+        palette=(
+            "white",
+            "ink black",
+            "sunflower yellow",
+            "garden green",
+            "colorful vintage graphics",
+        ),
+        typography="Lato 正文，搭配大号紧凑展示字和手写式主题字",
+        camera_language="以明亮眼平的正面中景和中近景清楚切换；允许低幅走动、轻推与图形近景，每次近景后回到完整商品",
+        opening_rule="先以正面中景建立完整上装和核心书籍、图书馆或人权主题图形",
+        middle_rule="用一次低幅走动或三分之四转身衔接印花近景；已有书本时才允许简短阅读关系镜头",
+        ending_rule="回到整件商品与主题文字都清晰可读的正面或轻侧中景",
+        preferred_shots=("正面中景", "印花中近景", "整身或侧背商品确认", "已有书本关系镜头"),
         preferred_actions=(
             "stance_shift",
             "controlled_walk",
-            "controlled_gaze",
             "print_detail_pause",
+            "print_indicate_release",
         ),
-        pacing="slow_to_standard，保留阅读式停留",
-        product_priorities=("文字/插画可读性", "材质和版型", "人与环境关系"),
+        pacing="standard_to_fast；每套造型 2–4 秒，印花至少稳定停留 1–1.5 秒",
+        product_priorities=(
+            "书籍/图书馆/人权主题可读性",
+            "彩色复古图形",
+            "水洗材质与完整版型",
+            "正背面商品确认",
+        ),
         forbidden_mismatches=(
             "擅自新增书本或眼镜",
-            "高速跳切",
-            "夸张舞蹈",
-            "把推断的学院风当成事实",
+            "默认套用安静学院风",
+            "道具遮挡核心图形",
+            "高频切镜导致文字不可读",
         ),
         research_note=(
-            "2026-07-30 站内自动化访问返回 403；温暖、有氛围的表达来自用户确认的"
-            "品牌方向，需补充首页或产品样片后再激活。"
+            "2026-08-17 通过 Chrome MCP 直访首页复核：Book Lovers、Banned Books、Public Libraries、"
+            "Human Rights、Lato 字体和彩色生活方式横幅均可直接观察；"
+            "官方样片已纠正旧的安静学院风假设。"
         ),
     ),
     "teachersgram": SiteStyleProfile(
@@ -255,21 +286,25 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
     ),
     "goodnurselife": SiteStyleProfile(
         id="goodnurselife",
-        version="0.1.0-research",
+        version="0.2.0-research",
         status="draft",
         name="护士 / GoodNurseLife",
         site_url="https://www.goodnurselife.com/",
-        source_urls=("https://www.goodnurselife.com/",),
-        retrieved_at=_RETRIEVED_AT,
-        evidence_level="restricted_site",
-        tone="温暖、可靠、专业而有活力的护理日常方向，功能与商品信息优先",
+        source_urls=(
+            "https://www.goodnurselife.com/",
+            "https://www.facebook.com/profile.php?id=61559705181293",
+            "https://www.instagram.com/nursehutshop/",
+        ),
+        retrieved_at="2026-08-17",
+        evidence_level="verified_site",
+        tone="柔和、亲切、带职业幽默与小型配件的轻快感；专科和职称信息必须清楚",
         expression_language=(
             "人物亲切、可靠、精神状态良好，使用友善直视、放松微笑和利落站姿；"
             "不表演诊疗、疲惫崩溃或英雄化护理情节。"
         ),
-        audience="待站内证据确认",
-        palette=("clean_light", "medical_blue_or_teal_pending", "garment_neutral"),
-        typography="待验证",
+        audience="护士、影像科、牙科、检验科等医疗岗位及其职业主题周边用户",
+        palette=("warm ivory", "pastel pink", "soft blue", "floral green", "charcoal text"),
+        typography="ABeeZee 正文，搭配高对比粗体标题和圆润品牌字",
         camera_language="清洁明亮的眼平观察、稳定跟随与短距离推进，节奏利落但避免医疗情节化运镜",
         opening_rule="用清晰中景建立服装轮廓与职业主题文字",
         middle_rule="以友善直视或自然微笑配合一次向前停稳或重心变化，衔接胸前文字、肩线和袖口细节",
@@ -277,14 +312,22 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         preferred_shots=("清晰中景", "胸前文字近景", "肩线/袖口细节"),
         preferred_actions=(
             "stance_shift",
-            "controlled_walk",
             "chest_print_pause",
             "sleeve_detail_pause",
         ),
         pacing="standard，商品信息优先",
-        product_priorities=("职业文字/图标", "肩线和袖口", "舒适版型", "清晰对比"),
+        product_priorities=(
+            "职业文字与专科标识",
+            "徽章扣/配件真实尺寸",
+            "scrub 与上装结构",
+            "柔和配色和清晰对比",
+        ),
         forbidden_mismatches=("擅自增加医疗器械", "危险操作示范", "夸张舞蹈", "不真实制服替换"),
-        research_note="2026-07-30 站内自动化访问返回 403；护理主题规则必须等待站内或用户样片确认。",
+        research_note=(
+            "2026-08-17 通过 Chrome MCP 直访首页复核："
+            "Shop By Department/Title/Specialty、badge reels、"
+            "scrub sets、ABeeZee 与粉蓝柔和配色均可直接观察；因仍缺合格真人穿着样片，保持 draft。"
+        ),
     ),
     "classyoutlaw": SiteStyleProfile(
         id="classyoutlaw",
