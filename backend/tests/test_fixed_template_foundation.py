@@ -897,8 +897,8 @@ async def test_custom_video_task_uses_default_spec_and_skips_automatic_prompt_co
     assert task["actionCapabilities"]["canConfirm"] is False
     assert len(task["variants"]) == 2
     assert {variant["promptText"] for variant in task["variants"]} == {
-        f"{user_prompt} Reference roles: @image_1 are ordered storyboards and control "
-        "scene, action, composition, and camera order."
+        f"{user_prompt} References: @image_1 are ordered storyboards controlling scene, action, "
+        "composition, and shot order."
     }
     assert all(
         variant["promptText"].startswith(user_prompt)

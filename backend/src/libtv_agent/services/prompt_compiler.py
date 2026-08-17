@@ -26,6 +26,7 @@ class PromptCompileInput:
     site_profile: SiteStyleProfile | None = None
     action_context: ActionContext | None = None
     action_library: Mapping[str, MotionAction] | None = None
+    prompt_budget: int = 3072
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,15 @@ def _shot_rule(template: VideoTemplate, order: int, total: int) -> str:
     return "；".join(selected)
 
 
+def _positive_profile_text(value: str) -> str:
+    clauses = tuple(part.strip("。； ") for part in value.split("；") if part.strip("。； "))
+    if not clauses:
+        return ""
+    if len(clauses) == 1:
+        return clauses[0]
+    return f"{clauses[0]}；补充：{'；'.join(clauses[1:])}"
+
+
 def _style_instruction(
     profile: SiteStyleProfile | None,
     template_id: str,
@@ -112,8 +122,8 @@ def _style_instruction(
         (
             "站点表达只作用于已有素材支持的动作、神态和拍摄触感，不新增或改写场景、道具、服装面与商品细节",
             f"站点风格：{profile.tone.rstrip('。；')}",
-            (f"人物表达（仅在面部清晰可见时执行）：{profile.expression_language.rstrip('。；')}"),
-            f"镜头触感：{profile.camera_language.rstrip('。；')}",
+            f"人物表达（仅在面部清晰可见时执行）：{_positive_profile_text(profile.expression_language)}",
+            f"镜头触感：{_positive_profile_text(profile.camera_language)}",
             f"可用动作：{preferred_actions}",
             (
                 f"站点节奏：{profile.pacing.rstrip('。；')}；"
@@ -197,7 +207,7 @@ def compile_video_plan(
             f"{'；'.join(invariants)}；所有未明确允许变化的输入事实保持不变；"
             "当前结果相对输入只允许改变动作细节、神态和拍摄表达"
         ),
-        f"分镜与切镜：{cut_instruction}；时间轴：{timeline}",
+        f"分镜与切镜：{cut_instruction}；切镜：{cut_instruction}；时间轴：{timeline}",
         f"动作幅度：{action.instruction}",
         camera.instruction if value.site_profile is None else "",
         style_instruction,
@@ -208,9 +218,12 @@ def compile_video_plan(
         "无声音，无字幕",
     )
     master_prompt = "。".join(part for part in prompt_parts if part)
-    if len(master_prompt) > _MAX_KLING_PROMPT_CHARS:
+    prompt_budget = min(value.prompt_budget, _MAX_KLING_PROMPT_CHARS)
+    if prompt_budget < 1:
+        raise ValueError("prompt budget must be positive")
+    if len(master_prompt) > prompt_budget:
         raise ValueError(
-            f"compiled prompt exceeds Kling limit: {len(master_prompt)} > {_MAX_KLING_PROMPT_CHARS}"
+            f"compiled prompt exceeds budget: {len(master_prompt)} > {prompt_budget}"
         )
     return CompiledVideoPlan(
         template_id=template.id,

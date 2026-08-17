@@ -42,6 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
+AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v3"
 CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
 MAX_KLING_PROMPT_CHARS = 3072
 
@@ -90,28 +91,28 @@ def _reference_role_prompt(
 
     storyboard_ids = ", ".join(f"@image_{index}" for index in range(1, storyboard_count + 1))
     instructions = [
-        f"Reference roles: {storyboard_ids} are ordered storyboards and control scene, action, "
-        "composition, and camera order."
+        f"References: {storyboard_ids} are ordered storyboards controlling scene, action, "
+        "composition, and shot order."
     ]
     if subject_image_count:
         first_subject_index = storyboard_count + 1
-        subject_roles = [f"@image_{first_subject_index} is the subject frontal reference"]
+        subject_roles = [f"@image_{first_subject_index} is a frontal subject reference"]
         if subject_image_count >= 2:
-            subject_roles.append(f"@image_{first_subject_index + 1} is the subject back reference")
+            subject_roles.append(f"@image_{first_subject_index + 1} is a back subject reference")
         for offset in range(2, subject_image_count):
             subject_roles.append(
-                f"@image_{first_subject_index + offset} is a subject side/detail reference"
+                f"@image_{first_subject_index + offset} is a side/detail subject reference"
             )
         instructions.append(
             "; ".join(subject_roles)
-            + ". Subject references constrain only identity, garment shape, color, print, logo, "
-            "and visible text; ignore their background, pose, and composition."
+            + ". Subject references constrain identity and garment appearance only; "
+            "ignore their background, pose, and composition."
         )
     elif element_count:
         element_ids = ", ".join(f"@element_{index}" for index in range(1, element_count + 1))
         instructions.append(
-            f"{element_ids} are historical subject elements and constrain subject identity and "
-            "appearance without overriding storyboard scene or composition."
+            f"{element_ids} are historical subject elements constraining identity and "
+            "appearance only."
         )
     return " ".join(instructions)
 
@@ -251,6 +252,7 @@ async def create_fixed_video_task(
                     site_profile=site_profile,
                     action_context=validation.action_context,
                     action_library=actions,
+                    prompt_budget=MAX_KLING_PROMPT_CHARS - len(role_prompt) - 1,
                 )
             )
             for index in range(1, payload.result_count + 1)
@@ -265,7 +267,7 @@ async def create_fixed_video_task(
         ]
         variant_seeds = [plan.variant_seed for plan in plans]
         plan_json = {
-            "compiler": "fixed-template-v1",
+            "compiler": AUTOMATIC_PROMPT_COMPILER_VERSION,
             "variants": [
                 {**asdict(plan), "master_prompt": prompt_text}
                 for plan, prompt_text in zip(plans, prompt_texts, strict=True)
