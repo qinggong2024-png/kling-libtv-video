@@ -43,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
-AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v2"
+AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v3"
 CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
 MAX_KLING_PROMPT_CHARS = 3072
 
@@ -91,21 +91,30 @@ def _reference_role_prompt(
     """Describe Kling content IDs without letting subject images redefine the shots."""
 
     storyboard_ids = ", ".join(f"@image_{index}" for index in range(1, storyboard_count + 1))
-    instructions = [f"素材角色：{storyboard_ids}为按序分镜，决定场景、动作、构图与镜头顺序。"]
+    instructions = [
+        f"References: {storyboard_ids} are ordered storyboards controlling scene, action, "
+        "composition, "
+        "and shot order."
+    ]
     if subject_image_count:
         first_subject_index = storyboard_count + 1
-        subject_roles = [f"@image_{first_subject_index}为人物正面参考"]
+        subject_roles = [f"@image_{first_subject_index} is a frontal subject reference"]
         if subject_image_count >= 2:
-            subject_roles.append(f"@image_{first_subject_index + 1}为人物背面参考")
+            subject_roles.append(f"@image_{first_subject_index + 1} is a back subject reference")
         for offset in range(2, subject_image_count):
-            subject_roles.append(f"@image_{first_subject_index + offset}为人物侧面/细节参考")
+            subject_roles.append(
+                f"@image_{first_subject_index + offset} is a side/detail subject reference"
+            )
         instructions.append(
-            "；".join(subject_roles) + "。人物参考仅约束身份及服装外观，忽略其背景、姿势和构图。"
+            "; ".join(subject_roles)
+            + ". Subject references constrain identity and garment appearance only; "
+            "ignore their background, pose, and composition."
         )
     elif element_count:
         element_ids = ", ".join(f"@element_{index}" for index in range(1, element_count + 1))
         instructions.append(
-            f"{element_ids}为历史人物元素，仅约束身份与外观，不覆盖分镜场景或构图。"
+            f"{element_ids} are historical subject elements constraining identity and "
+            "appearance only."
         )
     return " ".join(instructions)
 
@@ -252,6 +261,7 @@ async def create_fixed_video_task(
                     site_profile=site_profile,
                     action_context=validation.action_context,
                     action_library=actions,
+                    prompt_budget=MAX_KLING_PROMPT_CHARS - len(role_prompt) - 1,
                     learning_guidance=learning.prompt_guidance,
                     learning_preferred_action_ids=learning.preferred_action_ids,
                     learning_avoided_action_ids=learning.avoided_action_ids,
@@ -395,7 +405,7 @@ async def create_fixed_video_task(
             prompt_text=prompt_text,
             prompt_hash=sha256_json(prompt_text),
             prompt_template_version=(
-                template.version
+                AUTOMATIC_PROMPT_COMPILER_VERSION
                 if payload.generation_mode == "automatic"
                 else CUSTOM_PROMPT_COMPILER_VERSION
             ),

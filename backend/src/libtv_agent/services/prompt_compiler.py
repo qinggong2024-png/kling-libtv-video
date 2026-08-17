@@ -36,6 +36,7 @@ class PromptCompileInput:
     learning_avoided_action_ids: tuple[str, ...] = ()
     learning_profile_version: int | None = None
     learning_evidence_count: int = 0
+    prompt_budget: int = 3072
 
 
 @dataclass(frozen=True)
@@ -108,12 +109,14 @@ def _shot_rule(template: VideoTemplate, order: int, total: int) -> str:
 
 
 def _positive_profile_text(value: str) -> str:
-    """Keep the actionable style signal and leave generic prohibitions to 避免."""
+    """Keep all style clauses while giving the model a compact labeled structure."""
 
-    rendered = value.rstrip("。；")
-    for marker in ("；不", "；避免", "，不用", "，不使用", "，避免"):
-        rendered = rendered.split(marker, 1)[0]
-    return rendered.rstrip("，；。 ")
+    clauses = tuple(part.strip("。； ") for part in value.split("；") if part.strip("。； "))
+    if not clauses:
+        return ""
+    if len(clauses) == 1:
+        return clauses[0]
+    return f"{clauses[0]}；补充：{'；'.join(clauses[1:])}"
 
 
 def _style_instruction(
@@ -157,10 +160,7 @@ def _style_instruction(
             part
             for part in (
                 f"基调：{profile.tone.rstrip('。；')}",
-                (
-                    "表演（面部清晰时）："
-                    f"{_positive_profile_text(profile.expression_language).split('；', 1)[0]}"
-                ),
+                (f"表演（面部清晰时）：{_positive_profile_text(profile.expression_language)}"),
                 f"镜头：{_positive_profile_text(profile.camera_language)}",
                 f"可用动作：{preferred_actions.rstrip('。；')}" if preferred_actions else "",
                 f"节奏：{profile.pacing.rstrip('。；')}",
@@ -248,11 +248,7 @@ def compile_video_plan(
         if value.storyboard_count > 1 or not item.startswith("按输入分镜顺序执行")
     )
     profile_negatives = value.site_profile.forbidden_mismatches if value.site_profile else ()
-    negatives = tuple(
-        item
-        for item in (*template.prompt_rules.negatives, *profile_negatives)
-        if item != "人物身份漂移"
-    )
+    negatives = tuple(item for item in (*template.prompt_rules.negatives, *profile_negatives))
     negative_prompt = "；".join(negatives)
     timeline = "；".join(
         (
@@ -269,7 +265,7 @@ def compile_video_plan(
         part
         for part in (
             f"时间轴：{timeline}",
-            f"切镜：{cut_instruction}" if value.storyboard_count > 1 else "",
+            f"切镜：{cut_instruction}",
             f"幅度：{action.instruction}",
         )
         if part
@@ -295,16 +291,17 @@ def compile_video_plan(
         f"避免：{negative_prompt}",
     )
     master_prompt = "。".join(part for part in prompt_parts if part)
-    if len(master_prompt) > _MAX_KLING_PROMPT_CHARS and learning_instruction:
-        overflow = len(master_prompt) - _MAX_KLING_PROMPT_CHARS
+    prompt_budget = min(value.prompt_budget, _MAX_KLING_PROMPT_CHARS)
+    if prompt_budget < 1:
+        raise ValueError("prompt budget must be positive")
+    if len(master_prompt) > prompt_budget and learning_instruction:
+        overflow = len(master_prompt) - prompt_budget
         keep = max(0, len(learning_instruction) - overflow - 1)
         learning_instruction = learning_instruction[:keep].rstrip("；，。 ")
         prompt_parts = (*prompt_parts[:4], learning_instruction, *prompt_parts[5:])
         master_prompt = "。".join(part for part in prompt_parts if part)
-    if len(master_prompt) > _MAX_KLING_PROMPT_CHARS:
-        raise ValueError(
-            f"compiled prompt exceeds Kling limit: {len(master_prompt)} > {_MAX_KLING_PROMPT_CHARS}"
-        )
+    if len(master_prompt) > prompt_budget:
+        raise ValueError(f"compiled prompt exceeds budget: {len(master_prompt)} > {prompt_budget}")
     return CompiledVideoPlan(
         template_id=template.id,
         template_version=template.version,
