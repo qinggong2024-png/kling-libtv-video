@@ -1452,7 +1452,9 @@ main { min-height: 100dvh; }
 .style-library-details > div { padding: 0 18px 18px; }
 .style-library-details .style-avoid strong { color: var(--danger); }
 .style-library-details .style-evidence { grid-column: 1 / -1; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.style-evidence p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.style-library-details section > p { margin: 0 0 8px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.style-evidence p { margin-bottom: 5px; color: var(--muted); }
+.style-evidence small { display: block; color: var(--muted); font-size: 11px; }
 
 /* Content library editor */
 body.modal-open { overflow: hidden; }
@@ -1557,9 +1559,14 @@ body.modal-open { overflow: hidden; }
   .section-kicker { margin-bottom: 3px; }
   .upload-panel .upload-icon { width: 40px; height: 40px; }
 
-  /* Keep the storyboard dropzone flush with the subject upload tiles. */
+  /* Let the subject tile size drive the shared row, then fill to its baseline. */
+  .upload-panels--with-subject > .upload-panel--storyboard:not(.upload-panel--has-items) {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 9px;
+  }
   .upload-panels--with-subject > .upload-panel--storyboard:not(.upload-panel--has-items) .upload-zone--compact {
-    min-height: 124px;
+    flex: 1;
   }
 
   .subject-input-panel--align-uploaded-media .subject-input-panel__upload {
