@@ -161,7 +161,7 @@ VIDEO_TEMPLATES: dict[str, VideoTemplate] = {
         name="OOTD走动展示",
         description="以自然走动和有限转身展示服装整体版型。",
         opening=("从输入分镜中的自然姿态开始", "保持服装完整可见"),
-        middle=("自然走动并轻微转身", "按分镜顺序展示服装正面、侧面和整体版型"),
+        middle=("自然走动并轻微转身", "展示输入支持的可见商品面和整体版型"),
         ending=("以自然定姿结束", "镜头稳定停留展示整体穿搭"),
         extra_negatives=("避免奔跑、跳跃、快速旋转和过大步幅",),
     ),
