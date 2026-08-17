@@ -10,13 +10,25 @@ describe('groupBatchUploadFiles', () => {
     ])
     expect(result.rejected).toEqual([])
     expect(result.groups[0].key).toBe('sku-01')
-    expect(result.groups[0].product?.name).toBe('sku-01_product.jpg')
+    expect(result.groups[0].productFront?.name).toBe('sku-01_product.jpg')
     expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['sku-01_s01.jpg', 'sku-01_s02.jpg', 'sku-01_s03.jpg', 'sku-01_s04.jpg'])
   })
 
   it('reports missing or invalid files instead of guessing', () => {
     const result = groupBatchUploadFiles([file('sku_s01.jpg'), file('notes.txt')])
     expect(result.rejected).toEqual(['notes.txt'])
-    expect(result.groups[0].errors).toContain('缺少 *_product 产品图')
+    expect(result.groups[0].errors).toContain('缺少“品牌款号正”产品正面图')
+  })
+
+  it('supports branded parenthesized storyboards with front and back product images', () => {
+    const result = groupBatchUploadFiles([
+      file('pw1(2).jpg'), file('pw1背.jpg'), file('pw2(1).jpg'), file('pw1(1).jpg'), file('pw1正.jpg'), file('pw2正.jpg'),
+    ])
+    expect(result.rejected).toEqual([])
+    expect(result.groups.map((group) => group.key)).toEqual(['pw1', 'pw2'])
+    expect(result.groups[0].productFront?.name).toBe('pw1正.jpg')
+    expect(result.groups[0].productBack?.name).toBe('pw1背.jpg')
+    expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['pw1(1).jpg', 'pw1(2).jpg'])
+    expect(result.groups[1].errors).toEqual([])
   })
 })
