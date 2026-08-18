@@ -41,4 +41,23 @@ describe('groupBatchUploadFiles', () => {
     expect(result.groups[0].productBack?.name).toBe('pw1背.webp')
     expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['pw1(1).jpg', 'pw1(2).png', 'pw1(3).webp'])
   })
+
+  it('recognizes bounded fuzzy naming variants', () => {
+    const result = groupBatchUploadFiles([
+      file('pw1 前.png'), file('pw1-后.webp'), file('pw1（1）.jpg'), file('pw1_2.png'), file('pw1第 三 张.webp'),
+    ])
+    expect(result.rejected).toEqual([])
+    expect(result.groups[0].key).toBe('pw1')
+    expect(result.groups[0].productFront?.name).toBe('pw1 前.png')
+    expect(result.groups[0].productBack?.name).toBe('pw1-后.webp')
+    expect(result.groups[0].storyboards.map((item) => item.name)).toEqual(['pw1（1）.jpg', 'pw1_2.png', 'pw1第 三 张.webp'])
+  })
+
+  it('rejects ambiguous names and reports duplicate inferred orders', () => {
+    const result = groupBatchUploadFiles([
+      file('pw11.jpg'), file('pw1正.jpg'), file('pw1(1).jpg'), file('pw1-1.jpg'),
+    ])
+    expect(result.rejected).toEqual(['pw11.jpg'])
+    expect(result.groups[0].errors[0]).toContain('分镜序号 1 重复')
+  })
 })
