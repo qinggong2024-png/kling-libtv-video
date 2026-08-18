@@ -404,7 +404,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
     ),
     "orionride": SiteStyleProfile(
         id="orionride",
-        version="1.0.0",
+        version="1.1.0",
         status="active",
         name="骑行 / OrionRide",
         site_url="https://www.orionride.com/",
@@ -414,8 +414,9 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "https://www.youtube.com/@orionrideofficial",
             "https://www.youtube.com/watch?v=tvAwCYDumyA",
             "https://www.youtube.com/watch?v=4c74x_gWsvc",
+            "https://www.trustpilot.com/review/www.orionride.com",
         ),
-        retrieved_at=_RETRIEVED_AT,
+        retrieved_at="2026-08-18",
         evidence_level="verified_site",
         tone="充满能量、自由、专注、功能明确，兼顾复古骑行图形和户外生活方式色彩",
         expression_language=(
@@ -448,8 +449,10 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "拉伸印花证明面料性能",
         ),
         research_note=(
-            "官网品类和官方公开视频均已复核；真实骑行动作继续作为自行车与户外环境条件动作，"
-            "不进入无道具默认动作库。"
+            "2026-08-18 复核到官网 gravel shirt、downhill jersey、cycling jersey 品类和"
+            "官方 Instagram 的自行车、户外穿着及用户骑行内容；Trustpilot 为已认领档案，"
+            "359 条评价、4.1 分，只用于身份与履约交叉验证。官网当前可视层触发 Access Denied，"
+            "因此真实骑行动作继续作为自行车与户外环境条件动作，不进入无道具默认动作库。"
         ),
     ),
     "ironpandafit": SiteStyleProfile(
@@ -597,42 +600,60 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
     ),
     "magicstation": SiteStyleProfile(
         id="magicstation",
-        version="0.1.0-research",
-        status="draft",
-        name="魔法站点",
-        site_url="",
-        source_urls=(),
-        retrieved_at="2026-07-31",
-        evidence_level="restricted_site",
-        tone="中性、克制并优先保证商品信息清晰，待站点素材核验后再补充品牌表达",
-        expression_language=(
-            "人物保持自然、克制并服务于商品展示；在缺少站点证据时不添加夸张表情、"
-            "戏剧化手势或由品牌名称联想到的表演。"
+        version="1.0.0",
+        status="active",
+        name="魔法 / PurpleHecate",
+        site_url="https://www.purplehecate.com/",
+        source_urls=(
+            "https://www.purplehecate.com/",
+            "https://www.instagram.com/purplehecateofficial/",
+            "https://www.tiktok.com/@purplehecate_official",
+            "https://www.youtube.com/@purplehecate/shorts",
+            "https://www.trustpilot.com/review/purplehecate.com",
         ),
-        audience="待站点资料与目标用户信息补充后确认",
-        palette=("source_image_colors", "neutral"),
-        typography="仅保留输入素材中可见且可核验的文字与排版",
-        camera_language="使用稳定平视、中景和有限轻推展示商品，不凭品牌名称增加特效、特殊机位或虚构场景",
-        opening_rule="先以稳定正面或轻三分之四中景建立人物、服装和商品轮廓",
-        middle_rule="沿用通用动作展示版型与图案，动作幅度克制并确保文字、印花和服装结构可见",
-        ending_rule="回到商品信息完整可辨的稳定画面，不额外加入未经素材支持的视觉元素",
-        preferred_shots=("正面中景", "轻三分之四中景", "商品细节近景"),
+        retrieved_at="2026-08-18",
+        evidence_level="verified_site",
+        tone="神秘、梦幻、明亮而俏皮，以紫色魔法氛围承托可读的服装图案",
+        expression_language=(
+            "人物自信、好奇、带轻微神秘感，可用柔和直视、侧望和自然笑意；"
+            "神秘感来自光色与停顿，不使用施法手势、惊恐表情或角色扮演。"
+        ),
+        audience="喜欢 witchy、塔罗、星座、奇幻生物和灵性图形服饰的消费者",
+        palette=("deep_purple", "electric_violet", "black", "moonlight_white", "pink_glow"),
+        typography="优雅高对比衬线标题配清晰正文；商品文字和图形优先保持完整可读",
+        camera_language=(
+            "以稳定正面和三分之四中景展示图案与轮廓，允许低幅柔和推进、轻微横移和一次"
+            "紫色光感转场；光效只能存在于背景或边缘，不覆盖人物、文字和商品结构"
+        ),
+        opening_rule="先用正面或轻三分之四中景建立完整服装，再以紫色环境光或图形色彩引出神秘氛围",
+        middle_rule="以柔和侧望、自然笑意和一次受控转身展示前后图形；复杂塔罗、星座或奇幻图案追加稳定停留",
+        ending_rule="回到图案无遮挡的完整商品画面，以安静直视或自然侧望结束，不加入施法结果或虚构道具",
+        preferred_shots=("正面中全景", "轻三分之四中景", "图形中近景", "背面图案中景"),
         preferred_actions=(
             "stance_shift",
             "three_quarter_turn",
             "print_detail_pause",
+            "back_reveal",
         ),
-        pacing="standard，以稳定展示和清晰停留为主",
-        product_priorities=("完整轮廓", "版型与面料", "印花和文字可读性"),
+        pacing="standard_to_slow，以柔和推进和一到两秒图案停留营造神秘感",
+        product_priorities=(
+            "塔罗与星座图形",
+            "奇幻生物印花",
+            "完整轮廓",
+            "文字可读性",
+            "前后图案关系",
+        ),
         forbidden_mismatches=(
-            "凭品牌名称添加魔法特效",
-            "新增法杖、书籍或其他道具",
-            "虚构奇幻场景",
-            "特效遮挡商品细节",
+            "施法、召唤或夸张角色扮演",
+            "无参考时新增法杖、水晶、塔罗牌或魔法书",
+            "紫色烟雾、粒子或闪光遮挡商品",
+            "把日常印花服装改造成戏服或盔甲",
+            "快速故障闪烁导致图形和文字不可读",
         ),
         research_note=(
-            "2026-07-31 按用户要求新增品牌档案；尚未提供站点地址、官方素材或视频样片，"
-            "因此保持 draft 和 restricted_site，待证据补齐后再验收品牌表达。"
+            "2026-08-18 复核官网紫色魔法主视觉、witchy/塔罗/星座/奇幻服装品类及官方"
+            "Instagram 的商品帖、轮播与竖屏 Reel；Trustpilot 为已认领档案，447 条评价、"
+            "3.7 分，只用于身份、商品和履约交叉验证，不作为视觉或动作证据。"
         ),
     ),
 }

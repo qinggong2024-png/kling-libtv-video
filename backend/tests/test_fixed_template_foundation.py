@@ -200,9 +200,10 @@ def test_site_style_profiles_are_versioned_and_restricted_sources_are_explicit()
         "ironpandafit",
         "tokyotiger",
         "boldoversize",
+        "magicstation",
     }
     restricted = {profile.id for profile in profiles if profile.evidence_level == "restricted_site"}
-    assert restricted == {"magicstation"}
+    assert restricted == set()
     assert all(
         profile.status == "draft"
         for profile in profiles
@@ -559,7 +560,7 @@ def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None
     assert "本结果差异" not in compiled.master_prompt
 
 
-def test_restricted_site_profile_cannot_enter_production() -> None:
+def test_draft_site_profile_cannot_enter_production() -> None:
     with pytest.raises(ValueError, match="not active"):
         compile_video_plan(
             PromptCompileInput(
@@ -570,7 +571,7 @@ def test_restricted_site_profile_cannot_enter_production() -> None:
                 camera_tempo="standard",
                 cut_mode="explicit_cuts",
                 variant_index=1,
-                site_profile=get_site_style_profile("magicstation"),
+                site_profile=get_site_style_profile("goodnurselife"),
             )
         )
 
@@ -641,11 +642,18 @@ async def test_site_style_profile_api_exposes_evidence_gated_status() -> None:
         "ironpandafit",
         "tokyotiger",
         "boldoversize",
+        "magicstation",
     }
     assert profiles[0]["retrievedAt"] == "2026-07-30"
     assert profiles[0]["cameraLanguage"]
     assert profiles[0]["openingRule"]
-    assert any(item["evidenceLevel"] == "restricted_site" for item in profiles)
+    assert all(item["evidenceLevel"] == "verified_site" for item in profiles)
+    purplehecate = next(item for item in profiles if item["id"] == "magicstation")
+    assert purplehecate["name"] == "魔法 / PurpleHecate"
+    assert purplehecate["version"] == "1.0.0"
+    assert purplehecate["retrievedAt"] == "2026-08-18"
+    assert purplehecate["siteUrl"] == "https://www.purplehecate.com/"
+    assert "https://www.instagram.com/purplehecateofficial/" in purplehecate["sourceUrls"]
 
 
 @pytest.mark.asyncio
