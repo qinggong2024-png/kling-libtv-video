@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -51,6 +52,19 @@ class CompiledVideoPlan:
 
 
 _MAX_KLING_PROMPT_CHARS = 3072
+_NEGATIVE_PROFILE_PREFIXES = (
+    "避免",
+    "不得",
+    "不要",
+    "不用",
+    "不使用",
+    "不做",
+    "不呈现",
+    "不新增",
+    "不凭空",
+    "不能",
+    "无意义",
+)
 
 _VARIANT_MODIFIERS: tuple[tuple[str, str, str], ...] = (
     (
@@ -95,13 +109,28 @@ def _shot_rule(template: VideoTemplate, order: int, total: int) -> str:
     return "；".join(selected)
 
 
-def _positive_profile_text(value: str) -> str:
-    clauses = tuple(part.strip("。； ") for part in value.split("；") if part.strip("。； "))
-    if not clauses:
-        return ""
-    if len(clauses) == 1:
-        return clauses[0]
-    return f"{clauses[0]}；补充：{'；'.join(clauses[1:])}"
+def _partition_profile_text(value: str) -> tuple[str, tuple[str, ...]]:
+    segments = re.split(
+        rf"；|，(?=(?:{'|'.join(_NEGATIVE_PROFILE_PREFIXES)}))",
+        value,
+    )
+    positive: list[str] = []
+    negative: list[str] = []
+    for segment in segments:
+        clause = segment.strip("。；， ")
+        if not clause:
+            continue
+        if clause.startswith(_NEGATIVE_PROFILE_PREFIXES):
+            negative.append(clause)
+        else:
+            positive.append(clause)
+    if not positive:
+        rendered = ""
+    elif len(positive) == 1:
+        rendered = positive[0]
+    else:
+        rendered = f"{positive[0]}；补充：{'；'.join(positive[1:])}"
+    return rendered, tuple(negative)
 
 
 def _style_instruction(
@@ -109,27 +138,30 @@ def _style_instruction(
     template_id: str,
     action_context: ActionContext | None,
     action_library: Mapping[str, MotionAction] | None,
-) -> str:
+) -> tuple[str, tuple[str, ...]]:
     if profile is None:
-        return "不额外套用站点风格，优先执行视频模板和输入分镜"
+        return "不额外套用站点风格，优先执行视频模板和输入分镜", ()
     preferred_actions = render_action_ids(
         template_id,
         profile.preferred_actions,
         context=action_context,
         library=action_library,
     )
-    return "；".join(
-        (
-            "站点表达只作用于已有素材支持的动作、神态和拍摄触感，不新增或改写场景、道具、服装面与商品细节",
-            f"站点风格：{profile.tone.rstrip('。；')}",
-            f"人物表达（仅在面部清晰可见时执行）：{_positive_profile_text(profile.expression_language)}",
-            f"镜头触感：{_positive_profile_text(profile.camera_language)}",
-            f"可用动作：{preferred_actions}",
+    expression, expression_negatives = _partition_profile_text(profile.expression_language)
+    camera, camera_negatives = _partition_profile_text(profile.camera_language)
+    pacing, pacing_negatives = _partition_profile_text(profile.pacing)
+    return (
+        "；".join(
             (
-                f"站点节奏：{profile.pacing.rstrip('。；')}；"
-                "涉及输入未提供的商品面或场景时忽略对应描述"
-            ),
-        )
+                "站点表达只作用于已有素材支持的动作、神态和拍摄触感，不新增或改写场景、道具、服装面与商品细节",
+                f"站点风格：{profile.tone.rstrip('。；')}",
+                f"人物表达（仅在面部清晰可见时执行）：{expression}",
+                f"镜头触感：{camera}",
+                f"可用动作：{preferred_actions}",
+                f"站点节奏：{pacing}；涉及输入未提供的商品面或场景时忽略对应描述",
+            )
+        ),
+        (*expression_negatives, *camera_negatives, *pacing_negatives),
     )
 
 
@@ -171,7 +203,7 @@ def compile_video_plan(
         if value.storyboard_count == 1
         else _cut_instruction(value.cut_mode)
     )
-    style_instruction = _style_instruction(
+    style_instruction, style_negatives = _style_instruction(
         value.site_profile,
         template.id,
         value.action_context,
@@ -196,12 +228,14 @@ def compile_video_plan(
     )
     invariants = template.prompt_rules.invariants
     profile_negatives = value.site_profile.forbidden_mismatches if value.site_profile else ()
-    negative_prompt = "；".join((*template.prompt_rules.negatives, *profile_negatives))
+    negative_prompt = "；".join(
+        dict.fromkeys((*template.prompt_rules.negatives, *profile_negatives, *style_negatives))
+    )
     timeline = "；".join(
         (f"{shot.start_seconds:g}-{shot.end_seconds:g}秒（输入图{shot.order}）：{shot.instruction}")
         for shot in shots
     )
-    prompt_parts = (
+    prompt_parts = [
         (
             f"按照输入的{value.storyboard_count}张有序分镜生成一条"
             f"{duration_seconds}秒、{template.ratio}的{template.name}视频"
@@ -220,11 +254,24 @@ def compile_video_plan(
         "保持真实日常UGC记录感，允许轻微手持呼吸，不呈现精修商业广告感",
         f"禁止项：{negative_prompt}",
         "无声音，无字幕",
-    )
+    ]
     master_prompt = "。".join(part for part in prompt_parts if part)
     prompt_budget = min(value.prompt_budget, _MAX_KLING_PROMPT_CHARS)
     if prompt_budget < 1:
         raise ValueError("prompt budget must be positive")
+    compression_level = "full"
+    if len(master_prompt) > prompt_budget:
+        tone = (
+            value.site_profile.tone.rstrip("。；") if value.site_profile is not None else "自然日常"
+        )
+        prompt_parts[5] = f"站点风格：{tone}；仅采用输入支持的动作，不新增场景、道具或商品面"
+        master_prompt = "。".join(part for part in prompt_parts if part)
+        compression_level = "compact-style"
+    if len(master_prompt) > prompt_budget:
+        prompt_parts[7] = "皮肤和布料保持真实"
+        prompt_parts[8] = ""
+        master_prompt = "。".join(part for part in prompt_parts if part)
+        compression_level = "compact-quality"
     if len(master_prompt) > prompt_budget:
         raise ValueError(f"compiled prompt exceeds budget: {len(master_prompt)} > {prompt_budget}")
     return CompiledVideoPlan(
@@ -241,6 +288,7 @@ def compile_video_plan(
             "modifier": variant_modifier,
             "pacingSource": "site-profile" if value.site_profile else "template-default",
             "siteProfileId": value.site_profile.id if value.site_profile else "none",
+            "promptCompressionLevel": compression_level,
         },
         site_profile_id=value.site_profile.id if value.site_profile else None,
         site_profile_version=value.site_profile.version if value.site_profile else None,

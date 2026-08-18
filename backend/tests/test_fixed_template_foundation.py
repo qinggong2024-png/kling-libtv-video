@@ -19,6 +19,7 @@ from libtv_agent.domain.models import (
 from libtv_agent.domain.schemas import VideoTaskCreate
 from libtv_agent.services.fixed_video_tasks import (
     FixedVideoTaskValidationError,
+    _reference_role_prompt,
     _validate_final_prompt_length,
 )
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
@@ -462,6 +463,73 @@ def test_all_production_prompt_combinations_fit_kling_limit() -> None:
                     )
                 )
                 assert len(compiled.master_prompt) <= 3072
+
+
+def test_profile_prohibitions_are_owned_by_the_negative_section() -> None:
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("ootd_walk"),
+            storyboard_count=1,
+            result_count=1,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=1,
+            site_profile=get_site_style_profile("geeksoutfit"),
+        )
+    )
+
+    positive_section, negative_section = compiled.master_prompt.split("。禁止项：", 1)
+    assert "不用高速甩镜" not in positive_section
+    assert "不用高速甩镜" in negative_section
+
+
+def test_prompt_budget_compresses_optional_sections_before_core_constraints() -> None:
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("ootd_walk"),
+            storyboard_count=1,
+            result_count=1,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=1,
+            site_profile=get_site_style_profile("geeksoutfit"),
+            prompt_budget=900,
+        )
+    )
+
+    assert len(compiled.master_prompt) <= 900
+    assert compiled.variant_seed["promptCompressionLevel"] == "compact-style"
+    assert "人物身份、面部特征和体型一致" in compiled.master_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in compiled.master_prompt
+    assert "人物身份漂移" in compiled.master_prompt
+
+
+def test_maximum_reference_roles_fit_final_kling_budget() -> None:
+    role_prompt = _reference_role_prompt(
+        storyboard_count=5,
+        subject_image_count=2,
+        element_count=0,
+    )
+    compiled = compile_video_plan(
+        PromptCompileInput(
+            template=get_video_template("ootd_walk"),
+            storyboard_count=5,
+            result_count=4,
+            action_intensity="standard",
+            camera_tempo="standard",
+            cut_mode="explicit_cuts",
+            variant_index=4,
+            site_profile=get_site_style_profile("geeksoutfit"),
+            prompt_budget=3072 - len(role_prompt) - 1,
+        )
+    )
+    final_prompt = f"{role_prompt} {compiled.master_prompt}"
+
+    assert len(final_prompt) <= 3072
+    assert "garment design, color, material, fit, print, logo, and visible text" in final_prompt
+    assert "服装款式、颜色、面料、版型、印花、Logo和文字内容不变" in final_prompt
 
 
 def test_single_storyboard_prompt_is_compact_and_has_single_rule_owner() -> None:
