@@ -11,10 +11,12 @@ if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
 from libtv_agent.config import Settings  # noqa: E402
+from libtv_agent.logging_config import configure_file_logging  # noqa: E402
 from libtv_agent.runner.service_runtime import run_service_loop  # noqa: E402
 
 SERVICE_NAME = "LibTVProductionRunner"
 SERVICE_ACCOUNT = rf"NT SERVICE\{SERVICE_NAME}"
+RUNNER_LOG_PATH = PROJECT_ROOT / "var" / "logs" / "runner.log"
 
 
 def service_preflight() -> dict[str, object]:
@@ -78,6 +80,9 @@ def run_service() -> None:
 
         def SvcDoRun(self) -> None:
             servicemanager.LogInfoMsg("LibTV Production Runner started")
+            # The Windows service has no console at all, so a file log is the
+            # only place its failures can surface.
+            configure_file_logging(RUNNER_LOG_PATH)
             try:
                 asyncio.run(run_service_loop(self.stopping, PROJECT_ROOT))
             finally:
