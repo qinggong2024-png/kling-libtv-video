@@ -24,6 +24,48 @@ $runnerScript = Join-Path $appDir 'libtv_agent\runner\local_runner.py'
 
 New-Item -ItemType Directory -Force -Path $logDir, $artifactRoot, $runnerRoot, $runtimeRoot | Out-Null
 
+function Stop-ProcessTree([int]$RootProcessId) {
+    # The launchers below are cmd.exe shells that own a real child process, so
+    # stopping the shell alone would leave uvicorn/vite/runner orphaned.
+    $parentOf = @{}
+    foreach ($process in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+        $parentOf[[int]$process.ProcessId] = [int]$process.ParentProcessId
+    }
+    $targets = [System.Collections.Generic.List[int]]::new()
+    $targets.Add($RootProcessId)
+    $grew = $true
+    while ($grew) {
+        $grew = $false
+        foreach ($candidate in @($parentOf.Keys)) {
+            if (($targets -contains $parentOf[$candidate]) -and -not ($targets -contains $candidate)) {
+                $targets.Add($candidate)
+                $grew = $true
+            }
+        }
+    }
+    foreach ($target in @($targets | Sort-Object -Descending)) {
+        Stop-Process -Id $target -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-TestProcess([string]$CommandLine, [string]$WorkingDirectory) {
+    # NOTE: never pass -RedirectStandardOutput / -RedirectStandardError here.
+    # Either switch forces UseShellExecute = $false, which makes .NET build the
+    # child environment block from the CASE-INSENSITIVE
+    # ProcessStartInfo.EnvironmentVariables dictionary. If the environment
+    # contains any two names differing only by case (Path/PATH,
+    # http_proxy/HTTP_PROXY - guaranteed under Git Bash and some sandboxes), the
+    # cmdlet fails with "an item with the same key has already been added".
+    # That exact defect already cost hours in start-local-api.ps1. Redirection is
+    # done by cmd.exe instead, which gives the same log files without the hazard.
+    return Start-Process `
+        -FilePath 'cmd.exe' `
+        -ArgumentList @('/d', '/c', $CommandLine) `
+        -WorkingDirectory $WorkingDirectory `
+        -WindowStyle Hidden `
+        -PassThru
+}
+
 function Test-Ready([string]$Uri) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 3
@@ -195,17 +237,17 @@ try {
     & uv run alembic -c backend/alembic.ini upgrade head
     if ($LASTEXITCODE -ne 0) { throw 'Test database migration failed.' }
 
-    $api = Start-Process -FilePath $python `
-        -ArgumentList @('-m', 'uvicorn', 'libtv_agent.app:create_app', '--factory', '--app-dir', $appDir, '--port', $ApiPort) `
-        -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput (Join-Path $logDir 'api.log') `
-        -RedirectStandardError (Join-Path $logDir 'api.error.log')
+    $apiLogPath = Join-Path $logDir 'api.log'
+    $apiErrorLogPath = Join-Path $logDir 'api.error.log'
+    $api = Start-TestProcess `
+        -CommandLine ('"{0}" -m uvicorn libtv_agent.app:create_app --factory --app-dir "{1}" --port {2} > "{3}" 2> "{4}"' -f $python, $appDir, $ApiPort, $apiLogPath, $apiErrorLogPath) `
+        -WorkingDirectory $projectRoot
 
-    $frontend = Start-Process -FilePath 'npm.cmd' `
-        -ArgumentList @('run', 'dev', '--prefix', 'frontend', '--', '--host', '127.0.0.1', '--port', $FrontendPort, '--strictPort') `
-        -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput (Join-Path $logDir 'frontend.log') `
-        -RedirectStandardError (Join-Path $logDir 'frontend.error.log')
+    $frontendLogPath = Join-Path $logDir 'frontend.log'
+    $frontendErrorLogPath = Join-Path $logDir 'frontend.error.log'
+    $frontend = Start-TestProcess `
+        -CommandLine ('npm.cmd run dev --prefix frontend -- --host 127.0.0.1 --port {0} --strictPort > "{1}" 2> "{2}"' -f $FrontendPort, $frontendLogPath, $frontendErrorLogPath) `
+        -WorkingDirectory $projectRoot
 
     @{
         profile = $Profile
@@ -250,15 +292,22 @@ try {
             throw 'Full test stack started, but its live-provider readiness checks failed.'
         }
     }
-    $runner = Start-Process -FilePath $python `
-        -ArgumentList @($runnerScript) `
-        -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput (Join-Path $logDir 'runner.log') `
-        -RedirectStandardError (Join-Path $logDir 'runner.error.log')
+    $runnerLogPath = Join-Path $logDir 'runner.log'
+    $runnerErrorLogPath = Join-Path $logDir 'runner.error.log'
+    $runner = Start-TestProcess `
+        -CommandLine ('"{0}" "{1}" > "{2}" 2> "{3}"' -f $python, $runnerScript, $runnerLogPath, $runnerErrorLogPath) `
+        -WorkingDirectory $projectRoot
     Start-Sleep -Milliseconds 500
     $runner.Refresh()
     if ($runner.HasExited) {
-        throw 'Test stack API is ready, but its workspace Runner stopped during startup.'
+        # cmd.exe reports only its own state, so ask the log for the real cause.
+        $runnerDetail = if (Test-Path -LiteralPath $runnerErrorLogPath) {
+            (Get-Content -LiteralPath $runnerErrorLogPath -Tail 10) -join ' | '
+        }
+        else {
+            'no stderr captured'
+        }
+        throw "Test stack API is ready, but its workspace Runner stopped during startup. $runnerDetail"
     }
     $runnerDeadline = [DateTimeOffset]::Now.AddSeconds($StartupTimeoutSeconds)
     do {
@@ -288,7 +337,9 @@ try {
 catch {
     foreach ($process in @($runner, $frontend, $api)) {
         if ($process -and -not $process.HasExited) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            # The launcher is a cmd.exe shell; kill its whole tree so uvicorn,
+            # vite and the runner are not left orphaned holding their ports.
+            Stop-ProcessTree -RootProcessId $process.Id
         }
     }
     Remove-Item -LiteralPath $processFile -Force -ErrorAction SilentlyContinue

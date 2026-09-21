@@ -268,7 +268,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await image_recovery_task
             except asyncio.CancelledError:
                 pass
-            await app.state.libtv_login_manager.close()
+            try:
+                await app.state.libtv_login_manager.close()
+            except Exception:
+                # A failure while closing the login manager must not skip
+                # database.dispose(); that would leak the engine on restart, and
+                # this launcher restarts often.
+                logger.exception("LibTV login manager shutdown failed")
             await app.state.database.dispose()
 
     app = FastAPI(
@@ -349,6 +355,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_exception_handler(OperationalError, database_error_response)
     app.add_exception_handler(ProgrammingError, database_error_response)
+
+    async def unhandled_error_response(request: Request, exc: Exception) -> JSONResponse:
+        # Without this, an unexpected exception produced Starlette's bare
+        # "Internal Server Error" body: no error code for the frontend to render
+        # and no way to correlate a user report with a line in the log. The
+        # traceback is still logged by the server itself; the id below is what
+        # ties the two together.
+        error_id = secrets.token_hex(8)
+        logger.error(
+            "unhandled request failure",
+            extra={"path": request.url.path, "error_id": error_id},
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "INTERNAL_ERROR",
+                    "errorId": error_id,
+                    "message": "服务内部错误，请把错误编号连同操作步骤一起反馈。",
+                }
+            },
+        )
+
+    app.add_exception_handler(Exception, unhandled_error_response)
 
     @app.middleware("http")
     async def security_contract(request: Request, call_next):
