@@ -1158,7 +1158,11 @@ async def test_batch_confirmation_and_remote_restore_do_not_recharge(tmp_path: P
         preflight = await client.post(
             "/api/v1/confirmations/preflight", headers=user_headers(), json=payload
         )
-        assert preflight.json()["estimatedPoints"] == 480
+        # Two tasks, each materialising two variants (STABLE + DYNAMIC). The per-generation
+        # unit comes from the live app settings rather than a hard-coded figure: the unit was
+        # re-based from 120 to 1 on 2026-09-21, which silently invalidated the old `480`.
+        per_generation = app.state.settings.generation_estimated_points
+        assert preflight.json()["estimatedPoints"] == 4 * per_generation
         executed = await client.post(
             "/api/v1/confirmations/execute", headers=user_headers("batch-execute"), json=payload
         )

@@ -6,6 +6,10 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Repository root, derived from this file's location (backend/src/libtv_agent/config.py).
+# Used to resolve in-repo assets without depending on the caller's working directory.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -65,9 +69,7 @@ class Settings(BaseSettings):
     libtv_executable: str = "libtv"
     libtv_config_dir: Path = Path("var/runtime/libtv")
     libtv_auth_check_seconds: float = Field(default=60.0, ge=10, le=3600)
-    libtv_download_helper: Path = (
-        Path.home() / ".codex" / "skills" / "libtv-cli" / "scripts" / "download-libtv-video.ps1"
-    )
+    libtv_download_helper: Path = _PROJECT_ROOT / "scripts" / "download-libtv-video.ps1"
     libtv_replay_fixture_dir: Path = Path("backend/tests/fixtures/libtv")
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
@@ -160,8 +162,22 @@ class Settings(BaseSettings):
     admin_credentials_file: Path = Path("var/runtime/admin-credentials.json")
     kling_admin_config_file: Path = Path("var/runtime/kling-config.json")
     runner_root: Path = Path("var/runner")
-    daily_user_points_limit: int = Field(default=5000, ge=1)
-    generation_estimated_points: int = Field(default=120, ge=1)
+    # NOTE — semantics changed on 2026-09-21: these two fields no longer mean "points".
+    # The names are kept for .env / config compatibility, but they now express a
+    # per-user daily *generation count* quota:
+    #   daily_user_points_limit    = 100  -> at most 100 video generations per user per day
+    #   generation_estimated_points = 1   -> each generation consumes one unit
+    # Enforcement lives in services/points.py:
+    #   remaining = daily_user_points_limit - consumed - reserved - uncertain
+    # Quota resets at 00:00 Asia/Shanghai. Image generation does NOT consume this quota;
+    # images are governed separately by daily_user_image_limit below.
+    daily_user_points_limit: int = Field(default=100, ge=1)
+    generation_estimated_points: int = Field(default=1, ge=1)
+    # Per-user daily *image* quota, counted in images (the unit the image centre shows as
+    # "正在处理 N 张图片"). Enforced in services/image_quota.py against
+    # image_generation_batch.expected_generation_count, reset at 00:00 Asia/Shanghai.
+    # Deliberately a separate budget from the video quota above.
+    daily_user_image_limit: int = Field(default=500, ge=1)
     auto_run_fake_commands: bool = True
     dev_user_id: str = "00000000-0000-0000-0000-000000000001"
     dev_admin_id: str = "00000000-0000-0000-0000-000000000099"
@@ -190,6 +206,16 @@ class Settings(BaseSettings):
     global_paused: bool = False
     paid_submissions_paused: bool = True
     auto_confirm_levels: str = "PASS"
+
+    # Fashion Video Factory V1 is pilot-isolated. Every route remains off unless
+    # explicitly enabled, so the existing production workflow is unchanged.
+    fashion_video_factory_v1: bool = False
+    long_clip_salvage: bool = False
+    short_shot_control: bool = False
+    beat_aware_editing: bool = False
+    product_to_model: bool = False
+    reference_guided_route: bool = False
+    independent_pilot_review: bool = False
 
     runner_service_name: str = "LibTVProductionRunner"
     runner_service_account: str = "NT SERVICE\\LibTVProductionRunner"

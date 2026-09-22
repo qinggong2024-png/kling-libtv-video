@@ -137,6 +137,54 @@ def classify_recovery(
     return "READY"
 
 
+# Written when aggregation drives a task into ACTION_REQUIRED and no business layer
+# recorded a cause first.
+AGGREGATED_ACTION_REQUIRED = "AGGREGATED_ACTION_REQUIRED"
+
+# Only these reason codes unlock confirmation.confirm_task's materialization recovery
+# path (it tests `phase_reason_code.startswith("MATERIALIZATION_")`).
+RECOVERY_GATING_REASON_PREFIX = "MATERIALIZATION_"
+
+# A command sitting at LAUNCH_STARTED past its lease is only treated as abandoned after
+# this extra grace period. The lease is renewed by the launching attempt, so a process
+# that is merely slow to reach PROCESS_STARTED still holds a live lease and is skipped.
+STALE_LAUNCH_GRACE = timedelta(minutes=15)
+
+
+def reason_code_for_aggregate(
+    current_code: str | None,
+    previous_phase: ParentTaskPhase,
+    next_phase: ParentTaskPhase,
+) -> str | None:
+    """Keep phase_reason_code consistent with the phase it describes.
+
+    Two failures are being prevented here.
+
+    1. Aggregation used to leave phase_reason_code untouched, so a task driven into
+       ACTION_REQUIRED by a variant failure kept a NULL code. confirm_task requires a
+       non-empty code before it even considers recovery, so those tasks were
+       unrecoverable and the field told the operator nothing.
+
+    2. Clearing unconditionally would be worse than not clearing at all: a task that
+       recovers from a materialization failure, later fails again for an unrelated
+       variant reason, and lands back in ACTION_REQUIRED would still advertise
+       MATERIALIZATION_* recovery. Pressing it re-runs materialization and reserves
+       points again. So only the codes that actually gate recovery are cleared, and
+       only on the way out of ACTION_REQUIRED.
+
+    Codes that do not gate recovery are preserved because the read model consumes
+    them: services.tasks._provider_for_read reads the BACH_ / WAVESPEED_ prefixes to
+    attribute a Kling task to the sub-provider that produced it.
+    """
+    if next_phase == ParentTaskPhase.ACTION_REQUIRED:
+        return current_code or AGGREGATED_ACTION_REQUIRED
+    if previous_phase == ParentTaskPhase.ACTION_REQUIRED and (
+        current_code or ""
+    ).startswith(RECOVERY_GATING_REASON_PREFIX):
+        return None
+    return current_code
+
+
 class RunnerSupervisor:
     def __init__(
         self,
@@ -932,6 +980,74 @@ class RunnerSupervisor:
             observed += 1
         return observed
 
+    async def recover_stale_launch_started_commands(self, session: AsyncSession) -> int:
+        """Resolve commands abandoned between LAUNCH_STARTED and PROCESS_STARTED.
+
+        _execute and _execute_kling both commit LAUNCH_STARTED *before* handing the request
+        to the provider, because that is the point past which the provider may already have
+        spent the credit. If the runner then dies -- restart, crash, kill -- that commit
+        survives while the follow-up PROCESS_STARTED commit never happens, and nothing in
+        the system looks at the command again:
+
+        * _run_ready_provider only claims CommandStatus.READY
+        * observe_command_hosts only scans PROCESS_STARTED, and only for libtv
+
+        Production held exactly one such row -- command 7451a3e5..., attempt 39988a44...
+        (provider kling_official_cli), lease expired 2026-07-30 08:42 with no
+        process_started_at.
+
+        Recovery must never re-submit. The spend may already have happened, and there is no
+        handle to query: attempt.task_id is written only after the provider call returns,
+        which is precisely the step that never completed. So the command is resolved as
+        submitted-and-uncertain -- the same verdict _handle_error applies when a provider
+        call itself raises.
+
+        That verdict deliberately does *not* free the intent: UNKNOWN_AFTER_SUBMIT is still
+        inside ACTIVE_ATTEMPT_SQL, so uq_attempt_active_intent stays occupied and the task
+        cannot be relaunched. That is the intended guard -- the credit may be gone, and
+        re-running would double-spend. What changes is visibility: the row leaves the state
+        nothing scans and becomes an UNCERTAIN command with an UNKNOWN charge, i.e. it counts
+        in the reconciliation backlog and is resolvable by an operator. Clearing the lease
+        only ends the claim that no live process is serving.
+        """
+        commands = list(
+            await session.scalars(
+                select(GenerationCommand).where(
+                    GenerationCommand.status == CommandStatus.LAUNCH_STARTED,
+                    GenerationCommand.lease_expires_at.is_not(None),
+                    GenerationCommand.lease_expires_at < datetime.now(UTC) - STALE_LAUNCH_GRACE,
+                )
+            )
+        )
+        resolved = 0
+        for command in commands:
+            attempt = await session.get(GenerationAttempt, command.attempt_id)
+            if attempt is None:
+                continue
+            # The lease asserted "a live process is launching this"; that process is gone.
+            command.lease_expires_at = None
+            await self._handle_error(
+                session,
+                command,
+                attempt,
+                LibTVError(
+                    "LAUNCH_ABANDONED",
+                    "runner stopped between LAUNCH_STARTED and PROCESS_STARTED; the "
+                    "provider may already have accepted the request",
+                    submitted=True,
+                    uncertain=True,
+                ),
+            )
+            # Mirror the sibling paths: kling commands release their slot unconditionally,
+            # libtv commands keep it while the charge is unattributed.
+            if provider_kind(attempt.provider, self.settings) == "kling":
+                await release_capacity(session, command.id)
+            else:
+                await self._release_capacity_if_charge_classified(session, command, attempt)
+            await session.commit()
+            resolved += 1
+        return resolved
+
     async def _handle_error(
         self,
         session: AsyncSession,
@@ -1077,106 +1193,149 @@ class RunnerSupervisor:
         attempt.billing_source = BillingSource(billing_source) if has_attributable_billing else None
         command.status = CommandStatus.TERMINAL
         command.lease_expires_at = None
-        variant = await session.get(GenerationVariant, attempt.variant_id)
-        if variant is None:
-            return
-        variant.generation_status = generation_status
-        variant.download_status = DownloadStatus.DOWNLOADING
-        await session.commit()
-        await self._aggregate_task(session, variant.id)
-        task = await session.get(ParentTask, variant.parent_task_id)
-        if task is None:
-            return
-        filename = delivery_filename(
-            business_date().isoformat(),
-            str(task.user_id),
-            str(task.id),
-            variant.variant_key or variant.variant_type.value,
-            variant.revision,
-        )
-        destination = self.settings.runner_root / "downloads" / str(task.id) / filename
-        existing_artifact = await session.scalar(
-            select(DownloadArtifact)
-            .where(
-                DownloadArtifact.attempt_id == attempt.id,
-                DownloadArtifact.status == DownloadStatus.READY,
-            )
-            .order_by(DownloadArtifact.revision.desc())
-            .limit(1)
-        )
-        if existing_artifact is not None:
-            variant.download_status = DownloadStatus.READY
-            await session.commit()
-            await self._aggregate_task(session, variant.id)
-            return
-        validation_options = technical_validation_options(variant.generation_config_json)
         try:
-            await download_with_retries(
-                download_adapter or self.adapter,
-                url=str(result.payload["videoUrl"]),
-                destination=destination,
-            )
-            validation = await technical_validate(
-                destination,
-                **validation_options,
-            )
-        except Exception:
-            variant.download_status = DownloadStatus.FAILED
-            variant.validation_status = ValidationStatus.FAILED
-            attempt.last_error_code = "DOWNLOAD_RETRYABLE"
+            variant = await session.get(GenerationVariant, attempt.variant_id)
+            if variant is None:
+                return
+            variant.generation_status = generation_status
+            variant.download_status = DownloadStatus.DOWNLOADING
             await session.commit()
             await self._aggregate_task(session, variant.id)
-            return
-        attempt.local_output_path = str(destination)
-        object_key = await self.object_store.put_file(
-            destination,
-            f"users/{task.user_id}/outputs/{task.id}/{filename}",
-            "video/mp4",
-        )
-        artifact = DownloadArtifact(
-            attempt_id=attempt.id,
-            status=DownloadStatus.READY,
-            object_key=object_key,
-            sha256=validation.sha256,
-            size_bytes=validation.size_bytes,
-            duration_seconds=validation.duration_seconds,
-            width=validation.width,
-            height=validation.height,
-            has_audio=validation.has_audio,
-        )
-        session.add(artifact)
-        variant.download_status = DownloadStatus.READY
-        variant.validation_status = (
-            ValidationStatus.PASSED if validation.passed else ValidationStatus.FAILED
-        )
-        session.add(
-            ValidationResult(
-                attempt_id=attempt.id,
-                status=variant.validation_status,
-                coverage="TECHNICAL",
-                rule_version="1.0.0",
-                issue_codes_json=list(validation.issue_codes),
-                summary="Technical validation passed"
-                if validation.passed
-                else "Technical validation failed",
+            task = await session.get(ParentTask, variant.parent_task_id)
+            if task is None:
+                return
+            filename = delivery_filename(
+                business_date().isoformat(),
+                str(task.user_id),
+                str(task.id),
+                variant.variant_key or variant.variant_type.value,
+                variant.revision,
             )
-        )
+            destination = self.settings.runner_root / "downloads" / str(task.id) / filename
+            existing_artifact = await session.scalar(
+                select(DownloadArtifact)
+                .where(
+                    DownloadArtifact.attempt_id == attempt.id,
+                    DownloadArtifact.status == DownloadStatus.READY,
+                )
+                .order_by(DownloadArtifact.revision.desc())
+                .limit(1)
+            )
+            if existing_artifact is not None:
+                variant.download_status = DownloadStatus.READY
+                await session.commit()
+                await self._aggregate_task(session, variant.id)
+                return
+            validation_options = technical_validation_options(variant.generation_config_json)
+            try:
+                await download_with_retries(
+                    download_adapter or self.adapter,
+                    url=str(result.payload["videoUrl"]),
+                    destination=destination,
+                )
+                validation = await technical_validate(
+                    destination,
+                    **validation_options,
+                )
+            except Exception:
+                variant.download_status = DownloadStatus.FAILED
+                variant.validation_status = ValidationStatus.FAILED
+                attempt.last_error_code = "DOWNLOAD_RETRYABLE"
+                await session.commit()
+                await self._aggregate_task(session, variant.id)
+                return
+            attempt.local_output_path = str(destination)
+            object_key = await self.object_store.put_file(
+                destination,
+                f"users/{task.user_id}/outputs/{task.id}/{filename}",
+                "video/mp4",
+            )
+            artifact = DownloadArtifact(
+                attempt_id=attempt.id,
+                status=DownloadStatus.READY,
+                object_key=object_key,
+                sha256=validation.sha256,
+                size_bytes=validation.size_bytes,
+                duration_seconds=validation.duration_seconds,
+                width=validation.width,
+                height=validation.height,
+                has_audio=validation.has_audio,
+            )
+            session.add(artifact)
+            variant.download_status = DownloadStatus.READY
+            variant.validation_status = (
+                ValidationStatus.PASSED if validation.passed else ValidationStatus.FAILED
+            )
+            session.add(
+                ValidationResult(
+                    attempt_id=attempt.id,
+                    status=variant.validation_status,
+                    coverage="TECHNICAL",
+                    rule_version="1.0.0",
+                    issue_codes_json=list(validation.issue_codes),
+                    summary="Technical validation passed"
+                    if validation.passed
+                    else "Technical validation failed",
+                )
+            )
+            await session.commit()
+            await self._aggregate_task(session, variant.id)
+        finally:
+            # The attempt is already SUCCEEDED and the upstream provider already spent
+            # the credit, so every exit from this function owes the reservation a
+            # decision -- including the four early returns above.
+            await self._finalize_attempt_billing(
+                session,
+                attempt,
+                actual_points=actual_points,
+                has_attributable_billing=has_attributable_billing,
+            )
+            await session.commit()
+
+    async def _finalize_attempt_billing(
+        self,
+        session: AsyncSession,
+        attempt: GenerationAttempt,
+        *,
+        actual_points: int | None,
+        has_attributable_billing: bool,
+    ) -> None:
+        """Settle an attempt's reservation from whichever path is leaving.
+
+        _handle_success has four early returns: a missing variant, a missing task, an
+        artifact that is already READY, and a failed download. Settlement used to sit
+        after the last of them, so none of those four paths ever touched the points
+        that had already been reserved. Production recorded the consequence: 24 of 42
+        successful attempts held UNCERTAIN reservations totalling 2880 points, and the
+        ledger contained zero RELEASE entries because the release path was unreachable.
+
+        The charge decision is delegated to attempt.charge_status rather than
+        special-cased per path, because that field already encodes whether the spend
+        could be attributed to a provider receipt:
+
+        * CHARGED  -> settle at actual points, falling back to the reservation estimate
+        * NOT_CHARGED -> release
+        * UNKNOWN  -> park as UNCERTAIN, because an unreadable receipt must not be
+          recorded as "not charged"
+
+        settle_points is idempotent (it returns immediately unless the reservation is
+        RESERVED or UNCERTAIN), so a finally block cannot double settle an attempt.
+        """
         reservation = await session.scalar(
             select(PointsReservation).where(PointsReservation.attempt_id == attempt.id)
         )
-        if reservation:
-            await settle_points(
-                session,
-                reservation,
-                actual_points=(
-                    reservation.estimated_points if actual_points is None else int(actual_points)
-                )
-                if has_attributable_billing
-                else None,
-                charge_status=attempt.charge_status,
+        if reservation is None:
+            return
+        await settle_points(
+            session,
+            reservation,
+            actual_points=(
+                reservation.estimated_points if actual_points is None else int(actual_points)
             )
-        await session.commit()
-        await self._aggregate_task(session, variant.id)
+            if has_attributable_billing
+            else None,
+            charge_status=attempt.charge_status,
+        )
 
     async def _aggregate_task(self, session: AsyncSession, variant_id: uuid.UUID) -> None:
         variant = await session.get(GenerationVariant, variant_id)
@@ -1185,13 +1344,24 @@ class RunnerSupervisor:
         task = await session.get(ParentTask, variant.parent_task_id)
         if task is None:
             return
+        if task.phase == ParentTaskPhase.CANCELLED:
+            # CANCELLED is the only terminal phase. resume_incomplete_downloads
+            # selects variants by download_status without joining the task, so
+            # without this guard a cancelled task could be resurrected by a stray
+            # in-flight variant.
+            return
         variants = list(
             await session.scalars(
                 select(GenerationVariant).where(GenerationVariant.parent_task_id == task.id)
             )
         )
         next_phase = aggregate_parent_phase(variants)
-        if task.phase != next_phase:
-            task.phase = next_phase
-            task.state_version += 1
-            await session.commit()
+        if task.phase == next_phase:
+            return
+        previous_phase = task.phase
+        task.phase = next_phase
+        task.phase_reason_code = reason_code_for_aggregate(
+            task.phase_reason_code, previous_phase, next_phase
+        )
+        task.state_version += 1
+        await session.commit()

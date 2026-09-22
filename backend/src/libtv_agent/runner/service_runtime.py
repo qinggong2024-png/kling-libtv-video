@@ -23,6 +23,7 @@ from libtv_agent.services.bach_config import (
     load_bach_admin_config,
 )
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
+from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
     load_kling_admin_config,
@@ -160,6 +161,8 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     last_auth_check = 0.0
     last_metric_sample = 0.0
     last_metric_retention = 0.0
+    last_idempotency_sweep = 0.0
+    last_launch_recovery = 0.0
     last_orphan_signature: tuple[int, ...] = ()
     try:
         while not stopping.is_set():
@@ -245,6 +248,21 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         )
                         backlog_count = await operational_backlog_count(session)
                         await supervisor.run_ready(session)
+                    if now - last_launch_recovery >= 60:
+                        # Sits outside the STOP branch on purpose: nothing here submits new
+                        # work, it only resolves commands the previous runner abandoned at
+                        # LAUNCH_STARTED. Those keep occupying uq_attempt_active_intent, so
+                        # the affected task cannot be retried until they are settled.
+                        recovered = await supervisor.recover_stale_launch_started_commands(
+                            session
+                        )
+                        if recovered:
+                            logger.warning(
+                                "resolved commands abandoned between LAUNCH_STARTED and "
+                                "PROCESS_STARTED",
+                                extra={"count": recovered},
+                            )
+                        last_launch_recovery = now
                     if now - last_metric_sample >= settings.runner_metric_sample_seconds:
                         await record_operational_sample(
                             session,
@@ -260,6 +278,18 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                             session, settings.runner_metric_retention_days
                         )
                         last_metric_retention = now
+                    if now - last_idempotency_sweep >= 5 * 60:
+                        # Confirmation work is handed to a background job that outlives
+                        # the HTTP request owning the idempotency claim. A request that
+                        # dies before settling leaves the key at response_status=0, and
+                        # every replay then answers 409 IDEMPOTENCY_REQUEST_IN_PROGRESS
+                        # for ever. Nothing else in the system ever looks at those rows.
+                        released = await release_stale_idempotency_claims(session)
+                        if released:
+                            logger.warning(
+                                "released %d abandoned idempotency claim(s)", released
+                            )
+                        last_idempotency_sweep = now
                     await session.commit()
             except Exception:
                 logger.exception("runner service cycle failed")

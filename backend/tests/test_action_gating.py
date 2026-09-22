@@ -6,6 +6,7 @@ from libtv_agent.services.material_validator import (
 )
 from libtv_agent.templates.motion_actions import (
     ACTION_LIBRARY,
+    OOTD_REVIEWED_ACTION_COVERAGE,
     ActionCapability,
     ActionContext,
     MotionAction,
@@ -117,6 +118,37 @@ def test_unknown_context_keeps_only_unconditional_low_risk_actions() -> None:
                 ActionCapability.LAYER_BOUNDARIES_CLEAR,
             },
         ),
+        (
+            "fastener_adjust_release",
+            {
+                ActionCapability.GARMENT_FASTENER_VISIBLE,
+                ActionCapability.FREE_HAND,
+                ActionCapability.SAFE_HAND_PATH,
+            },
+        ),
+        (
+            "stair_ascend_settle",
+            {
+                ActionCapability.STAIR_VISIBLE,
+                ActionCapability.STAIR_PATH_CLEAR,
+                ActionCapability.LOWER_BODY_PATH_VISIBLE,
+            },
+        ),
+        (
+            "sit_down_settle",
+            {
+                ActionCapability.SEAT_VISIBLE,
+                ActionCapability.SEAT_APPROACH_CLEAR,
+                ActionCapability.LOWER_BODY_PATH_VISIBLE,
+            },
+        ),
+        (
+            "companion_gaze_return",
+            {
+                ActionCapability.COMPANION_PRESENT,
+                ActionCapability.FACE_GAZE_ADJUSTABLE,
+            },
+        ),
     ],
 )
 def test_machine_capabilities_enable_matching_conditional_action(
@@ -130,6 +162,29 @@ def test_machine_capabilities_enable_matching_conditional_action(
     assert eligibility.allowed
     assert not eligibility.missing
     assert not eligibility.denied
+
+
+def test_reviewed_ootd_actions_are_fully_normalized_into_the_library() -> None:
+    assert set(OOTD_REVIEWED_ACTION_COVERAGE) == set(range(296, 361))
+    assert set(OOTD_REVIEWED_ACTION_COVERAGE.values()) <= set(ACTION_LIBRARY)
+    assert len(set(OOTD_REVIEWED_ACTION_COVERAGE.values())) == 43
+    assert OOTD_REVIEWED_ACTION_COVERAGE[296] == OOTD_REVIEWED_ACTION_COVERAGE[298]
+    assert OOTD_REVIEWED_ACTION_COVERAGE[351] == OOTD_REVIEWED_ACTION_COVERAGE[359]
+
+
+@pytest.mark.parametrize(
+    "action_id",
+    [
+        "fastener_adjust_release",
+        "stair_ascend_settle",
+        "sit_down_settle",
+        "companion_gaze_return",
+    ],
+)
+def test_new_conditional_ootd_actions_are_excluded_when_context_is_unknown(
+    action_id: str,
+) -> None:
+    assert not evaluate_action(ACTION_LIBRARY[action_id]).allowed
 
 
 def test_denied_capability_excludes_action_even_when_other_requirements_are_confirmed() -> None:

@@ -347,11 +347,19 @@ class FinalApprovalRequest(ApiModel):
 
 
 class PointsQuotaRead(ApiModel):
-    daily_limit: int = 5000
+    """Per-user daily generation quota.
+
+    Field names keep the historical "points" wording so the API contract stays
+    compatible, but the unit is now *video generations per day* (configured by
+    DAILY_USER_POINTS_LIMIT / GENERATION_ESTIMATED_POINTS). Image generation does
+    not consume this quota. See services/points.py for the enforcement rule.
+    """
+
+    daily_limit: int = 100
     consumed: int = 0
     reserved: int = 0
     uncertain: int = 0
-    remaining: int = 5000
+    remaining: int = 100
     team_limit: int | None = None
 
 

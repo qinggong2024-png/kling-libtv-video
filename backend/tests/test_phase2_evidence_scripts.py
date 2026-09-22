@@ -61,7 +61,13 @@ def test_test_stack_forces_offline_provider_modes() -> None:
         "$env:WAVESPEED_ENABLED = 'false'",
     }
     assert required_assignments <= set(script.splitlines())
-    assert "'--app-dir', $appDir" in script
+    # The launcher hands Start-Process a single command-line string with the redirects
+    # embedded, because `-RedirectStandardOutput`/`-RedirectStandardError` trip a
+    # duplicate-environment-variable bug on this machine. The app directory is therefore
+    # interpolated with -f instead of being passed as a positional '-ArgumentList' pair.
+    # The invariant being guarded — uvicorn is pointed at $appDir — is unchanged.
+    assert '--app-dir "{1}"' in script
+    assert "-f $python, $appDir," in script
 
 
 def test_local_frontend_is_loopback_by_default_and_lan_is_explicit() -> None:

@@ -121,5 +121,10 @@ export function formatDurationSeconds(value: number): string {
 
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
-  return minutes ? `${hours} 小时 ${minutes} 分` : `${hours} 小时`
+  if (hours < 24) return minutes ? `${hours} 小时 ${minutes} 分` : `${hours} 小时`
+
+  // 超过一天改用「天」表达：跨天任务用「917 小时」既难读又像系统在跑 38 天。
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours ? `${days} 天 ${restHours} 小时` : `${days} 天`
 }

@@ -1,21 +1,43 @@
 {
-  "version": "4.3.2-phase1",
+  "version": "4.3.3-phase1",
+  "reconciledAt": "2026-09-21",
+  "reconciliation": {
+    "method": "exhaustive enumeration of aggregate_parent_phase over every (generationStatus x downloadStatus x validationStatus x finalApprovalStatus) tuple: 840 single-variant combinations plus 100 two-variant representative pairs, counting single-step transitions only",
+    "aggregateOutputs": ["GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+    "aggregateSources": ["QUEUED", "GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+    "reservedPhases": {
+      "DOWNLOADING": "Design intent only. ParentTaskPhase.DOWNLOADING is referenced 0 times in backend/src and aggregate_parent_phase never returns it (proven by exhaustive enumeration). The key is kept because test_machine_contract_matches_enums requires one key per enum value.",
+      "VALIDATING": "Same as DOWNLOADING: referenced 0 times in backend/src and never produced by aggregate_parent_phase."
+    },
+    "whyTheOldContractWasWrong": "Version 4.3.2-phase1 declared 12 real edges illegal, including the two most common ones (GENERATING -> DELIVERABLE and GENERATING -> AWAITING_FINAL_APPROVAL). The aggregate returns only 5 phases and any of them can follow any other, so the old table described a DOWNLOADING -> VALIDATING -> AWAITING_FINAL_APPROVAL pipeline that the implementation never walks. This drift is why assert_transition was never wired into the write path.",
+    "safetyBoundary": "For the 5 aggregate-reachable phases the transition table is deliberately a complete graph and therefore carries no ordering guarantee. What actually protects correctness is cas_task_phase: a conditional UPDATE on (id, phase, state_version) that raises VersionConflictError when rowcount != 1. Do not read this table as an authorization gate for those 5 phases.",
+    "overPermissive": "This table is a canary, not a reachability model. Where an aggregate source can never co-occur with a given aggregate output (for example QUEUED -> DELIVERABLE) the edge is still listed so the write-path check never raises a false alarm. Tightening those pairs needs per-call-site evidence that does not exist yet.",
+    "knownUnreachableExplicitEdges": [
+      "PREPARING -> CANCELLED",
+      "WAITING_FOR_SEAL -> CANCELLED",
+      "QUEUED -> CANCELLED"
+    ]
+  },
   "parentTask": {
     "initial": "DRAFT",
-    "terminal": ["DELIVERABLE", "ACTION_REQUIRED", "CANCELLED"],
+    "terminal": ["CANCELLED"],
+    "restingStates": ["DELIVERABLE", "ACTION_REQUIRED"],
+    "notes": "restingStates are where the system rests once work concludes, but aggregate_parent_phase can still move a task out of them (for example when a variant is re-run or rejected after delivery), so they are not terminal. Only CANCELLED is terminal, and _aggregate_task guards it.",
     "transitions": {
       "DRAFT": ["ANALYZING", "CANCELLED"],
       "ANALYZING": ["AWAITING_CONFIRMATION", "PREPARING", "ACTION_REQUIRED", "CANCELLED"],
       "AWAITING_CONFIRMATION": ["PREPARING", "ACTION_REQUIRED", "CANCELLED"],
       "PREPARING": ["WAITING_FOR_SEAL", "QUEUED", "ACTION_REQUIRED", "CANCELLED"],
       "WAITING_FOR_SEAL": ["QUEUED", "ACTION_REQUIRED", "CANCELLED"],
-      "QUEUED": ["GENERATING", "ACTION_REQUIRED", "CANCELLED"],
-      "GENERATING": ["DOWNLOADING", "PARTIALLY_DELIVERABLE", "ACTION_REQUIRED"],
-      "DOWNLOADING": ["VALIDATING", "PARTIALLY_DELIVERABLE", "ACTION_REQUIRED"],
-      "VALIDATING": ["AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
-      "AWAITING_FINAL_APPROVAL": ["PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
-      "PARTIALLY_DELIVERABLE": ["GENERATING", "DELIVERABLE", "ACTION_REQUIRED"],
-      "DELIVERABLE": [], "ACTION_REQUIRED": ["PREPARING", "QUEUED", "CANCELLED"], "CANCELLED": []
+      "QUEUED": ["GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED", "CANCELLED"],
+      "GENERATING": ["AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+      "DOWNLOADING": ["VALIDATING", "GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+      "VALIDATING": ["GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+      "AWAITING_FINAL_APPROVAL": ["GENERATING", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "ACTION_REQUIRED"],
+      "PARTIALLY_DELIVERABLE": ["GENERATING", "AWAITING_FINAL_APPROVAL", "DELIVERABLE", "ACTION_REQUIRED"],
+      "DELIVERABLE": ["GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "ACTION_REQUIRED"],
+      "ACTION_REQUIRED": ["PREPARING", "QUEUED", "GENERATING", "AWAITING_FINAL_APPROVAL", "PARTIALLY_DELIVERABLE", "DELIVERABLE", "CANCELLED"],
+      "CANCELLED": []
     }
   },
   "generationAttempt": {

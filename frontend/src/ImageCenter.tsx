@@ -774,7 +774,7 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
     const selectedTasks = getOrderedSelectedTasks(draft.tasks, draft.selectedOutputIds)
     if (!selectedTasks.length) return
     if (selectedTasks.some(({ outputs }) => outputs.some((output) => output.qualificationStatus !== 'QUALIFIED'))) {
-      setNotice('只有已完成人工 Required Hard Gates 审核并标记为合格的图片才能进入视频生成。')
+      setNotice('只有已完成人工审核并标记为合格的图片才能进入视频生成。')
       return
     }
     const preparedOutputIds = new Set(selectedTasks.flatMap(({ outputs }) => outputs.map((output) => output.id)))

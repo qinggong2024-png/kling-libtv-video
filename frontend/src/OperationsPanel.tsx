@@ -133,7 +133,7 @@ export function OperationsPanel({ adminId }: { adminId: string | null }) {
             <h3>付费确认</h3>
             <span className={`ops-control-state ${config.paidSubmissionsPaused ? 'is-paused' : paidConfirmationBlockedByGlobal ? 'is-blocked' : 'is-running'}`} role="status" aria-live="polite"><i aria-hidden="true" />{config.paidSubmissionsPaused ? '已暂停' : paidConfirmationBlockedByGlobal ? '已开启 · 暂不可用' : '已开启'}</span>
           </div>
-          <p id="paid-confirmation-help">{config.paidSubmissionsPaused ? '拒绝新的付费确认；已提交任务不会取消。' : paidConfirmationBlockedByGlobal ? '开关已开启，但受任务调度暂停影响，当前不可确认。' : '允许新任务确认、积分预留并进入生成流程。'}</p>
+          <p id="paid-confirmation-help">{config.paidSubmissionsPaused ? '拒绝新的付费确认；已提交任务不会取消。' : paidConfirmationBlockedByGlobal ? '开关已开启，但受任务调度暂停影响，当前不可确认。' : '允许新任务确认、预留生成额度并进入生成流程。'}</p>
         </div>
         <button
           className={`${config.paidSubmissionsPaused ? 'primary-button' : 'secondary-button secondary-button--danger'} ops-control-action`}
@@ -150,7 +150,7 @@ export function OperationsPanel({ adminId }: { adminId: string | null }) {
       <span className="ops-confirmation-icon"><AlertTriangle size={19} /></span>
       <div><strong id="ops-confirmation-title">确认{confirmScope === 'GLOBAL' ? config.globalPaused ? '恢复任务调度' : '暂停任务调度' : config.paidSubmissionsPaused ? '恢复付费确认' : '暂停付费确认'}？</strong><p id="ops-confirmation-description">{confirmScope === 'GLOBAL'
         ? config.globalPaused ? '恢复后，运行器可以继续领取并启动新的生成任务。' : '暂停后不会启动新任务；已经运行的任务会继续执行。'
-        : config.paidSubmissionsPaused ? '恢复后，新任务可以预留积分并进入生成队列。' : '暂停后拒绝新的付费确认；已提交任务不会取消。'}</p></div>
+        : config.paidSubmissionsPaused ? '恢复后，新任务可以预留生成额度并进入生成队列。' : '暂停后拒绝新的付费确认；已提交任务不会取消。'}</p></div>
       <div><button className="secondary-button" disabled={busy} onClick={() => setConfirmScope(null)}>取消</button><button className={confirmScope === 'GLOBAL' ? config.globalPaused ? 'primary-button' : 'primary-button primary-button--danger' : config.paidSubmissionsPaused ? 'primary-button' : 'primary-button primary-button--danger'} disabled={busy} onClick={() => void toggle(confirmScope, confirmScope === 'GLOBAL' ? !config.globalPaused : !config.paidSubmissionsPaused)}>{busy ? <LoaderCircle className="spin" size={16} /> : null}确认执行</button></div>
     </div> : null}
     {error && <div className="service-alert" role="alert"><AlertTriangle size={18} /><span>{error}</span></div>}
@@ -159,7 +159,7 @@ export function OperationsPanel({ adminId }: { adminId: string | null }) {
       <div><Gauge size={18} /><span><small>生成槽位利用率</small><strong>{Math.round(snapshot.metrics.generationSlotUtilization * 100)}%</strong></span></div>
       <div><Layers3 size={18} /><span><small>待生成 / 生成中</small><strong>{snapshot.queues.prepared} / {snapshot.queues.running}</strong></span></div>
       <div><Server size={18} /><span><small>活跃工作节点</small><strong>{snapshot.metrics.runnerActiveCommandHosts}</strong></span></div>
-      <div><WalletCards size={18} /><span><small>已预留 / 状态不明积分</small><strong>{snapshot.metrics.pointsReserved} / {snapshot.metrics.pointsUncertain}</strong></span></div>
+      <div><WalletCards size={18} /><span><small>已预留 / 状态不明条数</small><strong>{snapshot.metrics.pointsReserved} / {snapshot.metrics.pointsUncertain}</strong></span></div>
     </div>
     <section className="ops-band ops-pipeline" aria-labelledby="ops-pipeline-title">
       <div className="detail-heading"><div><span className="section-kicker">效率监控</span><h3 id="ops-pipeline-title">近 {pipeline.windowDays} 天流水线</h3></div><span>每 15 秒更新</span></div>

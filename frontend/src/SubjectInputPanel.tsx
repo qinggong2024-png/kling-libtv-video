@@ -59,6 +59,7 @@ export interface SubjectInputPanelProps {
   elementsLoading?: boolean
   error?: string | null
   elementsError?: string | null
+  onReloadElements?: () => void
   className?: string
 }
 
@@ -273,6 +274,7 @@ export function SubjectInputPanel({
   elementsLoading = false,
   error = null,
   elementsError = null,
+  onReloadElements,
   className = '',
 }: SubjectInputPanelProps) {
   const id = useId()
@@ -529,7 +531,7 @@ export function SubjectInputPanel({
         </button> : null}
       </> : null}
 
-      {!elementsLoading && !usableElements.length ? <div className="subject-input-panel__history-state">
+      {!elementsLoading && !elementsError && !usableElements.length ? <div className="subject-input-panel__history-state">
         <PackageOpen aria-hidden="true" size={18} />
         <span>暂无可用历史主体</span>
       </div> : null}
@@ -537,6 +539,7 @@ export function SubjectInputPanel({
       {elementsError ? <div className="subject-input-panel__local-error" role="alert">
         <AlertTriangle aria-hidden="true" size={16} />
         <span>{elementsError}</span>
+        {onReloadElements ? <button type="button" className="text-button" onClick={onReloadElements}>重新加载</button> : null}
       </div> : null}
     </div> : null}
 

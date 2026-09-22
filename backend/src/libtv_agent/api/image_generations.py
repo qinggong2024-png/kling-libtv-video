@@ -26,6 +26,10 @@ from libtv_agent.services.image_generations import (
     request_fingerprint,
     submit_batch,
 )
+from libtv_agent.services.image_quota import (
+    ImageQuotaExceededError,
+    assert_image_quota_available,
+)
 from libtv_agent.services.runtime_control import get_runtime_config
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -575,6 +579,35 @@ async def create_image_generation_batch(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "IMAGE_BATCH_INVALID", "message": str(exc)},
+            ) from exc
+        # Quota gate. Placed after the idempotent-replay branch above — a replayed batch was
+        # already counted when it was first created — and before anything is persisted, so a
+        # rejected request neither costs money nor consumes quota. The image count is the
+        # server-derived len(specs), never a client-supplied figure.
+        try:
+            await assert_image_quota_available(
+                session,
+                user_id=actor.id,
+                requested_images=len(specs),
+                daily_limit=settings.daily_user_image_limit,
+            )
+        except ImageQuotaExceededError as exc:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "IMAGE_DAILY_LIMIT_EXCEEDED",
+                    "message": (
+                        f"今日图片额度不足：每天最多 {exc.limit} 张，已用 {exc.used} 张，"
+                        f"本次需要 {exc.requested} 张（剩余 {exc.remaining} 张）。请明日再试。"
+                    ),
+                    "details": {
+                        "limit": exc.limit,
+                        "used": exc.used,
+                        "requested": exc.requested,
+                        "remaining": exc.remaining,
+                    },
+                    "retryable": False,
+                },
             ) from exc
         batch = create_batch_record(
             user_id=actor.id,

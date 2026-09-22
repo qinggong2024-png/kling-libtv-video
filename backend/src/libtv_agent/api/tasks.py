@@ -15,6 +15,7 @@ from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
 from libtv_agent.domain.enums import (
+    CANCELLABLE_PHASES,
     DownloadStatus,
     GenerationStatus,
     ParentTaskPhase,
@@ -217,8 +218,25 @@ async def _persist_confirmation_failure(
     *,
     reason_code: str,
     reason: str,
+    idempotency_key: str | None = None,
+    payload_json: dict | None = None,
 ) -> None:
     async with app.state.database.session_factory() as session:
+        if idempotency_key is not None:
+            # The background job outlives the HTTP request that claimed this idempotency
+            # key. If that request died -- client disconnect, app shutdown, process
+            # restart -- nobody else will ever settle the claim, so it stays at
+            # response_status=0 and every replay answers 409 IDEMPOTENCY_REQUEST_IN_PROGRESS
+            # forever. Production held 11 such rows. release_idempotency_claim only deletes
+            # rows that are still unsettled, so a request that already stored its response
+            # is left alone.
+            await release_idempotency_claim(
+                session,
+                tenant_id=str(user_id),
+                operation_type=f"CONFIRM_TASK:{task_id}",
+                key=idempotency_key,
+                payload=payload_json or {},
+            )
         task = await get_task(session, user_id, task_id)
         if task.phase != ParentTaskPhase.PREPARING:
             return
@@ -250,6 +268,8 @@ async def _run_confirmation_job(
     expected_state_version: int,
     selected_variant_kinds: list[VariantKind] | None,
     preparing: asyncio.Future[None],
+    idempotency_key: str | None = None,
+    payload_json: dict | None = None,
 ) -> None:
     def mark_preparing() -> None:
         if not preparing.done():
@@ -281,6 +301,8 @@ async def _run_confirmation_job(
             user_id,
             reason_code="CONFIRMATION_CANCELLED",
             reason="background preparation was cancelled before completion",
+            idempotency_key=idempotency_key,
+            payload_json=payload_json,
         )
         raise
     except Exception as exc:
@@ -294,6 +316,8 @@ async def _run_confirmation_job(
             user_id,
             reason_code=reason_code,
             reason=str(exc),
+            idempotency_key=idempotency_key,
+            payload_json=payload_json,
         )
         logger.exception(
             "confirmation background preparation failed",
@@ -1021,9 +1045,11 @@ async def post_confirm(
         and task.phase == ParentTaskPhase.AWAITING_CONFIRMATION
     )
 
-    async def release_background_claim() -> None:
-        if not background_confirmation:
-            return
+    async def release_claim() -> None:
+        # Called from every error path below. By then _cached has already inserted a
+        # claim for this key, whether or not the request took the background branch, so
+        # the release must not be gated on background_confirmation -- gating it left the
+        # non-background path leaking a claim on every failure.
         await release_idempotency_claim(
             session,
             tenant_id=str(actor_id),
@@ -1047,6 +1073,10 @@ async def post_confirm(
                     expected_state_version=payload.expected_state_version,
                     selected_variant_kinds=payload.variants,
                     preparing=preparing,
+                    # Hand the claim to the job: it outlives this request, so it is the
+                    # only party that can still settle the key if this request dies.
+                    idempotency_key=idempotency_key,
+                    payload_json=payload_json,
                 )
             )
             request.app.state.confirmation_jobs.add(job)
@@ -1067,42 +1097,42 @@ async def post_confirm(
                 selected_variant_kinds=payload.variants,
             )
     except asyncio.CancelledError:
-        await release_background_claim()
+        await release_claim()
         raise
     except PointsLimitExceededError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"code": "POINTS_LIMIT_EXCEEDED", "message": str(exc)}
         ) from exc
     except RuntimeControlBlockedError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_423_LOCKED, detail={"code": exc.code, "message": str(exc)}
         ) from exc
     except LibTVError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"code": exc.code, "message": str(exc)}
         ) from exc
     except KlingCliError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"code": exc.code, "message": str(exc)}
         ) from exc
     except VersionConflictError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={"code": "VERSION_CONFLICT", "message": str(exc)},
         ) from exc
     except ValueError as exc:
-        await release_background_claim()
+        await release_claim()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={"code": "CONSISTENCY_REVIEW_REQUIRED", "message": str(exc)},
         ) from exc
     except Exception:
-        await release_background_claim()
+        await release_claim()
         raise
     if settings.auto_run_fake_commands and settings.libtv_adapter_mode in {"fake", "replay"}:
         await RunnerSupervisor(
@@ -1154,11 +1184,7 @@ async def cancel_task(
     if cached:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     task = await get_task(session, actor.id, task_id)
-    if task.phase not in {
-        ParentTaskPhase.DRAFT,
-        ParentTaskPhase.ANALYZING,
-        ParentTaskPhase.AWAITING_CONFIRMATION,
-    }:
+    if task.phase not in CANCELLABLE_PHASES:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={"code": "VERSION_CONFLICT", "message": "task can no longer be cancelled"},

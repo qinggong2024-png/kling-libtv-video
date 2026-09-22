@@ -449,3 +449,40 @@ async def test_element_list_expands_official_task_results() -> None:
             },
         }
     ]
+
+
+def test_element_read_normalizes_numeric_timestamps() -> None:
+    """可灵对没有时间戳的元素返回 0（int），不能因此让整个列表接口 500。
+
+    回归用例：``GET /api/v1/admin/kling/elements`` 曾因 createdAt/updatedAt 为 0
+    触发 pydantic 校验失败（int 不能隐式转 str），返回 500。
+    """
+    from libtv_agent.api.kling import KlingElementListResponse, KlingElementRead
+
+    zeroed = KlingElementRead.model_validate(
+        {"id": "e1", "status": "succeeded", "createdAt": 0, "updatedAt": 0}
+    )
+    assert zeroed.createdAt is None
+    assert zeroed.updatedAt is None
+
+    page = KlingElementListResponse.model_validate(
+        {
+            "items": [
+                {"id": "e1", "status": "succeeded", "createdAt": 0, "updatedAt": 0},
+                {
+                    "id": "e2",
+                    "status": "succeeded",
+                    "createdAt": "2026-07-29T09:00:00Z",
+                    "updatedAt": 1735689600000,
+                },
+            ],
+            "pageNum": 1,
+            "pageSize": 30,
+            "total": 2,
+            "official": False,
+        }
+    )
+
+    assert page.items[0].createdAt is None
+    assert page.items[1].createdAt == "2026-07-29T09:00:00Z"
+    assert page.items[1].updatedAt == "1735689600000"

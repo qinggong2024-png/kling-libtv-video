@@ -45,3 +45,12 @@ var/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local Playwright MCP capture artefacts (page snapshots / console logs). Scratch
+# material gathered while inspecting the running UI — never a source of truth.
+.playwright-mcp/
+
+# Delivered contract/acceptance packages. These are handed to the client as a whole;
+# the .zip and the exploded directory are two copies of the same thing and neither is
+# referenced by the code, so they stay out of the repository.
+AI_VIDEO_PROD_*

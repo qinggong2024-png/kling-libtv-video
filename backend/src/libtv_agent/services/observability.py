@@ -632,11 +632,20 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     )
     global_slots = int(config.get("generationConcurrency", {}).get("global", 1))
     utilization = min(1.0, running / global_slots) if global_slots else 0.0
+    # Count reservations; do NOT sum `estimated_points`.
+    #
+    # The unit of a reservation changed on 2026-09-21: `generation_estimated_points` went
+    # from 120 to 1 so the daily quota could be expressed directly in generations. Summing
+    # `estimated_points` across that boundary mixes two units — historical rows contribute
+    # 120 each, new rows contribute 1 — so the total stops having a single meaning. A row
+    # count stays correct on both sides of the change: "how many generations are reserved /
+    # settled / uncertain".
+    #
+    # The output keys keep their historical `points*` names for API compatibility.
     reservation_rows = await session.execute(
-        select(
-            PointsReservation.status,
-            func.coalesce(func.sum(PointsReservation.estimated_points), 0),
-        ).group_by(PointsReservation.status)
+        select(PointsReservation.status, func.count(PointsReservation.id)).group_by(
+            PointsReservation.status
+        )
     )
     reservations = {
         status.value: 0

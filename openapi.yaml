@@ -5835,7 +5835,20 @@
           "handheld_unworn_product",
           "packaging_or_product_surface",
           "existing_prop",
-          "prop_pickup_safe"
+          "prop_pickup_safe",
+          "garment_fastener_visible",
+          "waistline_visible",
+          "lower_garment_visible",
+          "trouser_cuff_reachable",
+          "skirt_slit_visible",
+          "footwear_visible",
+          "stair_visible",
+          "stair_path_clear",
+          "seat_approach_clear",
+          "companion_present",
+          "shared_movement_space",
+          "doorway_visible",
+          "doorway_path_clear"
         ],
         "title": "ActionCapability",
         "description": "Facts that must be confirmed from the input before an action is safe."
@@ -7788,7 +7801,7 @@
           "dailyLimit": {
             "type": "integer",
             "title": "Dailylimit",
-            "default": 5000
+            "default": 100
           },
           "consumed": {
             "type": "integer",
@@ -7808,7 +7821,7 @@
           "remaining": {
             "type": "integer",
             "title": "Remaining",
-            "default": 5000
+            "default": 100
           },
           "teamLimit": {
             "anyOf": [
@@ -7823,7 +7836,8 @@
           }
         },
         "type": "object",
-        "title": "PointsQuotaRead"
+        "title": "PointsQuotaRead",
+        "description": "Per-user daily generation quota.\n\nField names keep the historical \"points\" wording so the API contract stays\ncompatible, but the unit is now *video generations per day* (configured by\nDAILY_USER_POINTS_LIMIT / GENERATION_ESTIMATED_POINTS). Image generation does\nnot consume this quota. See services/points.py for the enforcement rule."
       },
       "ProductReferenceInput": {
         "properties": {

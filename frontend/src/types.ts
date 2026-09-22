@@ -627,6 +627,10 @@ export interface OperationsSnapshot {
     generationSlotUtilization: number
     runnerActiveCommandHosts: number
     runnerOrphanProcesses: number
+    // Counts of generations (reservations), not point amounts. The names keep the
+    // historical `points*` wording for API compatibility; the backend switched the
+    // calculation from `sum(estimated_points)` to a row count on 2026-09-21, when the
+    // per-generation estimate fell from 120 to 1 and the unit became "generations".
     pointsReserved: number
     pointsConsumed: number
     pointsUncertain: number

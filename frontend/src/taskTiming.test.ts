@@ -33,6 +33,12 @@ describe('task timing', () => {
     expect(formatDurationSeconds(2 * 3600 + 3 * 60)).toBe('2 小时 3 分')
   })
 
+  it('switches to days for multi-day wall-clock durations', () => {
+    expect(formatDurationSeconds(23 * 3600 + 59 * 60)).toBe('23 小时 59 分')
+    expect(formatDurationSeconds(24 * 3600)).toBe('1 天')
+    expect(formatDurationSeconds(917 * 3600 + 6 * 60)).toBe('38 天 5 小时')
+  })
+
   it('only shows real execution stages for fixed-template tasks', () => {
     expect(visibleTaskTimingStageKeys('FIXED_TEMPLATE')).toEqual([
       'SOURCE_UPLOAD',

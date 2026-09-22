@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from libtv_agent.domain.contracts import ordered_assets_hash, sha256_json
-from libtv_agent.domain.enums import ParentTaskPhase
+from libtv_agent.domain.enums import CANCELLABLE_PHASES, ParentTaskPhase
 from libtv_agent.domain.models import (
     Asset,
     AuditEvent,
@@ -475,14 +475,9 @@ def _build_task_read(
         ParentTaskPhase.AWAITING_CONFIRMATION,
         ParentTaskPhase.WAITING_FOR_SEAL,
     }
-    can_cancel = task.phase in {
-        ParentTaskPhase.DRAFT,
-        ParentTaskPhase.ANALYZING,
-        ParentTaskPhase.AWAITING_CONFIRMATION,
-        ParentTaskPhase.PREPARING,
-        ParentTaskPhase.WAITING_FOR_SEAL,
-        ParentTaskPhase.QUEUED,
-    }
+    # Derived from the shared constant rather than restated, so the button and the
+    # endpoint can never disagree (see CANCELLABLE_PHASES in domain/enums.py).
+    can_cancel = task.phase in CANCELLABLE_PHASES
     can_download = any(item.download_status.value == "READY" for item in variant_reads)
     return TaskRead(
         id=task.id,

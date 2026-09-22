@@ -18,7 +18,7 @@ from libtv_agent.services.kling_elements import (
     get_element,
     list_elements,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
 router = APIRouter(tags=["kling"])
@@ -118,6 +118,20 @@ class KlingElementRead(BaseModel):
     createdAt: str | None = None
     updatedAt: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("createdAt", "updatedAt", mode="before")
+    @classmethod
+    def _normalize_timestamp(cls, value: Any) -> Any:
+        """把可灵返回的时间戳归一化。
+
+        可灵对没有时间戳的元素返回 ``0``（int），而字段声明为 ``str | None``；
+        pydantic v2 不做 int→str 隐式转换，直接校验会让整个列表接口 500。
+        """
+        if isinstance(value, (int, float)):
+            return None if not value else str(value)
+        if value is None or value == "":
+            return None
+        return value
 
 
 class KlingElementListResponse(BaseModel):
