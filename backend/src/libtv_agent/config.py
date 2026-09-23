@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     runner_root: Path = Path("var/runner")
     daily_user_points_limit: int = Field(default=5000, ge=1)
     generation_estimated_points: int = Field(default=120, ge=1)
+    daily_user_image_limit: int = Field(default=500, ge=1)
     auto_run_fake_commands: bool = True
     dev_user_id: str = "00000000-0000-0000-0000-000000000001"
     dev_admin_id: str = "00000000-0000-0000-0000-000000000099"

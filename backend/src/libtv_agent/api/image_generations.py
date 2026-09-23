@@ -23,6 +23,11 @@ from libtv_agent.services.image_generations import (
     request_fingerprint,
     submit_batch,
 )
+from libtv_agent.services.image_quota import (
+    ImageQuotaExceededError,
+    assert_image_quota_available,
+    lock_image_quota_user,
+)
 from libtv_agent.services.runtime_control import get_runtime_config
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -524,6 +529,7 @@ async def create_image_generation_batch(
                 },
             )
         fingerprint = request_fingerprint(manifest_json, hashes)
+        await lock_image_quota_user(session, user_id=actor.id)
         try:
             existing = await find_idempotent_batch(
                 session,
@@ -537,6 +543,7 @@ async def create_image_generation_batch(
                 detail={"code": "IDEMPOTENCY_KEY_REUSED", "message": str(exc)},
             ) from exc
         if existing is not None:
+            await session.commit()
             await submit_batch(
                 session,
                 batch=existing,
@@ -550,6 +557,31 @@ async def create_image_generation_batch(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "IMAGE_BATCH_INVALID", "message": str(exc)},
+            ) from exc
+        try:
+            await assert_image_quota_available(
+                session,
+                user_id=actor.id,
+                requested_images=len(specs),
+                daily_limit=settings.daily_user_image_limit,
+            )
+        except ImageQuotaExceededError as exc:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "IMAGE_DAILY_LIMIT_EXCEEDED",
+                    "message": (
+                        f"今日图片额度不足：每天最多 {exc.limit} 张，已用 {exc.used} 张，"
+                        f"本次需要 {exc.requested} 张（剩余 {exc.remaining} 张）。请明日再试。"
+                    ),
+                    "details": {
+                        "limit": exc.limit,
+                        "used": exc.used,
+                        "requested": exc.requested,
+                        "remaining": exc.remaining,
+                    },
+                    "retryable": False,
+                },
             ) from exc
         batch = create_batch_record(
             user_id=actor.id,

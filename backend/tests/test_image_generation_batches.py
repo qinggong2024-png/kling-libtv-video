@@ -74,7 +74,9 @@ async def _app(tmp_path: Path) -> tuple[Any, Settings]:
         _env_file=None,
     )
     settings.runner_root.mkdir(parents=True)
-    return create_app(settings), settings
+    app = create_app(settings)
+    app.state.wavespeed_adapter = FakeWaveSpeedAdapter()
+    return app, settings
 
 
 def _manifest(*, name: str = "catalog", expected: int = 1) -> dict[str, Any]:
