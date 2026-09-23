@@ -29,6 +29,7 @@ from libtv_agent.services.image_generations import (
 from libtv_agent.services.image_quota import (
     ImageQuotaExceededError,
     assert_image_quota_available,
+    lock_image_quota_user,
 )
 from libtv_agent.services.runtime_control import get_runtime_config
 from PIL import Image
@@ -553,6 +554,7 @@ async def create_image_generation_batch(
                 },
             )
         fingerprint = request_fingerprint(manifest_json, hashes)
+        await lock_image_quota_user(session, user_id=actor.id)
         try:
             existing = await find_idempotent_batch(
                 session,
@@ -566,6 +568,7 @@ async def create_image_generation_batch(
                 detail={"code": "IDEMPOTENCY_KEY_REUSED", "message": str(exc)},
             ) from exc
         if existing is not None:
+            await session.commit()
             await submit_batch(
                 session,
                 batch=existing,

@@ -122,7 +122,9 @@ async def _app(tmp_path: Path, *, daily_image_limit: int) -> tuple[Any, Settings
         _env_file=None,
     )
     settings.runner_root.mkdir(parents=True)
-    return create_app(settings), settings
+    app = create_app(settings)
+    app.state.wavespeed_adapter = FakeWaveSpeedAdapter()
+    return app, settings
 
 
 async def _add_batch(session, *, user_id: uuid.UUID, images: int, created_at: datetime) -> None:

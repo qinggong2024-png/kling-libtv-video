@@ -24,9 +24,9 @@ import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
-from libtv_agent.domain.models import ImageGenerationBatch
+from libtv_agent.domain.models import ImageGenerationBatch, User
 from libtv_agent.services.points import SHANGHAI, business_date
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +44,20 @@ class ImageQuotaExceededError(RuntimeError):
     @property
     def remaining(self) -> int:
         return max(self.limit - self.used, 0)
+
+
+async def lock_image_quota_user(session: AsyncSession, *, user_id: uuid.UUID) -> None:
+    """Hold until batch commit; acquire before the idempotency lookup and usage read."""
+    # A no-op UPDATE also acquires SQLite's writer lock, unlike SELECT FOR UPDATE.
+    # PostgreSQL locks only this user row; no provider I/O belongs in this transaction.
+    result = await session.execute(
+        update(User)
+        .where(User.id == user_id)
+        .values(is_active=User.is_active)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise ValueError("image quota requires an existing user")
 
 
 def business_day_window(day: date) -> tuple[datetime, datetime]:
