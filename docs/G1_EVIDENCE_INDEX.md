@@ -100,6 +100,15 @@ provider calls after restart. Evidence: `G1/video-crash-run4/result.json`.
 This is API-backend launch coverage only; it does not establish pre-submit or
 CLI execution-backend crash semantics.
 
+Follow-up HTTP drill uses the real KlingOfficialApiAdapter.submit and HTTP
+transport, replacing only payload construction with synthetic data. A loopback
+receiver fsyncs one POST before the caller kills the worker while its response is
+pending. Recovery asserts one persisted POST, no remote handle, zero calls to a
+fail-on-submit recovery adapter, counts [1,0], and RESERVE + UNCERTAIN ledger.
+Testing evidence: video-http-crash-testing/result.json. Main evidence is recorded
+in video-http-crash-main/result.json after independent execution. This closes the
+API HTTP-acceptance fault point, not pre-submit/known-handle/CLI crash coverage.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.

@@ -1,6 +1,6 @@
 """Isolated video launch crash drill.
 
-The submit worker commits LAUNCH_STARTED and then blocks inside a synthetic provider.
+The submit worker commits LAUNCH_STARTED and then blocks awaiting a loopback HTTP response.
 The caller terminates that process.  The recover worker opens the same SQLite database,
 resolves the expired launch exactly once, and verifies that no provider call is repeated.
 This deliberately exercises the real RunnerSupervisor video launch path without paid API
@@ -14,7 +14,9 @@ import pathlib
 import platform
 import stat
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
 ROOT = pathlib.Path(sys.argv[1]).resolve()
@@ -22,8 +24,7 @@ MODE = sys.argv[2]
 if MODE not in {"submit", "recover"} or not ROOT.is_dir():
     raise SystemExit("Expected an existing isolated directory and submit/recover mode")
 if any(
-    p.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
-    for p in (ROOT, *ROOT.parents)
+    p.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT for p in (ROOT, *ROOT.parents)
 ):
     raise SystemExit("Reparse points are forbidden")
 for key in list(os.environ):
@@ -38,7 +39,10 @@ platform.uname()
 
 def audit(event, args):
     if event == "socket.connect":
-        if sys._getframe(1).f_code.co_name != "_fallback_socketpair":
+        if sys._getframe(1).f_code.co_name != "_fallback_socketpair" and args[1][:2] != (
+            "127.0.0.1",
+            18439,
+        ):
             raise RuntimeError("External network is forbidden")
     if event in {"subprocess.Popen", "os.system"}:
         raise RuntimeError("Child processes are forbidden")
@@ -49,15 +53,30 @@ def audit(event, args):
         writing = any(c in (args[1] or "") for c in "wax+") or (args[2] or 0) & (
             os.O_WRONLY | os.O_RDWR
         )
-        if writing and not path.is_relative_to(ROOT) and "site-packages" not in path.parts:
+        if writing and not path.is_relative_to(ROOT):
             raise RuntimeError("Write outside isolated root")
 
 
 sys.addaudithook(audit)
 
 
+class Receiver(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        assert json.loads(body)["prompt"] == "synthetic crash drill"
+        with (ROOT / "requests.jsonl").open("a") as stream:
+            stream.write(json.dumps({"method": "POST", "bytes": len(body)}) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        (ROOT / "provider-entered.json").write_text(json.dumps({"pid": os.getpid()}))
+        threading.Event().wait(120)
+
+    def log_message(self, *_args):
+        pass
+
+
 class BlockingProvider:
-    """Provider that records entry, then waits until the worker is killed."""
+    """Recovery sentinel: any provider operation fails the drill."""
 
     def __init__(self):
         self.calls = 0
@@ -78,11 +97,7 @@ class BlockingProvider:
 
     async def submit(self, request):
         self.calls += 1
-        (ROOT / "provider-accepted.json").write_text(
-            json.dumps({"calls": self.calls, "pid": os.getpid()})
-        )
-        (ROOT / "provider-entered.json").write_text(json.dumps({"pid": os.getpid()}))
-        await asyncio.Event().wait()
+        raise AssertionError("recovery must not resubmit")
 
     async def query(self, provider_task_id):
         raise AssertionError("recovery must not query without a provider handle")
@@ -142,15 +157,25 @@ async def main():
         kling_provider_backend="api",
         kling_api_enabled=True,
         kling_api_key="synthetic-only",
+        kling_api_base_url="http://127.0.0.1:18439",
         paid_submissions_paused=False,
         generation_estimated_points=240,
         daily_user_points_limit=5000,
     )
     provider = BlockingProvider()
+    if MODE == "submit":
+        from libtv_agent.adapters.kling_official_api import KlingOfficialApiAdapter
+
+        provider = KlingOfficialApiAdapter(settings)
+
+        async def synthetic_payload(request):
+            return {"prompt": request.prompt, "external_task_id": request.external_task_id}
+
+        provider.build_request_payload = synthetic_payload
+        server = HTTPServer(("127.0.0.1", 18439), Receiver)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
     (ROOT / "source.png").write_bytes(b"synthetic image")
-    supervisor = RunnerSupervisor(
-        object(), IsolatedObjectStore(), settings, kling_adapter=provider
-    )
+    supervisor = RunnerSupervisor(object(), IsolatedObjectStore(), settings, kling_adapter=provider)
     try:
         if MODE == "submit":
             async with engine.begin() as connection:
@@ -239,7 +264,9 @@ async def main():
                 assert sorted(e.entry_type for e in entries) == sorted(
                     [LedgerEntryType.RESERVE, LedgerEntryType.UNCERTAIN]
                 )
-                assert not (ROOT / "provider-retry.json").exists()
+                assert provider.calls == 0
+                assert len((ROOT / "requests.jsonl").read_text().splitlines()) == 1
+                assert attempt.task_id is None
                 (ROOT / "result.json").write_text(
                     json.dumps(
                         {
@@ -251,7 +278,8 @@ async def main():
                             "reservation": reservation.status.value,
                             "ledger": [e.entry_type.value for e in entries],
                             "provider_calls_after_restart": 0,
-                            "scope": "video provider launch entered, process killed, no resubmit",
+                            "generation_posts": 1,
+                            "scope": "API HTTP acceptance then process kill; synthetic payload",
                         },
                         indent=2,
                     )
