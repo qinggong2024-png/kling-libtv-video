@@ -612,6 +612,20 @@ async def create_image_generation_batch(
                 daily_limit=settings.daily_user_image_limit,
             )
         except ImageQuotaExceededError as exc:
+            session.add(
+                AuditEvent(
+                    actor_id=actor.id,
+                    action="IMAGE_QUOTA_REJECTED",
+                    entity_type="IMAGE_GENERATION_BATCH",
+                    entity_id=str(actor.id),
+                    from_state=None,
+                    to_state="REJECTED",
+                    reason="daily image quota exceeded",
+                    correlation_id=str(uuid.uuid4()),
+                    evidence_refs_json=[],
+                )
+            )
+            await session.commit()
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
