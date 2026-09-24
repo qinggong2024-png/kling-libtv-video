@@ -10,6 +10,7 @@ from libtv_agent.api.kling import router as kling_router
 from libtv_agent.api.motion_actions import router as motion_actions_router
 from libtv_agent.api.prompt_presets import router as prompt_presets_router
 from libtv_agent.api.site_style_profiles import router as site_style_profiles_router
+from libtv_agent.api.submission_recovery import router as submission_recovery_router
 from libtv_agent.api.system import router as system_router
 from libtv_agent.api.tasks import router as tasks_router
 from libtv_agent.api.uploads import router as uploads_router
@@ -35,3 +36,4 @@ api_router.include_router(motion_actions_router)
 api_router.include_router(prompt_presets_router)
 api_router.include_router(site_style_profiles_router)
 api_router.include_router(video_tasks_router)
+api_router.include_router(submission_recovery_router)
