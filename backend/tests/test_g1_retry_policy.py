@@ -46,7 +46,7 @@ def test_http_date_is_used_by_both_adapters(tmp_path):
 async def test_get_retries_are_bounded_and_keep_task_identity(tmp_path, monkeypatch, failure):
     calls, sleeps = [], []
 
-    async def transport(method, url, headers, body, timeout):
+    async def transport(method, url, headers, body, request_timeout):
         calls.append((method, url))
         if failure == "network":
             raise OSError("synthetic disconnect")
