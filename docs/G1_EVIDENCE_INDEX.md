@@ -61,6 +61,15 @@ recorded separately in video-idempotency-main.xml after scoped promotion.
 
 ## Polling Observation Race
 
+Confirmation increment: confirmation-testing.xml and confirmation-main.xml each
+passed one SQLite HTTP workflow test using fake analysis/materialization and
+disabled automatic dispatch. Concurrent same-key confirmation and later replay
+return identical responses; changed payload returns IDEMPOTENCY_KEY_REUSED.
+Exactly one attempt, command, reservation and confirmation idempotency row exist,
+with zero generation calls. This is foreground confirmation coverage only;
+PostgreSQL, background confirmation, fresh-process replay and actual paid-dispatch
+lifecycle coverage remain open.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
