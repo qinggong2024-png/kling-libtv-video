@@ -138,6 +138,15 @@ recovery remain distinct requirements, not covered by this fixture.
 
 ### Confirmed Claimed-Command Gap
 
+CLI submission exception follow-up: cli-submit-unexpected-testing.xml and
+cli-submit-unexpected-main.xml each passed 14 launch/recovery tests, including a
+Kling adapter that raises an unexpected exception after the durable
+`LAUNCH_STARTED` commit. The runner now records `UNCERTAIN` /
+`UNKNOWN_AFTER_SUBMIT` and keeps the reservation uncertain instead of aborting
+the queue with a stranded launch. Exceptions before the launch marker still
+propagate as pre-submit failures. This is adapter/backend fault coverage, not a
+real CLI executable or paid-provider test.
+
 `submit claimed` reproduces the scheduler's committed CLAIMED/LAUNCHING handoff
 and then force-kills the actual worker during localization before any HTTP POST.
 Fresh-process recovery twice leaves CLAIMED/LAUNCHING with counts [0,0]. Evidence:
