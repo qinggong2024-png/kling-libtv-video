@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+
+import pytest
 from httpx import ASGITransport, AsyncClient
 from libtv_agent.domain.models import (
     ImageGenerationBatch,
@@ -6,10 +9,16 @@ from libtv_agent.domain.models import (
 )
 from libtv_agent.services.image_generations import refresh_batch
 from sqlalchemy import func, select, update
-from test_image_quota_concurrency import post, world  # noqa: F401
+from test_image_quota_concurrency import post, world  # noqa: F401, F811
 
 
-async def test_stale_image_poll_preserves_independent_completion(world):  # noqa: F811
+@pytest.mark.parametrize("query_error", [False, True])
+@pytest.mark.parametrize("new_status", ["COMPLETED", "PROCESSING"])
+async def test_stale_image_poll_preserves_independent_completion(
+    world,  # noqa: F811
+    query_error,
+    new_status,
+):  # noqa: F811
     app, factory, provider, users = world
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await post(client, users[0], "image-poll-race")
@@ -19,11 +28,14 @@ async def test_stale_image_poll_preserves_independent_completion(world):  # noqa
         async with factory() as other:
             await other.execute(
                 update(ImageGenerationItem).values(
-                    status="COMPLETED", raw_response_json={"newer": True}
+                    status=new_status, raw_response_json={"newer": True},
+                    last_polled_at=datetime.now(UTC),
                 )
             )
-            await other.execute(update(ImageGenerationBatch).values(status="COMPLETED"))
+            await other.execute(update(ImageGenerationBatch).values(status=new_status))
             await other.commit()
+        if query_error:
+            raise RuntimeError("synthetic stale query error")
         return {"data": {"id": task_id, "status": "processing"}}
 
     provider.get_prediction = query
@@ -33,9 +45,10 @@ async def test_stale_image_poll_preserves_independent_completion(world):  # noqa
     async with factory() as verify:
         item = await verify.scalar(select(ImageGenerationItem))
         batch = await verify.scalar(select(ImageGenerationBatch))
-        assert item.status == "COMPLETED"
+        assert item.status == new_status
         assert item.raw_response_json == {"newer": True}
-        assert batch.status == "COMPLETED"
+        assert item.error_json is None
+        assert batch.status == new_status
     assert len(provider.submissions) == 1
 
 
