@@ -127,6 +127,17 @@ video-before-testing/result.json and video-before-main/result.json. Scope is
 direct persisted-command resume; scheduler lease acquisition and CLI-host crash
 recovery remain distinct requirements, not covered by this fixture.
 
+### Confirmed Claimed-Command Gap
+
+`submit claimed` reproduces the scheduler's committed CLAIMED/LAUNCHING handoff
+and then force-kills the actual worker during localization before any HTTP POST.
+Fresh-process recovery twice leaves CLAIMED/LAUNCHING with counts [0,0]. Evidence:
+video-claimed-testing/result.json and video-claimed-main/result.json, explicitly
+marked FAIL_UNRECOVERED_CLAIM. The harness exits normally only to save this known
+negative evidence; that is NOT an acceptance pass. This blocks the S04 gate.
+Recovery must fence the old owner's pre-submit transition before making an
+expired claim dispatchable, otherwise a slow old worker could still submit.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.

@@ -23,8 +23,8 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1]
 ROOT = pathlib.Path(sys.argv[1]).resolve()
 MODE = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else "unknown"
-if SCENARIO not in {"unknown", "known", "before"}:
-    raise SystemExit("Expected unknown, known or before scenario")
+if SCENARIO not in {"unknown", "known", "before", "claimed"}:
+    raise SystemExit("Expected unknown, known, before or claimed scenario")
 if MODE not in {"submit", "recover"} or not ROOT.is_dir():
     raise SystemExit("Expected an existing isolated directory and submit/recover mode")
 if any(
@@ -125,7 +125,7 @@ class BlockingProvider:
 
 class IsolatedObjectStore:
     async def localize(self, object_key, destination):
-        if SCENARIO == "before" and MODE == "submit":
+        if SCENARIO in {"before", "claimed"} and MODE == "submit":
             (ROOT / "before-submit.json").write_text(json.dumps({"pid": os.getpid()}))
             await asyncio.Event().wait()
         return ROOT / "source.png"
@@ -271,6 +271,14 @@ async def main():
                 )
                 session.add(command)
                 await session.commit()
+                if SCENARIO == "claimed":
+                    # Reproduce the durable scheduler handoff before localization.
+                    command.status = CommandStatus.CLAIMED
+                    command.claim_owner = "synthetic-crashed-owner"
+                    command.lease_expires_at = datetime.now(UTC) - timedelta(hours=1)
+                    attempt.status = AttemptStatus.LAUNCHING
+                    attempt.state_version += 1
+                    await session.commit()
                 (ROOT / "ready.json").write_text(
                     json.dumps({"task_id": str(task.id), "command_id": str(command.id)})
                 )
@@ -287,6 +295,28 @@ async def main():
                 attempt = await session.scalar(select(GenerationAttempt))
                 if command is None or attempt is None:
                     raise RuntimeError("persisted launch fixture is missing")
+                if SCENARIO == "claimed":
+                    assert command.status == CommandStatus.CLAIMED
+                    assert command.launch_started_at is None and attempt.task_id is None
+                    assert not (ROOT / "requests.jsonl").exists()
+                    counts = [
+                        await supervisor.recover_stale_launch_started_commands(session)
+                        for _ in range(2)
+                    ]
+                    await session.refresh(command)
+                    await session.refresh(attempt)
+                    result = {
+                        "scenario": "claimed",
+                        "recovery_counts": counts,
+                        "command": command.status.value,
+                        "attempt": attempt.status.value,
+                        "posts": 0,
+                        "acceptance": "FAIL_UNRECOVERED_CLAIM",
+                        "scope": "synthetic scheduler handoff, real kill during localization",
+                    }
+                    assert counts == [0, 0] and command.status == CommandStatus.CLAIMED
+                    (ROOT / "result.json").write_text(json.dumps(result, indent=2))
+                    return
                 if SCENARIO == "before":
                     assert command.status == CommandStatus.READY
                     assert command.launch_started_at is None and attempt.task_id is None
