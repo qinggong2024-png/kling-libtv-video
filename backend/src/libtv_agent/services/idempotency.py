@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -8,6 +9,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 
 class IdempotencyConflictError(RuntimeError):
@@ -51,6 +54,7 @@ async def load_idempotent_response(
     if record is None:
         raise RuntimeError("idempotency claim disappeared")
     if record.payload_hash != payload_hash:
+        logger.info("idempotency.conflict", extra={"count": 1})
         raise IdempotencyConflictError("idempotency key was reused with a different payload")
     for _ in range(100):
         if record.response_status != 0:
@@ -61,7 +65,9 @@ async def load_idempotent_response(
         if record is None:
             raise RuntimeError("idempotency claim disappeared")
     if record.response_status == 0:
+        logger.info("idempotency.in_progress", extra={"count": 1})
         raise IdempotencyInProgressError("the original request is still in progress")
+    logger.info("idempotency.replay", extra={"count": 1})
     return record.response_status, record.response_body_json
 
 
