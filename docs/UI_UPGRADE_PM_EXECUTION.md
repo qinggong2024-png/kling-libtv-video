@@ -41,7 +41,7 @@ performed the release-gate review directly.
 | U01 | Safe storage and account isolation | Open, high priority | Blocked storage, logout/account switch, no cross-user IndexedDB draft recovery |
 | U02 | Frontend batch progress/recovery presentation | Backend manifest is an external dependency | Consume confirmed server contracts; never infer safe retry or duplicate server implementation |
 | U03 | Unknown reconciliation and quota presentation | Open; release depends on G1 | Server-authoritative result; no unknown resubmission; no invented supplier price |
-| U04 | Selection/review separation | Open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
+| U04 | Selection/review separation | Single-output workflow verified on testing; bulk review open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
 | U05 | Records deep links and bounded lists | Open | Back/forward/detail return, matching counts, pagination, no sensitive URL data |
 | U06 | Compare/review/delivery/library | Open; contract discovery required | Side-by-side/overlay, traceable decisions, actual version/reference data rather than fabricated metadata |
 | U07 | Shared component integration and visual unification | Open | Existing business pages migrated; coherent status semantics, errors and permission states |
@@ -75,3 +75,28 @@ Test-branch/main test counts may differ; report each independently. No package i
 complete solely because a document or unused component exists. Main is maintained
 in a separate checkout; inspect its actual Git directory and HEAD before syncing,
 not the stale main ref/worktree metadata in the testing repository.
+
+## Frontend Increment: Explicit Image Review
+
+Testing commits `bfc85a8`, `c6138e2`; main compatibility promotion `478e4ca`.
+Selection no longer performs approval on testing. Explicit single-image review uses
+a native drawer, two quality checks for approval, a required rejection reason,
+server-returned status, preserved input on failure and an uncertain-write warning.
+The uncertain-write guard is local to the open drawer, not durable reconciliation;
+cross-close/reopen recovery remains an open dependency and is not accepted here.
+
+Production lacks the quality-decision endpoint and output review fields. Only
+frontend compatibility types/client were added; production cards keep review
+disabled and preserve their existing selection/video workflow. No backend endpoint,
+schema or policy was promoted. Enabling production review requires the other task's
+contract followed by a UI integration pass; this is not a released review feature.
+
+Evidence: 166 testing / 163 main frontend tests passed, both builds passed, testing
+lint passed. The isolated `scripts/ui-image-review-check.mjs` mounts the real image
+page with synthetic bitmap media and intercepts all API calls. It verifies selection
+causes zero approval writes, rejection requires a reason and persists the supplied
+reason, Escape restores focus, and no document overflow at 1440/1024/768/390.
+Screenshots and JSON are external under the current UI task's `ui-review` evidence
+directory; the 390px review screenshot was inspected. This is not whole-app visual
+acceptance or proof of bulk review, partial failure or server concurrency behavior.
+No live API, paid provider call, production restart or real media was used.
