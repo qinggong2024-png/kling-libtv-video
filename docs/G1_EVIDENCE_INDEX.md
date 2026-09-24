@@ -171,7 +171,7 @@ This is a composition regression, not completion of the open boundaries above.
 Downloader expansion: download-providers-before.xml reproduced truncation
 publication in Kling CLI, WaveSpeed video and Bach (3 failures, 9 passes).
 All three now compare received bytes with declared Content-Length before rename.
-download-providers-testing.xml and download-providers-main.xml cover 35 cases,
+download-providers-testing.xml: 35 passed; download-providers-main.xml: 34 passed,
 including four providers x truncation/ENOSPC/expired URL, no partial publication,
 temporary cleanup and GET-only recovery. HTTP responses are injected; background
 thread cancellation and real network interruption remain separate coverage gaps.
