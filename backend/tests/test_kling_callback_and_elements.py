@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -289,42 +286,6 @@ async def test_callback_route_accepts_official_top_level_contract(tmp_path: Path
         "duplicate": False,
         "workflowFinalized": False,
     }
-
-
-@pytest.mark.asyncio
-async def test_callback_route_rejects_missing_signature_when_configured(tmp_path: Path) -> None:
-    database_url = f"sqlite+aiosqlite:///{(tmp_path / 'callback-auth.db').as_posix()}"
-    engine = create_async_engine(database_url)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    await engine.dispose()
-    settings = Settings(
-        app_env="test",
-        database_url=database_url,
-        object_store_mode="local",
-        artifact_root=tmp_path / "artifacts",
-        runner_root=tmp_path / "runner",
-        kling_api_callback_url="https://callback.example.test/kling",
-        kling_api_callback_secret="callback-secret-123456",
-        _env_file=None,
-    )
-    app = create_app(settings)
-    body = {"id": "missing", "status": "succeeded"}
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            missing = await client.post("/api/v1/kling/callback", json=body)
-            assert missing.status_code == 401
-            raw = json.dumps(body, separators=(",", ":")).encode()
-            signature = hmac.new(b"callback-secret-123456", raw, hashlib.sha256).hexdigest()
-            verified = await client.post(
-                "/api/v1/kling/callback",
-                content=raw,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Kling-Callback-Signature": signature,
-                },
-            )
-            assert verified.status_code != 401
 
 
 @pytest.mark.asyncio

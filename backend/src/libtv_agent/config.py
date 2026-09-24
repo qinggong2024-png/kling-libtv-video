@@ -99,7 +99,6 @@ class Settings(BaseSettings):
     kling_api_audio: Literal["native", "original", "off"] = "off"
     kling_api_multi_shot: bool = True
     kling_api_callback_url: str | None = None
-    kling_api_callback_secret: str | None = Field(default=None, exclude=True, min_length=16)
     kling_api_request_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     kling_api_task_timeout_seconds: float = Field(default=1800.0, ge=60, le=86_400)
     kling_api_download_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
