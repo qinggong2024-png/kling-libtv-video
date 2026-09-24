@@ -481,9 +481,7 @@ async def test_recovered_charge_is_reconcilable_not_lost(session, tmp_path):
     assert reservation.actual_points is None
     assert (
         await session.scalar(
-            select(PointsReservation).where(
-                PointsReservation.status == ReservationStatus.UNCERTAIN
-            )
+            select(PointsReservation).where(PointsReservation.status == ReservationStatus.UNCERTAIN)
         )
         is not None
     )
@@ -492,7 +490,8 @@ async def test_recovered_charge_is_reconcilable_not_lost(session, tmp_path):
 @pytest.mark.asyncio
 async def test_known_handle_is_handed_to_polling_without_settlement(session, tmp_path):
     _, _, attempt, command, reservation = await _stranded_command(
-        session, provider=KLING_PROVIDER,
+        session,
+        provider=KLING_PROVIDER,
         lease_expires_at=datetime.now(UTC) - timedelta(days=1),
     )
     attempt.task_id = "synthetic-existing-remote"
