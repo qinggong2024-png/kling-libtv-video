@@ -170,7 +170,7 @@ type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
 type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 type UploadBucket = 'storyboard' | 'product'
 type Material = { id: string; file: File }
-type RemixSeed = { id: string; storyboards: File[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
+type RemixSeed = { id: string; storyboards: File[]; storyboardOutputIds?: string[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
 type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 type InPageTaskToast = {
   id: string
