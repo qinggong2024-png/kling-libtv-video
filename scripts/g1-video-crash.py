@@ -299,10 +299,9 @@ async def main():
                     assert command.status == CommandStatus.CLAIMED
                     assert command.launch_started_at is None and attempt.task_id is None
                     assert not (ROOT / "requests.jsonl").exists()
-                    counts = [
-                        await supervisor.recover_stale_launch_started_commands(session)
-                        for _ in range(2)
-                    ]
+                    from libtv_agent.runner.launch_recovery import recover_abandoned_claims
+
+                    counts = [await recover_abandoned_claims(session) for _ in range(2)]
                     await session.refresh(command)
                     await session.refresh(attempt)
                     result = {
@@ -311,10 +310,11 @@ async def main():
                         "command": command.status.value,
                         "attempt": attempt.status.value,
                         "posts": 0,
-                        "acceptance": "FAIL_UNRECOVERED_CLAIM",
+                        "acceptance": "PASS_CLAIM_RECOVERY",
                         "scope": "synthetic scheduler handoff, real kill during localization",
                     }
-                    assert counts == [0, 0] and command.status == CommandStatus.CLAIMED
+                    assert counts == [1, 0] and command.status == CommandStatus.READY
+                    assert attempt.status == AttemptStatus.DISPATCH_PENDING
                     (ROOT / "result.json").write_text(json.dumps(result, indent=2))
                     return
                 if SCENARIO == "before":
