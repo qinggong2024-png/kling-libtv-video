@@ -19,7 +19,7 @@ continues local execution. No child changed source in this cycle.
 | Package | State | Required evidence |
 | --- | --- | --- |
 | G1-S03 socket disconnect | Verified scoped case | Production HTTP transport accepts one POST, drops response; SQLite/PostgreSQL persist unknown; replay and default-adapter replacement do not post again |
-| G1-S04 recovery | Open | Main lacks testing recovery implementation; review minimal port, protect stale observation races, then actual launch crash tests |
+| G1-S04 recovery | Partial / awaiting boundary tests | API launch crash drill and stale-observation guards verified on both branches; pre-submit, known-handle and CLI execution-backend crash cases remain |
 | G1-S05 callback | Decision required | Existing anonymous callback lacks source authentication; callback/poll stale writes and current-provider routing need fixes |
 | G1-S06 retries | Open | HTTP-date Retry-After and bounded retry matrix per supported provider |
 | G1-S07/S08/S10 | Open | Delivery faults, cancellation/success race, Shanghai cross-day ledger |

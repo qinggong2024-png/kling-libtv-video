@@ -12,7 +12,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 | --- | --- | --- |
 | S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL | Video confirmation/paid dispatch matrix and actual process restart conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
-| S04 process recovery | Image real POST acceptance then process kill, 1 POST/1 batch/2 replays; launch recovery and known-handle tests on main | Real video/CLI launch crash, pre-submit and known-handle process crash |
+| S04 process recovery | Image real POST acceptance then process kill; video API launch entered then process kill with recovery counts [1,0], UNKNOWN_AFTER_SUBMIT/UNCERTAIN reservation and zero resubmits; launch recovery and known-handle tests on main | Pre-submit crash and known-handle process crash for the video path; CLI-specific provider execution |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
 | S06 query retries | retry-policy-testing-full.xml: 48 passed; download-retry-main-full.xml: 51 passed | Per-provider scheduling semantics, not just WaveSpeed/Kling API parsers |
 | S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry | Other downloaders, interruption of background download thread, workflow-level recovery |
@@ -88,6 +88,17 @@ and the existing image batch suite. Two preloaded sessions produce one output,
 one materialization and no extra generation POST. Main verification is recorded
 in image-poll-race-main.xml. This does not prove process interruption during an
 image download or full frontend account isolation.
+
+## Video Launch Crash Drill
+
+`scripts/g1-video-crash.py` ran in an isolated SQLite directory with a synthetic
+provider adapter. The worker persisted `LAUNCH_STARTED`, entered provider
+submission, and was force-terminated. A fresh process ran stale launch recovery
+twice: counts `[1, 0]`. The result was `UNKNOWN_AFTER_SUBMIT`, command
+`UNCERTAIN`, reservation `UNCERTAIN`, ledger `RESERVE + UNCERTAIN`, and zero
+provider calls after restart. Evidence: `G1/video-crash-run4/result.json`.
+This is API-backend launch coverage only; it does not establish pre-submit or
+CLI execution-backend crash semantics.
 
 ## Consolidated Regression
 
