@@ -90,6 +90,9 @@ h1, h2, h3, p { margin-top: 0; }
 .foundation-confirm-panel p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; }
 .foundation-confirm-panel__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .foundation-drawer-backdrop { position: fixed; z-index: var(--z-drawer); inset: 0; display: flex; justify-content: flex-end; background: rgba(11,18,28,.5); animation: fade-in .18s ease-out; }
+.foundation-drawer-backdrop { width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; color: var(--text); }
+.foundation-drawer-backdrop:not([open]) { display: none; }
+.foundation-drawer-backdrop::backdrop { background: transparent; }
 .foundation-drawer { width: min(680px, 92vw); height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; background: var(--page); box-shadow: -16px 0 44px rgba(10,17,28,.22); animation: drawer-in .24s ease-out; }
 .foundation-drawer__header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: #fff; }
 .foundation-drawer__header > div { min-width: 0; }
