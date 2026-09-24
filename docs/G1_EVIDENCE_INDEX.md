@@ -168,6 +168,15 @@ This is a composition regression, not completion of the open boundaries above.
 
 ## Observability Inventory
 
+Delivery resume follow-up: delivery-resume-before.xml reproduced loss of a saved
+remote task ID on SQLite/PostgreSQL when the persisted output payload lacked taskId.
+Success handling now retains the existing handle when the result omits it.
+delivery-resume-testing.xml and delivery-resume-main.xml cover resume in a fresh
+session, original-provider adapter selection, one READY artifact, one CONSUME
+ledger entry and a no-op second resume (9 tests including settlement regressions).
+Downloads, object storage and technical validation are synthetic in this suite;
+it does not claim real media or download-thread interruption verification.
+
 Authoritative existing implementation: services/observability.py operations_snapshot
 and _pipeline_performance; api/events.py; adapters/wavespeed.py and
 adapters/kling_official_api.py log records. Definitions verified in source:

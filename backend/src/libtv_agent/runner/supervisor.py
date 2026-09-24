@@ -1114,7 +1114,7 @@ class RunnerSupervisor:
     ) -> None:
         attempt.status = AttemptStatus.SUCCEEDED
         clear_provider_error(attempt)
-        attempt.task_id = str(result.payload.get("taskId") or "")
+        attempt.task_id = str(result.payload.get("taskId") or attempt.task_id or "")
         attempt.provider_status = (
             "partial" if generation_status == GenerationStatus.PARTIAL else "succeeded"
         )
