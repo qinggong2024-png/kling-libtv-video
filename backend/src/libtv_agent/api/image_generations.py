@@ -322,6 +322,23 @@ def _public_status(value: str) -> str:
     }.get(value, value.lower())
 
 
+def _public_error(error: Any) -> dict[str, Any] | None:
+    if not error:
+        return None
+    raw_code = error.get("code", "IMAGE_GENERATION_FAILED")
+    code = str(raw_code)
+    if len(code) > 80 or not all(char in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for char in code):
+        code = "IMAGE_GENERATION_FAILED"
+    details = error.get("details") or {}
+    return {
+        "code": code,
+        "message": "Image processing could not be completed; review the error code and task state",
+        "retryable": error.get("retryable") is True,
+        "details": {"submitted": details["submitted"]}
+        if isinstance(details, dict) and type(details.get("submitted")) is bool else {},
+    }
+
+
 def batch_response(batch: Any) -> dict[str, Any]:
     grouped: dict[str, list[Any]] = {}
     for prediction in batch.items:
@@ -374,7 +391,7 @@ def batch_response(batch: Any) -> dict[str, Any]:
                 "providerTaskIds": provider_ids,
                 "modelId": first.model_id,
                 "outputs": outputs,
-                "error": error,
+                "error": _public_error(error),
             }
         )
     return {
