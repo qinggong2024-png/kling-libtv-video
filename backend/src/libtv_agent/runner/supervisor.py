@@ -57,7 +57,7 @@ from libtv_agent.services.runtime_control import (
     set_libtv_auth_required,
 )
 from libtv_agent.services.state_machine import aggregate_parent_phase
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -704,6 +704,26 @@ class RunnerSupervisor:
         await session.commit()
         return False
 
+    async def _claim_poll_observation(
+        self, session: AsyncSession, attempt: GenerationAttempt
+    ) -> bool:
+        # Acquire a write guard after network I/O; a pre-query snapshot may be stale.
+        claimed = await session.execute(
+            update(GenerationAttempt)
+            .where(
+                GenerationAttempt.id == attempt.id,
+                GenerationAttempt.status == AttemptStatus.RUNNING,
+                GenerationAttempt.state_version == attempt.state_version,
+            )
+            .values(state_version=GenerationAttempt.state_version + 1)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1:
+            await session.commit()
+            return False
+        await session.refresh(attempt)
+        return True
+
     async def poll_kling_tasks(self, session: AsyncSession) -> int:
         if not any(
             self.settings.kling_provider_enabled(provider)
@@ -739,6 +759,8 @@ class RunnerSupervisor:
                     task_timeout is not None
                     and (now - submitted_at).total_seconds() >= task_timeout
                 ):
+                    if not await self._claim_poll_observation(session, attempt):
+                        continue
                     command = await session.scalar(
                         select(GenerationCommand).where(GenerationCommand.attempt_id == attempt.id)
                     )
@@ -795,6 +817,8 @@ class RunnerSupervisor:
                     ),
                 )
             except KlingCliError as exc:
+                if not await self._claim_poll_observation(session, attempt):
+                    continue
                 attempt.last_polled_at = datetime.now(UTC)
                 record_provider_error(
                     attempt,
@@ -815,6 +839,8 @@ class RunnerSupervisor:
                 processed += 1
                 continue
 
+            if not await self._claim_poll_observation(session, attempt):
+                continue
             attempt.last_polled_at = datetime.now(UTC)
             attempt.provider_status = result.status
             attempt.provider_raw_status = result.raw_status

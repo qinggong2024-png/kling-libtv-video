@@ -27,24 +27,34 @@ async def test_video_create_concurrent_replay_conflict_and_fresh_app(world):  # 
 
     async with factory() as session:
         upload = StagedUpload(
-            user_id=users[0], original_filename="synthetic.png", sha256="a" * 64,
-            mime_type="image/png", size_bytes=100, width=128, height=128,
-            object_key="synthetic/source.png", thumbnail_key="synthetic/thumb.png",
+            user_id=users[0],
+            original_filename="synthetic.png",
+            sha256="a" * 64,
+            mime_type="image/png",
+            size_bytes=100,
+            width=128,
+            height=128,
+            object_key="synthetic/source.png",
+            thumbnail_key="synthetic/thumb.png",
         )
         session.add(upload)
         await session.commit()
         upload_id = str(upload.id)
 
     payload = {
-        "clientTaskId": "video-idempotency", "title": "synthetic video",
+        "clientTaskId": "video-idempotency",
+        "title": "synthetic video",
         "storyboards": [{"uploadId": upload_id, "order": 1}],
-        "generationProvider": "kling", "variants": ["STABLE"],
+        "generationProvider": "kling",
+        "variants": ["STABLE"],
     }
     headers = {"X-User-Id": str(users[0]), "Idempotency-Key": "video-create"}
-    async with AsyncClient(transport=ASGITransport(app=fresh_app()), base_url="http://test") as client:
-        responses = await asyncio.gather(*[
-            client.post("/api/v1/tasks", headers=headers, json=payload) for _ in range(2)
-        ])
+    async with AsyncClient(
+        transport=ASGITransport(app=fresh_app()), base_url="http://test"
+    ) as client:
+        responses = await asyncio.gather(
+            *[client.post("/api/v1/tasks", headers=headers, json=payload) for _ in range(2)]
+        )
         assert [response.status_code for response in responses] == [201, 201], [
             response.text for response in responses
         ]
@@ -52,7 +62,9 @@ async def test_video_create_concurrent_replay_conflict_and_fresh_app(world):  # 
         original = responses[0].json()
 
     # A new application/client has no request-local replay state; the DB owns the result.
-    async with AsyncClient(transport=ASGITransport(app=fresh_app()), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=fresh_app()), base_url="http://test"
+    ) as client:
         replay = await client.post("/api/v1/tasks", headers=headers, json=payload)
         assert replay.status_code == 201
         assert replay.json() == original
