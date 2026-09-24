@@ -72,3 +72,52 @@ async def recover_abandoned_launches(supervisor, session) -> int:
         )
         resolved += 1
     return resolved
+
+
+async def recover_abandoned_claims(session) -> int:
+    cutoff = datetime.now(UTC) - timedelta(minutes=15)
+    ids = list(
+        await session.scalars(
+            select(GenerationCommand.id).where(
+                GenerationCommand.status == CommandStatus.CLAIMED,
+                GenerationCommand.lease_expires_at < cutoff,
+                GenerationCommand.launch_started_at.is_(None),
+            )
+        )
+    )
+    recovered = 0
+    for command_id in ids:
+        locked = await session.execute(
+            update(GenerationCommand)
+            .where(
+                GenerationCommand.id == command_id,
+                GenerationCommand.status == CommandStatus.CLAIMED,
+                GenerationCommand.lease_expires_at < cutoff,
+                GenerationCommand.launch_started_at.is_(None),
+            )
+            .values(status=GenerationCommand.status)
+            .execution_options(synchronize_session=False)
+        )
+        if locked.rowcount != 1:
+            await session.commit()
+            continue
+        command = await session.get(GenerationCommand, command_id, populate_existing=True)
+        attempt = await session.get(GenerationAttempt, command.attempt_id, populate_existing=True)
+        if (
+            attempt is None
+            or attempt.status != AttemptStatus.LAUNCHING
+            or attempt.task_id
+            or attempt.launch_started_at
+            or attempt.submitted_at
+        ):
+            await session.commit()
+            continue
+        command.status = CommandStatus.READY
+        command.claim_owner = None
+        command.lease_expires_at = None
+        attempt.status = AttemptStatus.DISPATCH_PENDING
+        attempt.state_version += 1
+        await release_capacity(session, command_id)
+        await session.commit()
+        recovered += 1
+    return recovered

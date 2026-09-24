@@ -138,6 +138,15 @@ negative evidence; that is NOT an acceptance pass. This blocks the S04 gate.
 Recovery must fence the old owner's pre-submit transition before making an
 expired claim dispatchable, otherwise a slow old worker could still submit.
 
+Repair follow-up: run_ready now recovers expired pre-launch claims only when no
+launch/submission timestamp or remote ID exists. It preserves reservations,
+releases capacity and restores READY/DISPATCH_PENDING. Submission uses a
+conditional command status/owner/lease transition; stale workers return without
+releasing the new owner's capacity. claim-fence-testing.xml: 19 passed including
+SQLite/PostgreSQL claim fencing and existing launch recovery. Main verification
+is claim-fence-main.xml. Earlier process evidence remains a historical failure;
+fixed full scheduler process replay and slow-worker error paths need expansion.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.

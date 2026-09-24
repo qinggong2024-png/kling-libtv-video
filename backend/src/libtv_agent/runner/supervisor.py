@@ -242,6 +242,9 @@ class RunnerSupervisor:
         return True
 
     async def run_ready(self, session: AsyncSession) -> int:
+        from libtv_agent.runner.launch_recovery import recover_abandoned_claims
+
+        await recover_abandoned_claims(session)
         processed = 0
         processed += await self.resume_incomplete_downloads(session)
         await self.observe_command_hosts(session)
@@ -320,6 +323,8 @@ class RunnerSupervisor:
             attempt.state_version += 1
             await session.commit()
             terminal = await self._execute(session, command.id)
+            if terminal is None:
+                continue
             if expected_provider == "kling":
                 await release_capacity(session, command.id)
                 await session.commit()
@@ -429,7 +434,38 @@ class RunnerSupervisor:
             await session.commit()
         return result.status
 
-    async def _execute(self, session: AsyncSession, command_id: uuid.UUID) -> bool:
+    async def _guard_command(
+        self, session: AsyncSession, command: GenerationCommand, *, launching: bool
+    ) -> bool:
+        if command.status not in {CommandStatus.READY, CommandStatus.CLAIMED}:
+            return False
+        if command.status == CommandStatus.CLAIMED and command.claim_owner != self.owner:
+            return False
+        values = {"status": GenerationCommand.status}
+        if launching:
+            values = {
+                "status": CommandStatus.LAUNCH_STARTED,
+                "launch_started_at": datetime.now(UTC),
+            }
+        result = await session.execute(
+            update(GenerationCommand)
+            .where(
+                GenerationCommand.id == command.id,
+                GenerationCommand.status == command.status,
+                GenerationCommand.claim_owner == command.claim_owner,
+                GenerationCommand.lease_expires_at == command.lease_expires_at,
+                GenerationCommand.launch_started_at.is_(None),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await session.rollback()
+            return False
+        await session.refresh(command)
+        return True
+
+    async def _execute(self, session: AsyncSession, command_id: uuid.UUID) -> bool | None:
         command = await session.get(GenerationCommand, command_id)
         if command is None:
             return True
@@ -449,8 +485,8 @@ class RunnerSupervisor:
                     LibTVError(exc.code, str(exc)),
                 )
                 return True
-        command.status = CommandStatus.LAUNCH_STARTED
-        command.launch_started_at = datetime.now(UTC)
+        if not await self._guard_command(session, command, launching=True):
+            return None
         attempt.launch_started_at = command.launch_started_at
         await session.commit()
         if self.settings.libtv_adapter_mode == "real":
@@ -663,12 +699,15 @@ class RunnerSupervisor:
                     )
                 ),
             )
-            command.status = CommandStatus.LAUNCH_STARTED
-            command.launch_started_at = datetime.now(UTC)
+            if not await self._guard_command(session, command, launching=True):
+                return None
             attempt.launch_started_at = command.launch_started_at
             await session.commit()
             submission = await kling_adapter.submit(request)
         except KlingCliError as exc:
+            if command.status != CommandStatus.LAUNCH_STARTED:
+                if not await self._guard_command(session, command, launching=False):
+                    return None
             await self._handle_error(session, command, attempt, exc)
             return True
 
@@ -706,7 +745,7 @@ class RunnerSupervisor:
 
     async def _claim_poll_observation(
         self, session: AsyncSession, attempt: GenerationAttempt
-    ) -> bool:
+    ) -> bool | None:
         # Acquire a write guard after network I/O; a pre-query snapshot may be stale.
         claimed = await session.execute(
             update(GenerationAttempt)
