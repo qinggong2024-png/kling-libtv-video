@@ -15,6 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
+from libtv_agent.adapters.retry_after import parse_retry_after
 from libtv_agent.config import Settings
 
 WAVESPEED_MODELS = {
@@ -547,13 +548,12 @@ class WaveSpeedAdapter:
             (value for key, value in headers.items() if key.lower() == "retry-after"), None
         )
         if retry_after is not None:
-            try:
+            seconds = parse_retry_after(retry_after)
+            if seconds is not None:
                 return min(
                     self.settings.wavespeed_get_retry_max_seconds,
-                    max(self.settings.wavespeed_get_retry_base_seconds, float(retry_after)),
+                    max(self.settings.wavespeed_get_retry_base_seconds, seconds),
                 )
-            except ValueError:
-                pass
         base = self.settings.wavespeed_get_retry_base_seconds * (2**attempt)
         jitter = random.uniform(0, min(1.0, base * 0.1))
         return min(self.settings.wavespeed_get_retry_max_seconds, base + jitter)
