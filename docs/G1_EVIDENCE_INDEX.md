@@ -10,14 +10,14 @@ migration, live credentials or paid provider call forms part of this acceptance.
 
 | Gate | Current evidence | Remaining boundary |
 | --- | --- | --- |
-| S01/S02 idempotency | Image quota/replay and stale submission regression on SQLite/PostgreSQL | Full video independent-session matrix and restart conflict coverage |
+| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL | Video confirmation/paid dispatch matrix and actual process restart conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
 | S04 process recovery | Image real POST acceptance then process kill, 1 POST/1 batch/2 replays; launch recovery and known-handle tests on main | Real video/CLI launch crash, pre-submit and known-handle process crash |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml | Default rejection is approved, not proof of vendor signature support; polling stale observation race still needs review |
 | S06 query retries | retry-policy-testing-full.xml: 48 passed; download-retry-main-full.xml: 51 passed | Per-provider scheduling semantics, not just WaveSpeed/Kling API parsers |
 | S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry | Other downloaders, interruption of background download thread, workflow-level recovery |
 | S08 cancellation | cancel-race-both.xml and cancel-race-main.xml: 4 passed each | Real Runner cancellation/confirmation ordering and settlement integration |
-| S09 quota | Image quota concurrency; existing points reservation tests | Full PostgreSQL video final-quota matrix |
+| S09 quota | Image quota concurrency; video-quota-testing.xml and video-quota-main.xml: 2 passed each, SQLite/PostgreSQL final quota, user isolation and reservation replay | Full video API confirmation lifecycle remains separate from reservation-service coverage |
 | S10 Shanghai date | cross-day-testing.xml, settlement-main-final.xml; repeated unknown no duplicate ledger, old snapshot settlement serialized | Cross-day concurrent recovery with real task lifecycle |
 | S11 events | g1-consolidated-testing.xml and g1-consolidated-main.xml: SQLite/PostgreSQL service snapshot+REST ownership | Browser network disconnect/reconnect workflow |
 | S12 confidentiality | Logging exception/URL/data URI regressions | Full response, audit, metric and provider-error injection inventory |
@@ -48,6 +48,16 @@ verified against those fields, not merely declared present.
 
 No completion claim is based on summed test counts. Each row must match its actual
 scope, both branches, and current source before the G1 gate can close.
+
+## Video Create Increment
+
+video-idempotency-testing.xml: 2 passed, SQLite/PostgreSQL. Concurrent independent
+HTTP request sessions return the same created task. A fresh application/client
+replays the persisted response and rejects a changed payload with 409
+IDEMPOTENCY_KEY_REUSED. Exactly one task and idempotency record exist, with zero
+attempts, points reservations or fake-provider submissions. This is a create-only
+contract test, not a process-kill or paid dispatch test. Main verification is
+recorded separately in video-idempotency-main.xml after scoped promotion.
 
 ## Consolidated Regression
 
