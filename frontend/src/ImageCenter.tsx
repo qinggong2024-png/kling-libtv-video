@@ -25,6 +25,8 @@ import { loadImageCenterDraft, saveImageCenterDraft } from './imageCenterStore'
 import { createUuid } from './uuid'
 import { imageTaskNotificationForTransition } from './browserNotifications'
 import type { TaskNotification } from './browserNotifications'
+import { FoundationDrawer } from './ui'
+import './imageReview.css'
 
 export type VideoSubjectSource = 'generated' | 'product-front' | 'product-back'
 
@@ -305,7 +307,7 @@ function OutputSelectionButton({ selected, label, className, onToggle }: {
   >{selected ? <Check size={17} strokeWidth={2.6} /> : null}</button>
 }
 
-function OutputCard({ taskId, output, selected, onToggle, onReject, onPreview }: {
+export function OutputCard({ taskId, output, selected, onToggle, onReject: onReview, onPreview }: {
   taskId: string
   output: ImageGenerationOutput
   selected: boolean
@@ -332,7 +334,7 @@ function OutputCard({ taskId, output, selected, onToggle, onReject, onPreview }:
       <span><strong>{output.label}</strong><small>{output.kind === 'fusion' ? '多图融合' : '分镜图'}</small></span>
     </button>
     <OutputSelectionButton selected={selected} label={output.label} className="image-output-card__selection" onToggle={onToggle} />
-    <button type="button" className="image-output-card__reject" onClick={(event) => { event.stopPropagation(); onReject() }} title="标记为不合格" aria-label={`标记${output.label}为不合格`}><X size={14} /></button>
+    <button type="button" className="image-output-card__reject" disabled={!output.qualificationStatus} onClick={(event) => { event.stopPropagation(); onReview() }} title={output.qualificationStatus ? '审核图片' : '服务端尚未启用图片审核'} aria-label={`审核${output.label}`}><CheckCircle2 size={14} /></button>
     <span className={`image-output-card__quality is-${(output.qualificationStatus ?? 'PENDING').toLowerCase()}`}>{output.qualificationStatus === 'QUALIFIED' ? '已合格' : output.qualificationStatus === 'REJECTED' ? '已拒绝' : '待人工审核'}</span>
     {output.url ? <button type="button" className="image-output-card__download" onClick={download} title="下载图片" aria-label={`下载${output.label}`}><Download size={14} /></button> : null}
   </article>
@@ -376,6 +378,65 @@ function AssetPreviewDialog({ file, url = '', label, selection, onClose }: {
       {selection ? <OutputSelectionButton selected={selection.selected} label={label} className="image-output-preview__selection" onToggle={selection.onToggle} /> : null}
     </section>
   </div>, document.body)
+}
+
+export function ImageOutputReview({ output, onSaved, onClose }: {
+  output: ImageGenerationOutput
+  onSaved: (values: Partial<ImageGenerationOutput>) => void
+  onClose: () => void
+}) {
+  const [decision, setDecision] = useState<'QUALIFIED' | 'REJECTED'>('QUALIFIED')
+  const [productPass, setProductPass] = useState(false)
+  const [humanPass, setHumanPass] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [uncertain, setUncertain] = useState(false)
+  const startedAt = useRef(performance.now())
+  const submitting = useRef(false)
+  const canSubmit = decision === 'QUALIFIED' ? productPass && humanPass : notes.trim().length > 0
+  const save = async () => {
+    if (!canSubmit || submitting.current || uncertain) return
+    submitting.current = true
+    setBusy(true)
+    setError('')
+    try {
+      const result = await setImageOutputQualityDecision(output.id, {
+        decision,
+        productFidelityPass: decision === 'QUALIFIED' && productPass,
+        humanCriticalPass: decision === 'QUALIFIED' && humanPass,
+        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt.current) / 1000)),
+        notes: notes.trim() || null,
+      })
+      onSaved(result)
+      onClose()
+    } catch (cause) {
+      const unknown = !(cause instanceof ApiError) || cause.code === 'WRITE_UNCERTAIN' || cause.code === 'REQUEST_TIMEOUT' || cause.status >= 500
+      setUncertain(unknown)
+      setError(unknown ? '审核保存结果待确认，请刷新服务端记录核对，勿重复保存。' : cause instanceof Error ? cause.message : '图片审核保存失败')
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
+  }
+  return <FoundationDrawer open title={`审核 · ${output.label}`} onClose={() => { if (!busy) onClose() }} footer={<>
+    <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button>
+    <button type="button" className="primary-button" disabled={busy || uncertain || !canSubmit} onClick={() => void save()}>{busy ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />}保存审核</button>
+  </>}>
+    <div className="image-review-media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></div>
+    <fieldset className="image-review-fields" disabled={busy}>
+      <legend>审核结果</legend>
+      <label><input type="radio" name="image-review-decision" checked={decision === 'QUALIFIED'} onChange={() => setDecision('QUALIFIED')} />合格</label>
+      <label><input type="radio" name="image-review-decision" checked={decision === 'REJECTED'} onChange={() => setDecision('REJECTED')} />退回</label>
+      {decision === 'QUALIFIED' ? <>
+        <label><input type="checkbox" checked={productPass} onChange={(event) => setProductPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构一致</label>
+        <label><input type="checkbox" checked={humanPass} onChange={(event) => setHumanPass(event.target.checked)} />人物与画面无关键缺陷</label>
+      </> : null}
+      <label htmlFor="image-review-notes">{decision === 'REJECTED' ? '退回原因（必填）' : '审核备注'}</label>
+      <textarea id="image-review-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} required={decision === 'REJECTED'} />
+    </fieldset>
+    {error ? <p role="alert" className="notice">{error}</p> : null}
+  </FoundationDrawer>
 }
 
 function OutputPreview({ output, selected, onToggle, onClose }: {
@@ -496,6 +557,7 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
   const [selectionBarExpanded, setSelectionBarExpanded] = useState(false)
   const [previewOutputId, setPreviewOutputId] = useState<string | null>(null)
   const [previewSource, setPreviewSource] = useState<{ file: File; label: string } | null>(null)
+  const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
@@ -625,6 +687,7 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
   const previewOutput = previewOutputId
     ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
     : null
+  const reviewOutput = reviewOutputId ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === reviewOutputId) : null
   const previewSourceImage = (file: File, label: string) => {
     setPreviewOutputId(null)
     setPreviewSource({ file, label })
@@ -703,50 +766,16 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
       })),
     }))
   }
-  const toggleOutput = async (id: string) => {
+  const toggleOutput = (id: string) => {
     const owner = draft.tasks.find((task) => task.outputs.some((output) => output.id === id))
     const output = owner?.outputs.find((item) => item.id === id)
     if (!owner || !output) return
     const alreadySelected = selectedIds.has(id)
     const selectedFromOwner = owner?.outputs.filter((output) => selectedIds.has(output.id)).length ?? 0
     if (!alreadySelected && selectedFromOwner >= 6) { setNotice('每套视频最多选择 6 张分镜，另保留 1 个主体引用名额。'); return }
-    if (!alreadySelected && output.qualificationStatus !== 'QUALIFIED') {
-      const startedAt = performance.now()
-      const confirmed = window.confirm('确认该图片已人工核对：商品颜色、图案、Logo、文字和服装结构一致，且人物与画面无关键缺陷？')
-      if (!confirmed) return
-      try {
-        const result = await setImageOutputQualityDecision(output.id, {
-          decision: 'QUALIFIED',
-          productFidelityPass: true,
-          humanCriticalPass: true,
-          humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
-        })
-        updateOutputQuality(id, result)
-      } catch (cause) {
-        setNotice(cause instanceof Error ? cause.message : '图片质量审核保存失败')
-        return
-      }
-    }
     updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.includes(id) ? current.selectedOutputIds.filter((item) => item !== id) : [...current.selectedOutputIds, id] }))
   }
-  const rejectOutput = async (id: string) => {
-    const output = draft.tasks.flatMap((task) => task.outputs).find((item) => item.id === id)
-    if (!output || !window.confirm('确认将该图片标记为不合格，并禁止进入视频生成？')) return
-    const startedAt = performance.now()
-    try {
-      const result = await setImageOutputQualityDecision(output.id, {
-        decision: 'REJECTED',
-        productFidelityPass: false,
-        humanCriticalPass: false,
-        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
-        notes: 'Operator rejected candidate asset',
-      })
-      updateOutputQuality(id, result)
-      updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((item) => item !== id) }))
-    } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : '图片拒绝决定保存失败')
-    }
-  }
+  const rejectOutput = (id: string) => setReviewOutputId(id)
   const placeOutput = (taskId: string, outputId: string, beforeOutputId?: string) => {
     const owner = draft.tasks.find((task) => task.id === taskId && task.outputs.some((output) => output.id === outputId))
     if (!owner) return
@@ -862,6 +891,10 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
       onPlaceOutput={placeOutput}
       onGenerate={() => void prepareVideos()}
     />, document.body) : null}
+    {active && reviewOutput ? <ImageOutputReview key={reviewOutput.id} output={reviewOutput} onClose={() => setReviewOutputId(null)} onSaved={(values) => {
+      updateOutputQuality(reviewOutput.id, values)
+      if (values.qualificationStatus === 'REJECTED') updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((id) => id !== reviewOutput.id) }))
+    }} /> : null}
     {active && previewOutput ? <OutputPreview
       output={previewOutput}
       selected={selectedIds.has(previewOutput.id)}
