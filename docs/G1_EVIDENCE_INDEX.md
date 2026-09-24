@@ -13,7 +13,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 | S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL | Video confirmation/paid dispatch matrix and actual process restart conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
 | S04 process recovery | Image real POST acceptance then process kill, 1 POST/1 batch/2 replays; launch recovery and known-handle tests on main | Real video/CLI launch crash, pre-submit and known-handle process crash |
-| S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml | Default rejection is approved, not proof of vendor signature support; polling stale observation race still needs review |
+| S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
 | S06 query retries | retry-policy-testing-full.xml: 48 passed; download-retry-main-full.xml: 51 passed | Per-provider scheduling semantics, not just WaveSpeed/Kling API parsers |
 | S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry | Other downloaders, interruption of background download thread, workflow-level recovery |
 | S08 cancellation | cancel-race-both.xml and cancel-race-main.xml: 4 passed each | Real Runner cancellation/confirmation ordering and settlement integration |
@@ -58,6 +58,21 @@ IDEMPOTENCY_KEY_REUSED. Exactly one task and idempotency record exist, with zero
 attempts, points reservations or fake-provider submissions. This is a create-only
 contract test, not a process-kill or paid dispatch test. Main verification is
 recorded separately in video-idempotency-main.xml after scoped promotion.
+
+## Polling Observation Race
+
+poll-race-before.xml reproduced four failures: a stale running response or query
+error overwrote independently committed success on SQLite and PostgreSQL. Polling
+now conditionally acquires a write guard using RUNNING status and state_version
+after query I/O (and before timeout handling). A changed row rejects the stale
+observation. Successful guards increment the version and refresh the attempt.
+Original-provider adapter selection and task identity are unchanged.
+
+poll-race-testing.xml: 27 passed, including 12 independent-session poll cases,
+13 launch recovery cases and 2 video create cases. Cases cover terminal changes,
+newer nonterminal versions and normal unchanged observations with success/error
+query responses. Main verification uses poll-race-main.xml. No live supplier,
+callback authentication or browser lifecycle coverage is implied.
 
 ## Consolidated Regression
 
