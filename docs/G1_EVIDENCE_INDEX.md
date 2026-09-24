@@ -168,6 +168,14 @@ This is a composition regression, not completion of the open boundaries above.
 
 ## Observability Inventory
 
+Thread cancellation follow-up: all four video adapters stage downloads in a
+blocking worker but publish via the async caller only after successful completion.
+Cancellation/timeout drains the worker and removes staging before propagating.
+download-cancel-testing.xml and download-cancel-main.xml: 16 cases covering normal
+publication, cancellation, repeated cancellation, timeout and existing provider
+faults. Drain can exceed the requested timeout while blocking I/O finishes;
+this is not a hard wall-clock deadline or proof against indefinite peer trickle.
+
 Downloader expansion: download-providers-before.xml reproduced truncation
 publication in Kling CLI, WaveSpeed video and Bach (3 failures, 9 passes).
 All three now compare received bytes with declared Content-Length before rename.
