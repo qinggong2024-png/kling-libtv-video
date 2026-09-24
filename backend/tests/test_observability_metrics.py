@@ -11,6 +11,7 @@ from libtv_agent.domain.enums import (
     ConsistencyLevel,
     DownloadStatus,
     ParentTaskPhase,
+    ReservationStatus,
     SagaStatus,
     VariantKind,
 )
@@ -26,6 +27,7 @@ from libtv_agent.domain.models import (
     MaterializationSaga,
     OperationalMetricSample,
     ParentTask,
+    PointsReservation,
     RunnerHost,
     TaskConfirmationVersion,
     User,
@@ -302,6 +304,60 @@ async def test_pilot_monitoring_exposes_review_queue_measurement_gap_and_critica
             "ACTION_REQUIRED",
             "CRITICAL",
         }
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_operational_metric_units_and_windows_are_explicit(tmp_path: Path) -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    async with factory() as session:
+        user = User(id=uuid.uuid4(), username="metric-contract", password_hash="disabled")
+        task = ParentTask(
+            id=uuid.uuid4(),
+            user_id=user.id, client_task_id="metric-contract", title="metrics", asset_count=1
+        )
+        variant = GenerationVariant(
+            parent_task_id=task.id,
+            variant_type=VariantKind.STABLE,
+            generation_config_json={},
+        )
+        session.add(user)
+        await session.flush()
+        session.add(task)
+        await session.flush()
+        session.add(variant)
+        await session.flush()
+        attempt = GenerationAttempt(
+            variant_id=variant.id,
+            status=AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+            launch_started_at=now - timedelta(days=1),
+            submitted_at=now - timedelta(days=1),
+            runner_host_id=None,
+        )
+        session.add(attempt)
+        await session.flush()
+        session.add(
+            PointsReservation(
+                user_id=user.id,
+                attempt_id=attempt.id,
+                estimated_points=240,
+                status=ReservationStatus.RESERVED,
+                business_date=now.date(),
+            )
+        )
+        await session.commit()
+        snapshot = await operations_snapshot(
+            session,
+            Settings(object_store_mode="local", runner_root=tmp_path / "runner", _env_file=None),
+        )
+    assert snapshot["metrics"]["unknownAfterSubmitRate"] == 1.0
+    assert snapshot["metrics"]["unknownAfterSubmitWindowDays"] == 7
+    assert snapshot["metrics"]["pointsReserved"] == 240
+    assert snapshot["metricEvidence"]["pointsReserved"]["unit"] == "estimated_points"
     await engine.dispose()
 
 

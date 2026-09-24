@@ -126,8 +126,13 @@ adapters/kling_official_api.py log records. Definitions verified in source:
 | Provider logs | HTTP method/status/duration; download duration/size | Structured LogRecord extras; formatter/export retention still needs verification |
 | User SSE | task ID, phase, stateVersion, updatedAt | Authorized snapshots; no durable event replay |
 
-Not yet established as a complete published contract: idempotency replay/conflict
-counters, quota rejection counts, recovery outcomes by action, delivery failure
-counts, per-operation latency capture and bounded-label export. Do not claim these
-exist merely because their code paths log errors. No new metrics table, dependency
-or production migration has been introduced by this inventory.
+The published snapshot now makes the established units and scope explicit:
+`unknownAfterSubmitRate` uses launched attempts in a seven-day window,
+`pointsReserved/Consumed/Uncertain` sum persisted `estimated_points`,
+`runnerActiveCommandHosts` counts distinct assigned hosts, and
+`deliveryFailureCount` counts failed download artifacts in the same window.
+Evidence: `observability-testing.xml`, 10 passed. Remaining unestablished
+contract items are idempotency replay/conflict counters, quota rejection counts,
+recovery outcomes by action, per-operation HTTP latency capture, and bounded-label
+external export. Logs are not treated as durable metrics; no new metrics table,
+dependency or production migration has been introduced.

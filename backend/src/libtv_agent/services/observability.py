@@ -519,6 +519,7 @@ async def _recent_orphan_process_count(session: AsyncSession, settings: Settings
 
 
 async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict[str, Any]:
+    window_started_at = datetime.now(UTC) - timedelta(days=7)
     runtime = await get_runtime_config(session, settings)
     config = runtime.config_json if runtime else {}
 
@@ -546,7 +547,6 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             )
         )
     ).one()
-    total_attempts = int(attempt_counts[0] or 0)
     prepared = int(attempt_counts[1] or 0)
     dispatch_pending = int(attempt_counts[2] or 0)
     running = int(attempt_counts[3] or 0)
@@ -562,6 +562,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     )
     global_slots = int(config.get("generationConcurrency", {}).get("global", 1))
     utilization = min(1.0, running / global_slots) if global_slots else 0.0
+    # This production baseline retains historical point units.
     reservation_rows = await session.execute(
         select(
             PointsReservation.status,
@@ -601,6 +602,53 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         current_constraint = "IDLE"
     pipeline_performance["currentConstraint"] = current_constraint
     orphan_process_count = await _recent_orphan_process_count(session, settings)
+    launched_window = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationAttempt)
+            .where(
+                (
+                    GenerationAttempt.submitted_at.is_not(None)
+                    | GenerationAttempt.launch_started_at.is_not(None)
+                ),
+                (GenerationAttempt.submitted_at >= window_started_at)
+                | (GenerationAttempt.launch_started_at >= window_started_at),
+            )
+        )
+        or 0
+    )
+    unknown_window = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(GenerationAttempt)
+            .where(
+                GenerationAttempt.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT,
+                (GenerationAttempt.submitted_at >= window_started_at)
+                | (GenerationAttempt.launch_started_at >= window_started_at),
+            )
+        )
+        or 0
+    )
+    active_runner_hosts = int(
+        await session.scalar(
+            select(func.count(func.distinct(GenerationAttempt.runner_host_id))).where(
+                GenerationAttempt.runner_host_id.is_not(None),
+                GenerationAttempt.status.in_([AttemptStatus.LAUNCHING, AttemptStatus.RUNNING]),
+            )
+        )
+        or 0
+    )
+    delivery_failures = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(DownloadArtifact)
+            .where(
+                DownloadArtifact.status == DownloadStatus.FAILED,
+                DownloadArtifact.updated_at >= window_started_at,
+            )
+        )
+        or 0
+    )
     alerts: list[dict[str, str]] = []
     if config.get("libtvAuthRequired", False):
         alerts.append(
@@ -669,13 +717,15 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         "metrics": {
             "duplicateGenerationTotal": duplicate_generation_total,
             "crossTaskConnectionTotal": cross_task_connection_total,
-            "unknownAfterSubmitRate": unknown / total_attempts if total_attempts else 0.0,
+            "unknownAfterSubmitRate": unknown_window / launched_window if launched_window else 0.0,
+            "unknownAfterSubmitWindowDays": 7,
             "generationSlotUtilization": utilization,
-            "runnerActiveCommandHosts": running,
+            "runnerActiveCommandHosts": active_runner_hosts,
             "runnerOrphanProcesses": orphan_process_count,
             "pointsReserved": reservations[ReservationStatus.RESERVED.value],
             "pointsConsumed": reservations[ReservationStatus.SETTLED.value],
             "pointsUncertain": reservations[ReservationStatus.UNCERTAIN.value],
+            "deliveryFailureCount": delivery_failures,
         },
         "metricEvidence": {
             "duplicateGenerationTotal": {
@@ -689,6 +739,20 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             "runnerOrphanProcesses": {
                 "source": "latest operational metric sample from each active runner",
                 "processIds": [],
+            },
+            "unknownAfterSubmitRate": {
+                "source": "generation_attempt submitted_at/launch_started_at and status",
+                "calculation": (
+                    "unknown-after-submit attempts / launched attempts in the last 7 days"
+                ),
+                "windowDays": 7,
+            },
+            "pointsReserved": {"unit": "estimated_points", "source": "points_reservation"},
+            "pointsConsumed": {"unit": "estimated_points", "source": "points_reservation"},
+            "pointsUncertain": {"unit": "estimated_points", "source": "points_reservation"},
+            "deliveryFailureCount": {
+                "source": "download_artifact.status=FAILED",
+                "windowDays": 7,
             },
         },
         "runners": [
