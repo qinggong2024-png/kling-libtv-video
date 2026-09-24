@@ -19,7 +19,7 @@ async def test_video_last_quota_and_user_isolation(world):  # noqa: F811
     _, factory, _, users = world
     attempts = []
     async with factory() as session:
-        for index, user in enumerate([users[0], users[0], users[1]]):
+        for user in [users[0], users[0], users[1]]:
             task = ParentTask(
                 user_id=user, client_task_id=str(uuid.uuid4()), title="synthetic", asset_count=1
             )
