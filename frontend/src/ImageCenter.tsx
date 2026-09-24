@@ -392,7 +392,8 @@ export function ImageOutputReview({ output, onSaved, onClose }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [uncertain, setUncertain] = useState(false)
-  const startedAt = useRef(performance.now())
+  const startedAt = useRef(0)
+  useEffect(() => { startedAt.current = performance.now() }, [])
   const submitting = useRef(false)
   const canSubmit = decision === 'QUALIFIED' ? productPass && humanPass : notes.trim().length > 0
   const save = async () => {
