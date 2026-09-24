@@ -172,9 +172,25 @@ Image quota metric: API quota rejection now commits an IMAGE_QUOTA_REJECTED
 AuditEvent before returning 429, without retaining the idempotency key or payload.
 The admin snapshot publishes imageQuotaRejectionCount for seven days; actor
 identity remains in controlled audit only. Each rejected request counts once;
-successful idempotent replay counts zero. quota-metrics-testing.xml and
-quota-metrics-main.xml cover 10 SQLite/PostgreSQL quota/concurrency cases.
+successful idempotent replay counts zero. quota-metrics-testing.xml covers
+10 SQLite/PostgreSQL quota/concurrency cases. Initial main verification failed
+(8 failed, 2 passed): promotion omitted the AuditEvent import already present
+on testing. Negative evidence is retained in
+quota-metrics-main-missing-import.xml. After promoting the missing import,
+quota-callback-main-fixed.xml passed 17 quota/concurrency/callback cases.
 This metric does not include video quota rejection, which remains unimplemented.
+
+### Approved Callback Contract Reverification
+
+callback-contract-testing-verified.xml and callback-contract-main-verified.xml
+each passed 32 tests: quota metrics/concurrency, fail-closed callback, delivery
+recovery and launch recovery. The public callback remains disabled before body,
+DB or provider access. Existing attempts retain original-provider polling and
+delivery; delivery recovery asserts one consumption entry without resubmission.
+These isolated tests do not certify vendor authentication, real media delivery,
+production deployment or overall G1 completion. The earlier
+callback-contract-testing.xml contains a command-path error (zero tests), not
+acceptance evidence. No production restart, migration or paid call was performed.
 
 Thread cancellation follow-up: all four video adapters stage downloads in a
 blocking worker but publish via the async caller only after successful completion.
