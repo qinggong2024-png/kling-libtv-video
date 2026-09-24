@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from libtv_agent.domain.enums import ChargeStatus, LedgerEntryType, ReservationStatus
 from libtv_agent.domain.models import PointsLedger, PointsReservation, UserDailyPointsSummary
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,6 +93,14 @@ async def settle_points(
     actual_points: int | None,
     charge_status: ChargeStatus,
 ) -> None:
+    # A write lock also serializes SQLite, where SELECT FOR UPDATE is ignored.
+    await session.execute(
+        update(PointsReservation)
+        .where(PointsReservation.id == reservation.id)
+        .values(status=PointsReservation.status)
+        .execution_options(synchronize_session=False)
+    )
+    await session.refresh(reservation)
     summary = await session.scalar(
         select(UserDailyPointsSummary)
         .where(
@@ -100,6 +108,7 @@ async def settle_points(
             UserDailyPointsSummary.business_date == reservation.business_date,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if summary is None or reservation.status not in {
         ReservationStatus.RESERVED,
