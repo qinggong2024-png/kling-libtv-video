@@ -710,6 +710,25 @@ class RunnerSupervisor:
                     return None
             await self._handle_error(session, command, attempt, exc)
             return True
+        except Exception as exc:
+            # The launch marker is durable before the paid provider call.  An adapter
+            # bug or malformed response must therefore use the same uncertain verdict
+            # as a lost process, rather than aborting the queue or leaving a stranded
+            # LAUNCH_STARTED command to be discovered only by the recovery scan.
+            if command.status != CommandStatus.LAUNCH_STARTED:
+                raise
+            await self._handle_error(
+                session,
+                command,
+                attempt,
+                KlingCliError(
+                    "KLING_SUBMISSION_UNCERTAIN",
+                    str(exc) or "unexpected provider submission failure",
+                    submitted=True,
+                    uncertain=True,
+                ),
+            )
+            return True
 
         now = datetime.now(UTC)
         attempt.task_id = submission.provider_task_id

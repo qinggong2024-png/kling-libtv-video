@@ -35,6 +35,7 @@ from libtv_agent.domain.enums import (
     VariantKind,
 )
 from libtv_agent.domain.models import (
+    Asset,
     Base,
     CapacitySlot,
     GenerationAttempt,
@@ -506,3 +507,53 @@ async def test_known_handle_is_handed_to_polling_without_settlement(session, tmp
     assert reservation.status == ReservationStatus.RESERVED
     entries = list(await session.scalars(select(PointsLedger)))
     assert [entry.entry_type for entry in entries] == [LedgerEntryType.RESERVE]
+
+
+@pytest.mark.asyncio
+async def test_unexpected_kling_submit_error_is_settled_uncertain(session, tmp_path):
+    """An adapter bug after LAUNCH_STARTED must not strand the paid attempt."""
+    task, _, attempt, command, reservation = await _stranded_command(
+        session,
+        provider="kling_official_api",
+        lease_expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    command.status = CommandStatus.READY
+    attempt.status = AttemptStatus.DISPATCH_PENDING
+    session.add(
+        Asset(
+            parent_task_id=task.id,
+            order_no=1,
+            original_filename="synthetic.png",
+            sha256="b" * 64,
+            mime_type="image/png",
+            size_bytes=1,
+            width=1,
+            height=1,
+            object_key="synthetic.png",
+            used_for_generation=True,
+        )
+    )
+    await session.commit()
+
+    class Store:
+        async def localize(self, *_args):
+            path = tmp_path / "synthetic.png"
+            path.write_bytes(b"synthetic")
+            return path
+
+    class Provider:
+        async def submit(self, _request):
+            raise RuntimeError("malformed synthetic provider response")
+
+    supervisor = _supervisor(tmp_path)
+    supervisor.settings = supervisor.settings.model_copy(update={"kling_api_enabled": True})
+    supervisor.object_store = Store()
+    supervisor._kling_adapters["kling_official_api"] = Provider()
+    assert await supervisor._execute(session, command.id) is True
+    await session.refresh(command)
+    await session.refresh(attempt)
+    await session.refresh(reservation)
+    assert command.status == CommandStatus.UNCERTAIN
+    assert attempt.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
+    assert attempt.last_error_code == "KLING_SUBMISSION_UNCERTAIN"
+    assert reservation.status == ReservationStatus.UNCERTAIN
