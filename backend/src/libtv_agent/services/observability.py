@@ -16,6 +16,7 @@ from libtv_agent.domain.enums import (
 )
 from libtv_agent.domain.models import (
     Asset,
+    AuditEvent,
     CanvasProject,
     DownloadArtifact,
     GenerationAttempt,
@@ -649,6 +650,17 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         )
         or 0
     )
+    quota_rejections = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action == "IMAGE_QUOTA_REJECTED",
+                AuditEvent.created_at >= window_started_at,
+            )
+        )
+        or 0
+    )
     alerts: list[dict[str, str]] = []
     if config.get("libtvAuthRequired", False):
         alerts.append(
@@ -726,6 +738,7 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             "pointsConsumed": reservations[ReservationStatus.SETTLED.value],
             "pointsUncertain": reservations[ReservationStatus.UNCERTAIN.value],
             "deliveryFailureCount": delivery_failures,
+            "imageQuotaRejectionCount": quota_rejections,
         },
         "metricEvidence": {
             "duplicateGenerationTotal": {
@@ -752,6 +765,10 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             "pointsUncertain": {"unit": "estimated_points", "source": "points_reservation"},
             "deliveryFailureCount": {
                 "source": "download_artifact.status=FAILED",
+                "windowDays": 7,
+            },
+            "imageQuotaRejectionCount": {
+                "source": "audit_event.action=IMAGE_QUOTA_REJECTED",
                 "windowDays": 7,
             },
         },

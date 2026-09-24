@@ -168,6 +168,14 @@ This is a composition regression, not completion of the open boundaries above.
 
 ## Observability Inventory
 
+Image quota metric: API quota rejection now commits an IMAGE_QUOTA_REJECTED
+AuditEvent before returning 429, without retaining the idempotency key or payload.
+The admin snapshot publishes imageQuotaRejectionCount for seven days; actor
+identity remains in controlled audit only. Each rejected request counts once;
+successful idempotent replay counts zero. quota-metrics-testing.xml and
+quota-metrics-main.xml cover 10 SQLite/PostgreSQL quota/concurrency cases.
+This metric does not include video quota rejection, which remains unimplemented.
+
 Thread cancellation follow-up: all four video adapters stage downloads in a
 blocking worker but publish via the async caller only after successful completion.
 Cancellation/timeout drains the worker and removes staging before propagating.
