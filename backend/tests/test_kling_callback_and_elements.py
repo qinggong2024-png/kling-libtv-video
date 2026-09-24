@@ -278,14 +278,9 @@ async def test_callback_route_accepts_official_top_level_contract(tmp_path: Path
                 },
             )
 
-    assert response.status_code == 200, response.text
-    assert response.json() == {
-        "accepted": True,
-        "providerTaskId": "remote-task-1",
-        "status": "succeeded",
-        "duplicate": False,
-        "workflowFinalized": False,
-    }
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "KLING_CALLBACK_DISABLED"
+    assert adapter.query_count == 0
 
 
 @pytest.mark.asyncio
