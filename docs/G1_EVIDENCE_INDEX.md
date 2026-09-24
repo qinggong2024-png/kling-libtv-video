@@ -128,7 +128,8 @@ adapters/kling_official_api.py log records. Definitions verified in source:
 
 The published snapshot now makes the established units and scope explicit:
 `unknownAfterSubmitRate` uses launched attempts in a seven-day window,
-`pointsReserved/Consumed/Uncertain` sum persisted `estimated_points`,
+`pointsReserved/Consumed/Uncertain` retain each branch's quota semantics with explicit
+units (testing: generation reservation counts; main: historical estimated points),
 `runnerActiveCommandHosts` counts distinct assigned hosts, and
 `deliveryFailureCount` counts failed download artifacts in the same window.
 Evidence: `observability-testing.xml`, 10 passed. Remaining unestablished
