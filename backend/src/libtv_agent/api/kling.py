@@ -8,8 +8,6 @@ from libtv_agent.domain.enums import UserRole
 from libtv_agent.domain.models import SubjectElementJob
 from libtv_agent.services.kling_callbacks import (
     KlingCallbackError,
-    KlingCallbackObservation,
-    process_kling_callback,
 )
 from libtv_agent.services.kling_elements import (
     KlingElementError,
@@ -159,31 +157,18 @@ def _operation_error(exc: KlingCallbackError | KlingElementError) -> HTTPExcepti
     response_model=KlingCallbackResponse,
     responses=ERROR_RESPONSES,
 )
-async def receive_kling_callback(
-    payload: KlingCallbackRequest,
-    session: Session,
-    request: Request,
-) -> KlingCallbackResponse:
-    try:
-        result = await process_kling_callback(
-            session,
-            adapter=request.app.state.kling_adapter,
-            provider_name=request.app.state.settings.kling_api_provider_name,
-            observation=KlingCallbackObservation(
-                provider_task_id=payload.id,
-                status=payload.status,
-                message=payload.message,
-                outputs=tuple(item.model_dump(exclude_none=True) for item in payload.outputs),
-                raw_payload=payload.model_dump(exclude_none=True),
+async def receive_kling_callback() -> KlingCallbackResponse:
+    # Fail closed until a verified source-authentication contract is implemented.
+    # Runner polling remains responsible for download and financial settlement.
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "KLING_CALLBACK_DISABLED",
+            "message": (
+                "Callbacks are disabled pending source authentication; task polling remains active"
             ),
-        )
-    except KlingCallbackError as exc:
-        raise _operation_error(exc) from exc
-    return KlingCallbackResponse(
-        providerTaskId=result.provider_task_id,
-        status=result.status,
-        duplicate=result.duplicate,
-        workflowFinalized=result.workflow_finalized,
+            "retryable": False,
+        },
     )
 
 

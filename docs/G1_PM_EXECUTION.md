@@ -27,7 +27,21 @@ continues local execution. No child changed source in this cycle.
 | UI privacy | Verified source risk | IndexedDB active draft is shared across accounts; scope draft ownership and test logout/account switch |
 | UI unknown submission | Verified source risk | Regenerate action available for unknown results; persist submission identity and enforce reconciliation |
 
-## Major Decision
+## Approved Callback Decision
+
+User approved default callback rejection on 2026-09-24, retaining original-provider
+polling, download and settlement. The route now returns 403 KLING_CALLBACK_DISABLED
+without body parsing, database dependencies or provider calls. No temporary signature
+header or unsafe opt-in is implemented. Re-enabling requires a separately reviewed
+authentication contract and tests. This supersedes the decision-required row above.
+
+Isolated testing: callback-disabled-testing.xml, 22 passed (route rejection,
+original-provider adapter selection, callback service regressions, settlement and
+materialization). The full G1 gate remains open; these are not end-to-end live-provider
+or production deployment evidence. Existing callback service helpers remain internal,
+but are no longer reachable through the public callback route.
+
+### Decision Rationale
 
 No supplier callback authentication contract is established. The recommended
 interim release policy is to reject callbacks by default and retain provider-bound
