@@ -42,8 +42,11 @@ async def recover_abandoned_launches(supervisor, session) -> int:
             await session.commit()
             continue
         if attempt.task_id:
-            if provider_kind(attempt.provider, supervisor.settings) == "kling" and attempt.status in {
-                AttemptStatus.LAUNCHING, AttemptStatus.RUNNING,
+            if provider_kind(
+                attempt.provider, supervisor.settings
+            ) == "kling" and attempt.status in {
+                AttemptStatus.LAUNCHING,
+                AttemptStatus.RUNNING,
             }:
                 attempt.status = AttemptStatus.RUNNING
                 attempt.state_version += 1
