@@ -73,7 +73,7 @@ class Receiver(BaseHTTPRequestHandler):
             stream.flush()
             os.fsync(stream.fileno())
         (ROOT / "provider-entered.json").write_text(json.dumps({"pid": os.getpid()}))
-        if SCENARIO in {"known", "before"}:
+        if SCENARIO in {"known", "before", "claimed"}:
             body = json.dumps(
                 {"code": 0, "data": {"id": "synthetic-remote-task", "status": "submitted"}}
             ).encode()
@@ -162,6 +162,7 @@ async def main():
     from libtv_agent.domain.models import (
         Asset,
         Base,
+        CapacitySlot,
         GenerationAttempt,
         GenerationCommand,
         GenerationVariant,
@@ -196,7 +197,7 @@ async def main():
         daily_user_points_limit=5000,
     )
     provider = BlockingProvider()
-    if MODE == "submit" or SCENARIO == "before":
+    if MODE == "submit" or SCENARIO in {"before", "claimed"}:
         from libtv_agent.adapters.kling_official_api import KlingOfficialApiAdapter
 
         provider = KlingOfficialApiAdapter(settings)
@@ -271,18 +272,13 @@ async def main():
                 )
                 session.add(command)
                 await session.commit()
-                if SCENARIO == "claimed":
-                    # Reproduce the durable scheduler handoff before localization.
-                    command.status = CommandStatus.CLAIMED
-                    command.claim_owner = "synthetic-crashed-owner"
-                    command.lease_expires_at = datetime.now(UTC) - timedelta(hours=1)
-                    attempt.status = AttemptStatus.LAUNCHING
-                    attempt.state_version += 1
-                    await session.commit()
                 (ROOT / "ready.json").write_text(
                     json.dumps({"task_id": str(task.id), "command_id": str(command.id)})
                 )
-                await supervisor._execute(session, command.id)
+                if SCENARIO == "claimed":
+                    await supervisor.run_ready(session)
+                else:
+                    await supervisor._execute(session, command.id)
                 if SCENARIO == "known":
                     await session.refresh(attempt)
                     assert attempt.task_id == "synthetic-remote-task"
@@ -299,22 +295,33 @@ async def main():
                     assert command.status == CommandStatus.CLAIMED
                     assert command.launch_started_at is None and attempt.task_id is None
                     assert not (ROOT / "requests.jsonl").exists()
-                    from libtv_agent.runner.launch_recovery import recover_abandoned_claims
-
-                    counts = [await recover_abandoned_claims(session) for _ in range(2)]
+                    command.lease_expires_at = datetime.now(UTC) - timedelta(hours=1)
+                    await session.commit()
+                    assert await supervisor.run_ready(session) == 1
                     await session.refresh(command)
                     await session.refresh(attempt)
                     result = {
                         "scenario": "claimed",
-                        "recovery_counts": counts,
                         "command": command.status.value,
                         "attempt": attempt.status.value,
-                        "posts": 0,
+                        "posts": 1,
                         "acceptance": "PASS_CLAIM_RECOVERY",
-                        "scope": "synthetic scheduler handoff, real kill during localization",
+                        "scope": "run_ready claim, kill during localization, run_ready recovery",
                     }
-                    assert counts == [1, 0] and command.status == CommandStatus.READY
-                    assert attempt.status == AttemptStatus.DISPATCH_PENDING
+                    assert command.status == CommandStatus.PROCESS_STARTED
+                    assert attempt.status == AttemptStatus.RUNNING
+                    assert attempt.task_id == "synthetic-remote-task"
+                    assert len((ROOT / "requests.jsonl").read_text().splitlines()) == 1
+                    assert not list(
+                        await session.scalars(
+                            select(CapacitySlot).where(CapacitySlot.command_id.is_not(None))
+                        )
+                    )
+                    reservations = list(await session.scalars(select(PointsReservation)))
+                    entries = list(await session.scalars(select(PointsLedger)))
+                    assert len(reservations) == 1
+                    assert reservations[0].status == ReservationStatus.RESERVED
+                    assert [entry.entry_type for entry in entries] == [LedgerEntryType.RESERVE]
                     (ROOT / "result.json").write_text(json.dumps(result, indent=2))
                     return
                 if SCENARIO == "before":

@@ -147,6 +147,15 @@ SQLite/PostgreSQL claim fencing and existing launch recovery. Main verification
 is claim-fence-main.xml. Earlier process evidence remains a historical failure;
 fixed full scheduler process replay and slow-worker error paths need expansion.
 
+Scheduler follow-up: scheduler-crash-testing/result.json and
+scheduler-crash-main/result.json use real run_ready claiming/capacity acquisition,
+kill during localization, then fresh-process run_ready after isolated lease expiry.
+Assertions require one POST, PROCESS_STARTED/RUNNING, no occupied capacity slots,
+one RESERVED reservation and one RESERVE ledger. claim-slow-testing.xml and
+claim-slow-main.xml cover 10 SQLite/PostgreSQL cases including a slow old worker
+returning or raising after claim recovery; neither path may submit or settle.
+These supersede the prior claimed-command failure for this tested recovery path.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.
