@@ -43,6 +43,10 @@ export interface ImageGenerationOutput {
   url: string
   downloadUrl?: string | null
   artifactId?: string | null
+  qualificationStatus?: 'PENDING' | 'QUALIFIED' | 'REJECTED'
+  qualityGates?: Record<string, { verification?: string; outcome?: string }>
+  reviewedAt?: string | null
+  humanReviewSeconds?: number | null
 }
 
 export interface ImageGenerationTask {

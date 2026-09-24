@@ -562,6 +562,16 @@ export function getImageGenerationBatch(batchId: string, signal?: AbortSignal): 
   return request(`/api/v1/image-generation-batches/${encodeURIComponent(batchId)}`, { signal })
 }
 
+export function setImageOutputQualityDecision(outputId: string, payload: {
+  decision: 'QUALIFIED' | 'REJECTED'
+  productFidelityPass: boolean
+  humanCriticalPass: boolean
+  humanReviewSeconds: number
+  notes?: string | null
+}): Promise<{ id: string; qualificationStatus: 'QUALIFIED' | 'REJECTED'; qualityGates: Record<string, { verification?: string; outcome?: string }>; reviewedAt: string; humanReviewSeconds: number }> {
+  return request(`/api/v1/image-generation-outputs/${encodeURIComponent(outputId)}/quality-decision`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
 export function refreshKlingCapabilities(adminId: string): Promise<KlingStatus> {
   return request('/api/v1/admin/kling/capabilities/refresh', {
     method: 'POST',
