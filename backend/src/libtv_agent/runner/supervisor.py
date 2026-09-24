@@ -1010,43 +1010,9 @@ class RunnerSupervisor:
         in the reconciliation backlog and is resolvable by an operator. Clearing the lease
         only ends the claim that no live process is serving.
         """
-        commands = list(
-            await session.scalars(
-                select(GenerationCommand).where(
-                    GenerationCommand.status == CommandStatus.LAUNCH_STARTED,
-                    GenerationCommand.lease_expires_at.is_not(None),
-                    GenerationCommand.lease_expires_at < datetime.now(UTC) - STALE_LAUNCH_GRACE,
-                )
-            )
-        )
-        resolved = 0
-        for command in commands:
-            attempt = await session.get(GenerationAttempt, command.attempt_id)
-            if attempt is None:
-                continue
-            # The lease asserted "a live process is launching this"; that process is gone.
-            command.lease_expires_at = None
-            await self._handle_error(
-                session,
-                command,
-                attempt,
-                LibTVError(
-                    "LAUNCH_ABANDONED",
-                    "runner stopped between LAUNCH_STARTED and PROCESS_STARTED; the "
-                    "provider may already have accepted the request",
-                    submitted=True,
-                    uncertain=True,
-                ),
-            )
-            # Mirror the sibling paths: kling commands release their slot unconditionally,
-            # libtv commands keep it while the charge is unattributed.
-            if provider_kind(attempt.provider, self.settings) == "kling":
-                await release_capacity(session, command.id)
-            else:
-                await self._release_capacity_if_charge_classified(session, command, attempt)
-            await session.commit()
-            resolved += 1
-        return resolved
+        from libtv_agent.runner.launch_recovery import recover_abandoned_launches
+
+        return await recover_abandoned_launches(self, session)
 
     async def _handle_error(
         self,
