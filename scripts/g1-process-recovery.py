@@ -14,6 +14,8 @@ ROOT = pathlib.Path(sys.argv[1]).resolve()
 MODE = sys.argv[2]
 if MODE not in {"seed", "recover"} or not ROOT.is_dir():
     raise SystemExit("Expected an existing isolated directory and seed/recover mode")
+if not (SOURCE / "backend/tests/test_launch_started_recovery.py").is_file():
+    raise SystemExit("This branch lacks the launch recovery fixture; drill is unsupported")
 if any(
     p.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
     for p in (ROOT, *ROOT.parents)
@@ -49,6 +51,11 @@ sys.addaudithook(audit)
 
 
 async def main():
+    from libtv_agent.runner.supervisor import RunnerSupervisor
+
+    if not hasattr(RunnerSupervisor, "recover_stale_launch_started_commands"):
+        raise SystemExit("This branch lacks launch recovery; drill is unsupported")
+
     from libtv_agent.domain.enums import (
         AttemptStatus,
         CommandStatus,
