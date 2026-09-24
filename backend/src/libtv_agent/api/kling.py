@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from libtv_agent.api.dependencies import Actor, Session
 from libtv_agent.domain.enums import UserRole
 from libtv_agent.domain.models import SubjectElementJob
@@ -149,7 +151,24 @@ async def receive_kling_callback(
     payload: KlingCallbackRequest,
     session: Session,
     request: Request,
+    callback_signature: Annotated[str | None, Header(alias="X-Kling-Callback-Signature")] = None,
 ) -> KlingCallbackResponse:
+    settings = request.app.state.settings
+    if settings.kling_api_callback_url:
+        secret = settings.kling_api_callback_secret
+        expected = (
+            hmac.new(secret.encode(), await request.body(), hashlib.sha256).hexdigest()
+            if secret
+            else ""
+        )
+        if not callback_signature or not hmac.compare_digest(callback_signature, expected):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "code": "KLING_CALLBACK_SIGNATURE_INVALID",
+                    "message": "callback signature is invalid",
+                },
+            )
     try:
         result = await process_kling_callback(
             session,
