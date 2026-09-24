@@ -328,7 +328,10 @@ class WaveSpeedVideoAdapter:
                 with temporary.open("wb") as handle:
                     while chunk := response.read(1024 * 1024):
                         handle.write(chunk)
+                declared_length = response.headers.get("Content-Length")
             size = temporary.stat().st_size
+            if declared_length is not None and size != int(declared_length):
+                raise OSError("downloaded output length does not match Content-Length")
             if size <= 0:
                 raise OSError("downloaded WaveSpeed output is empty")
             temporary.replace(destination)
