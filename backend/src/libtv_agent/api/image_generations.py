@@ -640,10 +640,10 @@ async def create_image_generation_batch(
 async def read_image_generation_batch(
     batch_id: uuid.UUID, actor: Actor, session: Session, request: Request
 ) -> dict[str, Any]:
-    batch = await owned_batch(session, user_id=actor.id, batch_id=batch_id)
-    if batch is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "image generation batch was not found")
     async with request.app.state.image_generation_refresh_lock:
+        batch = await owned_batch(session, user_id=actor.id, batch_id=batch_id)
+        if batch is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "image generation batch was not found")
         await refresh_batch(session, app=request.app, batch=batch)
     return batch_response(batch)
 
