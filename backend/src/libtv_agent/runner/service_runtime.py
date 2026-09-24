@@ -140,6 +140,7 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     last_auth_check = 0.0
     last_metric_sample = 0.0
     last_metric_retention = 0.0
+    last_launch_recovery = 0.0
     last_orphan_signature: tuple[int, ...] = ()
     try:
         while not stopping.is_set():
@@ -230,6 +231,10 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         )
                         backlog_count = await operational_backlog_count(session)
                         await supervisor.run_ready(session)
+                    if now - last_launch_recovery >= 60:
+                        # Recovery never submits; retain it even when disk policy pauses work.
+                        await supervisor.recover_stale_launch_started_commands(session)
+                        last_launch_recovery = now
                     if now - last_metric_sample >= settings.runner_metric_sample_seconds:
                         await record_operational_sample(
                             session,

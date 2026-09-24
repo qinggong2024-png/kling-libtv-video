@@ -928,6 +928,11 @@ class RunnerSupervisor:
             observed += 1
         return observed
 
+    async def recover_stale_launch_started_commands(self, session: AsyncSession) -> int:
+        from libtv_agent.runner.launch_recovery import recover_abandoned_launches
+
+        return await recover_abandoned_launches(self, session)
+
     async def _handle_error(
         self,
         session: AsyncSession,
