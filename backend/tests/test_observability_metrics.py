@@ -356,8 +356,8 @@ async def test_operational_metric_units_and_windows_are_explicit(tmp_path: Path)
         )
     assert snapshot["metrics"]["unknownAfterSubmitRate"] == 1.0
     assert snapshot["metrics"]["unknownAfterSubmitWindowDays"] == 7
-    assert snapshot["metrics"]["pointsReserved"] == 240
-    assert snapshot["metricEvidence"]["pointsReserved"]["unit"] == "estimated_points"
+    assert snapshot["metrics"]["pointsReserved"] == 1
+    assert snapshot["metricEvidence"]["pointsReserved"]["unit"] == "generation_reservations"
     await engine.dispose()
 
 

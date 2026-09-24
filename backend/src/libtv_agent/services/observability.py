@@ -632,12 +632,12 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
     )
     global_slots = int(config.get("generationConcurrency", {}).get("global", 1))
     utilization = min(1.0, running / global_slots) if global_slots else 0.0
-    # Estimated points are the only persisted financial unit. Keep the legacy keys for
-    # compatibility, but return actual point totals rather than reservation row counts.
+    # This baseline counts generations; summing historical 120-point rows with
+    # current 1-generation rows would mix units. Retain legacy keys with explicit units.
     reservation_rows = await session.execute(
         select(
             PointsReservation.status,
-            func.coalesce(func.sum(PointsReservation.estimated_points), 0),
+            func.count(PointsReservation.id),
         ).group_by(PointsReservation.status)
     )
     reservations = {
@@ -818,9 +818,9 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
                 ),
                 "windowDays": 7,
             },
-            "pointsReserved": {"unit": "estimated_points", "source": "points_reservation"},
-            "pointsConsumed": {"unit": "estimated_points", "source": "points_reservation"},
-            "pointsUncertain": {"unit": "estimated_points", "source": "points_reservation"},
+            "pointsReserved": {"unit": "generation_reservations", "source": "points_reservation"},
+            "pointsConsumed": {"unit": "generation_reservations", "source": "points_reservation"},
+            "pointsUncertain": {"unit": "generation_reservations", "source": "points_reservation"},
             "deliveryFailureCount": {
                 "source": "download_artifact.status=FAILED",
                 "windowDays": 7,
