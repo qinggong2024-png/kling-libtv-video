@@ -59,7 +59,7 @@ from libtv_agent.services.points import PointsLimitExceededError
 from libtv_agent.services.prompt_revision import PromptRevisionTimeoutError, run_prompt_assistant
 from libtv_agent.services.restore import RemoteRestoreInProgressError, restore_remote_output
 from libtv_agent.services.runtime_control import RuntimeControlBlockedError
-from libtv_agent.services.state_machine import VersionConflictError
+from libtv_agent.services.state_machine import VersionConflictError, cas_task_phase
 from libtv_agent.services.tasks import (
     TaskNotFoundError,
     create_task,
@@ -1044,8 +1044,16 @@ async def cancel_task(
             status.HTTP_409_CONFLICT,
             detail={"code": "VERSION_CONFLICT", "message": "task can no longer be cancelled"},
         )
-    task.phase = ParentTaskPhase.CANCELLED
-    task.state_version += 1
+    try:
+        await cas_task_phase(
+            session, task.id, task.phase.value, task.state_version,
+            ParentTaskPhase.CANCELLED.value,
+        )
+    except VersionConflictError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "VERSION_CONFLICT", "message": "task can no longer be cancelled"},
+        ) from exc
     await store_idempotent_response(
         session,
         tenant_id=str(actor.id),
