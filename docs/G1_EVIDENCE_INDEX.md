@@ -173,7 +173,7 @@ remote task ID on SQLite/PostgreSQL when the persisted output payload lacked tas
 Success handling now retains the existing handle when the result omits it.
 delivery-resume-testing.xml and delivery-resume-main.xml cover resume in a fresh
 session, original-provider adapter selection, one READY artifact, one CONSUME
-ledger entry and a no-op second resume (9 tests including settlement regressions).
+ledger entry and a no-op second resume (2 SQLite/PostgreSQL cases on both branches).
 Downloads, object storage and technical validation are synthetic in this suite;
 it does not claim real media or download-thread interruption verification.
 
