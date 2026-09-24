@@ -23,8 +23,8 @@ SOURCE = pathlib.Path(__file__).resolve().parents[1]
 ROOT = pathlib.Path(sys.argv[1]).resolve()
 MODE = sys.argv[2]
 SCENARIO = sys.argv[3] if len(sys.argv) > 3 else "unknown"
-if SCENARIO not in {"unknown", "known"}:
-    raise SystemExit("Expected unknown or known scenario")
+if SCENARIO not in {"unknown", "known", "before"}:
+    raise SystemExit("Expected unknown, known or before scenario")
 if MODE not in {"submit", "recover"} or not ROOT.is_dir():
     raise SystemExit("Expected an existing isolated directory and submit/recover mode")
 if any(
@@ -73,7 +73,7 @@ class Receiver(BaseHTTPRequestHandler):
             stream.flush()
             os.fsync(stream.fileno())
         (ROOT / "provider-entered.json").write_text(json.dumps({"pid": os.getpid()}))
-        if SCENARIO == "known":
+        if SCENARIO in {"known", "before"}:
             body = json.dumps(
                 {"code": 0, "data": {"id": "synthetic-remote-task", "status": "submitted"}}
             ).encode()
@@ -125,6 +125,9 @@ class BlockingProvider:
 
 class IsolatedObjectStore:
     async def localize(self, object_key, destination):
+        if SCENARIO == "before" and MODE == "submit":
+            (ROOT / "before-submit.json").write_text(json.dumps({"pid": os.getpid()}))
+            await asyncio.Event().wait()
         return ROOT / "source.png"
 
 
@@ -193,7 +196,7 @@ async def main():
         daily_user_points_limit=5000,
     )
     provider = BlockingProvider()
-    if MODE == "submit":
+    if MODE == "submit" or SCENARIO == "before":
         from libtv_agent.adapters.kling_official_api import KlingOfficialApiAdapter
 
         provider = KlingOfficialApiAdapter(settings)
@@ -284,6 +287,38 @@ async def main():
                 attempt = await session.scalar(select(GenerationAttempt))
                 if command is None or attempt is None:
                     raise RuntimeError("persisted launch fixture is missing")
+                if SCENARIO == "before":
+                    assert command.status == CommandStatus.READY
+                    assert command.launch_started_at is None and attempt.task_id is None
+                    assert not (ROOT / "requests.jsonl").exists()
+                    assert await supervisor.recover_stale_launch_started_commands(session) == 0
+                    await supervisor._execute(session, command.id)
+                    await session.refresh(attempt)
+                    await session.refresh(command)
+                    assert attempt.task_id == "synthetic-remote-task"
+                    assert attempt.status == AttemptStatus.RUNNING
+                    assert command.status == CommandStatus.PROCESS_STARTED
+                    assert await supervisor.recover_stale_launch_started_commands(session) == 0
+                    reservations = list(await session.scalars(select(PointsReservation)))
+                    entries = list(await session.scalars(select(PointsLedger)))
+                    assert len(reservations) == 1
+                    assert reservations[0].status == ReservationStatus.RESERVED
+                    assert [entry.entry_type for entry in entries] == [LedgerEntryType.RESERVE]
+                    assert len((ROOT / "requests.jsonl").read_text().splitlines()) == 1
+                    (ROOT / "result.json").write_text(
+                        json.dumps(
+                            {
+                                "scenario": "before",
+                                "posts_before_crash": 0,
+                                "posts_after_resume": 1,
+                                "reservations": 1,
+                                "attempt": attempt.status.value,
+                                "scope": "pre-launch localization; direct command resume",
+                            },
+                            indent=2,
+                        )
+                    )
+                    return
                 command.lease_expires_at = datetime.now(UTC) - timedelta(hours=1)
                 await session.commit()
                 first = await supervisor.recover_stale_launch_started_commands(session)

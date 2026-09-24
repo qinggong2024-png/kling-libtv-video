@@ -118,6 +118,15 @@ sentinel while the persisted provider maps to the query adapter. Evidence:
 video-known-testing/result.json and video-known-main/result.json. This covers
 polling resumption after a saved-handle crash, not terminal download/settlement.
 
+Pre-launch follow-up: `submit before` is killed during synthetic object-store
+localization before LAUNCH_STARTED. A fresh `recover before` verifies READY,
+no remote ID, no POST ledger and zero stale-launch recoveries, then resumes the
+same persisted command through the real API submit transport. Final assertions:
+one POST, one reservation, one RESERVE ledger entry and RUNNING. Evidence:
+video-before-testing/result.json and video-before-main/result.json. Scope is
+direct persisted-command resume; scheduler lease acquisition and CLI-host crash
+recovery remain distinct requirements, not covered by this fixture.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.
