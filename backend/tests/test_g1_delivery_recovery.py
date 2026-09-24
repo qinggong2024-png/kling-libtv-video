@@ -5,7 +5,7 @@ from libtv_agent.domain.models import DownloadArtifact, GenerationAttempt, Point
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from sqlalchemy import select
 from test_image_quota_concurrency import world  # noqa: F401
-from test_success_path_settlement import _world
+from test_launch_started_recovery import _stranded_command
 
 
 async def test_download_resume_preserves_handle_provider_and_single_settlement(
@@ -14,9 +14,10 @@ async def test_download_resume_preserves_handle_provider_and_single_settlement(
 ):
     app, factory, _, _ = world
     async with factory() as setup:
-        _, variant, attempt, _, _ = await _world(
-            setup, provider="kling_official_api", credits_consumed=120
+        _, variant, attempt, _, _ = await _stranded_command(
+            setup, provider="kling_official_api", lease_expires_at=None
         )
+        attempt.credits_consumed = 240
         attempt.status = AttemptStatus.SUCCEEDED
         attempt.task_id = "saved-remote-handle"
         attempt.output_url = "https://synthetic.invalid/video.mp4"
