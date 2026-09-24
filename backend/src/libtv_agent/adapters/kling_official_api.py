@@ -100,16 +100,15 @@ def map_kling_api_status(raw_status: object) -> str:
 
 
 def _retry_after(headers: dict[str, str]) -> float | None:
+    from libtv_agent.adapters.retry_after import parse_retry_after
+
     value = next(
         (item for key, item in headers.items() if key.lower() == "retry-after"),
         None,
     )
     if value is None:
         return None
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        return None
+    return parse_retry_after(value)
 
 
 def _classify_api_error(
