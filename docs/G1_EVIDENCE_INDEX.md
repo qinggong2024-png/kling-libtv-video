@@ -19,7 +19,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 | S08 cancellation | cancel-race-both.xml and cancel-race-main.xml: 4 passed each | Real Runner cancellation/confirmation ordering and settlement integration |
 | S09 quota | Image quota concurrency; existing points reservation tests | Full PostgreSQL video final-quota matrix |
 | S10 Shanghai date | cross-day-testing.xml, settlement-main-final.xml; repeated unknown no duplicate ledger, old snapshot settlement serialized | Cross-day concurrent recovery with real task lifecycle |
-| S11 events | event-reconnect-testing.xml: SQLite service snapshot+REST ownership | PostgreSQL run, browser network disconnect/reconnect workflow |
+| S11 events | g1-consolidated-testing.xml and g1-consolidated-main.xml: SQLite/PostgreSQL service snapshot+REST ownership | Browser network disconnect/reconnect workflow |
 | S12 confidentiality | Logging exception/URL/data URI regressions | Full response, audit, metric and provider-error injection inventory |
 
 ## Operational State Contract
@@ -48,3 +48,35 @@ verified against those fields, not merely declared present.
 
 No completion claim is based on summed test counts. Each row must match its actual
 scope, both branches, and current source before the G1 gate can close.
+
+## Consolidated Regression
+
+2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.
+Each run: 103 passed, zero skipped/deselected. Includes independent PostgreSQL and
+SQLite cases, callback rejection, real loopback socket disconnect, retry/date
+parsing, download faults, cross-day ledger, stale-session settlement/cancellation,
+launch recovery, user-scoped snapshot/REST, quota and log redaction. Evidence:
+g1-consolidated-testing.xml (34.49s), g1-consolidated-main.xml (21.79s).
+This is a composition regression, not completion of the open boundaries above.
+
+## Observability Inventory
+
+Authoritative existing implementation: services/observability.py operations_snapshot
+and _pipeline_performance; api/events.py; adapters/wavespeed.py and
+adapters/kling_official_api.py log records. Definitions verified in source:
+
+| Surface | Existing fields | Interpretation / gap |
+| --- | --- | --- |
+| Queue snapshot | prepared, generation, running, unknown | Current counts, not cumulative event counters |
+| Financial snapshot | pointsReserved, pointsConsumed, pointsUncertain, chargeUnknownAttempts | Reservation/attempt aggregates; not proof of supplier invoices |
+| Safety metrics | duplicateGenerationTotal, crossTaskConnectionTotal, unknownAfterSubmitRate | Derived database counts/rate; integrity computation has a cache |
+| Capacity | generationSlotUtilization, runnerActiveCommandHosts, runnerOrphanProcesses | Current operating state, not latency distributions |
+| Pipeline | sampleCount, p50Seconds, p95Seconds for persisted stages | Stage duration from timestamps; not per-HTTP query latency |
+| Provider logs | HTTP method/status/duration; download duration/size | Structured LogRecord extras; formatter/export retention still needs verification |
+| User SSE | task ID, phase, stateVersion, updatedAt | Authorized snapshots; no durable event replay |
+
+Not yet established as a complete published contract: idempotency replay/conflict
+counters, quota rejection counts, recovery outcomes by action, delivery failure
+counts, per-operation latency capture and bounded-label export. Do not claim these
+exist merely because their code paths log errors. No new metrics table, dependency
+or production migration has been introduced by this inventory.
