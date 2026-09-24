@@ -109,6 +109,15 @@ Testing evidence: video-http-crash-testing/result.json. Main evidence is recorde
 in video-http-crash-main/result.json after independent execution. This closes the
 API HTTP-acceptance fault point, not pre-submit/known-handle/CLI crash coverage.
 
+Known-handle follow-up: `scripts/g1-video-crash.py ROOT submit known` returns a
+synthetic task ID over real loopback HTTP, commits RUNNING/PROCESS_STARTED, and
+waits for force termination. `recover known` in a fresh process verifies [0,0]
+launch recoveries, one original-provider query of the same saved ID, one total
+POST, zero new submissions, RUNNING and RESERVED. Default adapter is a forbidden
+sentinel while the persisted provider maps to the query adapter. Evidence:
+video-known-testing/result.json and video-known-main/result.json. This covers
+polling resumption after a saved-handle crash, not terminal download/settlement.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.

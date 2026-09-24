@@ -17,10 +17,14 @@ import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
 ROOT = pathlib.Path(sys.argv[1]).resolve()
 MODE = sys.argv[2]
+SCENARIO = sys.argv[3] if len(sys.argv) > 3 else "unknown"
+if SCENARIO not in {"unknown", "known"}:
+    raise SystemExit("Expected unknown or known scenario")
 if MODE not in {"submit", "recover"} or not ROOT.is_dir():
     raise SystemExit("Expected an existing isolated directory and submit/recover mode")
 if any(
@@ -69,6 +73,16 @@ class Receiver(BaseHTTPRequestHandler):
             stream.flush()
             os.fsync(stream.fileno())
         (ROOT / "provider-entered.json").write_text(json.dumps({"pid": os.getpid()}))
+        if SCENARIO == "known":
+            body = json.dumps(
+                {"code": 0, "data": {"id": "synthetic-remote-task", "status": "submitted"}}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         threading.Event().wait(120)
 
     def log_message(self, *_args):
@@ -112,6 +126,22 @@ class BlockingProvider:
 class IsolatedObjectStore:
     async def localize(self, object_key, destination):
         return ROOT / "source.png"
+
+
+class OriginalProvider(BlockingProvider):
+    def __init__(self):
+        super().__init__()
+        self.queries = []
+
+    async def query(self, provider_task_id):
+        assert provider_task_id == "synthetic-remote-task"
+        self.queries.append(provider_task_id)
+        return SimpleNamespace(
+            status="running",
+            raw_status="processing",
+            raw_response={"synthetic": True},
+            credits_consumed=None,
+        )
 
 
 async def main():
@@ -242,6 +272,12 @@ async def main():
                     json.dumps({"task_id": str(task.id), "command_id": str(command.id)})
                 )
                 await supervisor._execute(session, command.id)
+                if SCENARIO == "known":
+                    await session.refresh(attempt)
+                    assert attempt.task_id == "synthetic-remote-task"
+                    assert attempt.status == AttemptStatus.RUNNING
+                    (ROOT / "handle-saved.json").write_text(json.dumps({"pid": os.getpid()}))
+                    await asyncio.Event().wait()
         else:
             async with factory() as session:
                 command = await session.scalar(select(GenerationCommand))
@@ -256,6 +292,36 @@ async def main():
                 await session.refresh(attempt)
                 reservation = await session.scalar(select(PointsReservation))
                 entries = list(await session.scalars(select(PointsLedger)))
+                if SCENARIO == "known":
+                    assert [first, second] == [0, 0]
+                    original = OriginalProvider()
+                    supervisor._kling_adapters[settings.kling_api_provider_name] = original
+                    supervisor.kling_adapter = BlockingProvider()
+                    assert await supervisor.poll_kling_tasks(session) == 1
+                    await session.refresh(attempt)
+                    assert attempt.task_id == "synthetic-remote-task"
+                    assert attempt.status == AttemptStatus.RUNNING
+                    assert command.status == CommandStatus.PROCESS_STARTED
+                    assert reservation.status == ReservationStatus.RESERVED
+                    assert [entry.entry_type for entry in entries] == [LedgerEntryType.RESERVE]
+                    assert original.queries == ["synthetic-remote-task"]
+                    assert original.calls == 0 and provider.calls == 0
+                    assert len((ROOT / "requests.jsonl").read_text().splitlines()) == 1
+                    (ROOT / "result.json").write_text(
+                        json.dumps(
+                            {
+                                "scenario": "known",
+                                "recovery_counts": [first, second],
+                                "generation_posts": 1,
+                                "original_provider_queries": 1,
+                                "new_submissions": 0,
+                                "attempt": attempt.status.value,
+                                "reservation": reservation.status.value,
+                            },
+                            indent=2,
+                        )
+                    )
+                    return
                 assert first == 1 and second == 0
                 assert command.status == CommandStatus.UNCERTAIN
                 assert attempt.status == AttemptStatus.UNKNOWN_AFTER_SUBMIT
