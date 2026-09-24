@@ -6,6 +6,17 @@ Production URL: http://192.168.30.126:5173/.
 
 ## Ownership And Scope
 
+User correction, 2026-09-24: this task owns frontend pages, layout, navigation,
+interaction, accessibility, responsive behavior and frontend acceptance only.
+Backend security, callback policy and G1 belong to task
+`01a0cdb7-c7c6-7840-ab2f-0c932e004dc2` (分阶段执行衣影工坊增强计划).
+The user has already decided callback policy there. Do not request that decision
+again, implement a competing policy, edit its execution board, or change backend
+routes, schemas, billing, migrations or provider behavior in this UI task.
+The thread lookup confirmed active status but returned no decision text; do not
+infer the chosen policy. Backend-dependent UI work waits for confirmed API contracts,
+while independent frontend work proceeds. UI approvals do not waive G1 deployment gates.
+
 The parent agent owns prioritization, assignment, integration, evidence review,
 acceptance and scoped promotion. Routine implementation choices are delegated;
 billing policy, authorization boundaries, destructive migration and external
@@ -28,7 +39,7 @@ performed the release-gate review directly.
 | --- | --- | --- | --- |
 | U00 | Recovery query and UI primitives | Foundation only | Previous tests/build; components not yet integrated into business pages |
 | U01 | Safe storage and account isolation | Open, high priority | Blocked storage, logout/account switch, no cross-user IndexedDB draft recovery |
-| U02 | Server batch manifest and stable submission identities | Open, high priority | Two tabs, response loss, partial success, refresh/site data deletion; no extra create or charge |
+| U02 | Frontend batch progress/recovery presentation | Backend manifest is an external dependency | Consume confirmed server contracts; never infer safe retry or duplicate server implementation |
 | U03 | Unknown reconciliation and quota presentation | Open; release depends on G1 | Server-authoritative result; no unknown resubmission; no invented supplier price |
 | U04 | Selection/review separation | Open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
 | U05 | Records deep links and bounded lists | Open | Back/forward/detail return, matching counts, pagination, no sensitive URL data |
@@ -36,33 +47,25 @@ performed the release-gate review directly.
 | U07 | Shared component integration and visual unification | Open | Existing business pages migrated; coherent status semantics, errors and permission states |
 | U08 | Browser and performance acceptance | Not run | 1440/1024/768/390, keyboard/reduced motion, synthetic media, 50/200/1000 records |
 
-Dependency order: confirm G1 release policy; U01/U02 safety groundwork; U03/U04/U05;
-U06/U07; U08. Test independent changes in isolated fixtures. Incrementally promote
+Dependency order: U01/U04/U05/U07 independent frontend increments; U02/U03 when
+backend contracts are available; U06 and U08. Test changes in isolated fixtures. Incrementally promote
 only verified source patches, preserving production-specific behavior. Do not infer
 brand/workspace roles from cosmetic navigation or invent billing rules.
 
 ## Verified Intake Findings
 
-- `docs/G1_SECURITY_ACCEPTANCE_20260924.md` explicitly says G1 is incomplete and
-  not to enter G2. `docs/G1_PM_EXECUTION.md` records an unresolved callback decision.
-- `api/kling.py:receive_kling_callback` has no actor/source authentication dependency
-  before calling the callback service. Provider re-query does not authenticate the
-  sender. This is a compatibility/security policy decision, not a UI color choice.
+- G1 findings are owned by the other task. The initial intake incorrectly treated
+  its historical decision record as a new UI decision request; that request is withdrawn.
 - `frontend/src/imageCenterStore.ts` uses a shared `active` draft key.
 - `frontend/src/ImageCenter.tsx:toggleOutput` still writes QUALIFIED when selecting.
 - The regenerate button is rendered without an unknown-result guard.
 
-## Decision D01: Callback Compatibility
+## Decision D01: Withdrawn From UI Scope
 
-Awaiting user approval. Recommended temporary policy: reject unauthenticated
-callbacks by default, retain provider-bound polling of existing tasks, and never
-resubmit or free uncertain charges. Before deployment prove polling coverage and
-callback/poll race behavior with isolated providers. Do not invent vendor headers.
-
-Approval authorizes implementation and isolated verification, not production
-restart, paid calls, destructive migration or bypass of remaining G1 acceptance.
-An authenticated gateway with a confirmed deployment contract is an alternative
-requiring supplied specifications. No callback behavior was changed at PM intake.
+Callback compatibility is already handled in the other task per the user.
+No callback code was changed during this PM intake. No duplicate approval or
+implementation is required here. Any future frontend dependency is tracked by
+its required API contract, not by reopening the backend policy decision.
 
 ## Acceptance Rules
 
