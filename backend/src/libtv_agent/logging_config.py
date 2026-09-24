@@ -1,4 +1,6 @@
 import logging
+import json
+import math
 import re
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -48,6 +50,24 @@ class RedactingFilter(logging.Filter):
         return True
 
 
+class DiagnosticFormatter(logging.Formatter):
+    """Expose bounded operational fields, never arbitrary LogRecord extras."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        fields = {}
+        for key in ("duration_ms", "size_bytes", "count", "http_status"):
+            value = getattr(record, key, None)
+            if type(value) in (int, float) and math.isfinite(value) and value >= 0:
+                fields[key] = value
+        method = getattr(record, "http_method", None)
+        if method in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
+            fields["http_method"] = method
+        rendered = redact_text(super().format(record))
+        if fields:
+            rendered += " " + json.dumps(fields, sort_keys=True, allow_nan=False)
+        return rendered
+
+
 def configure_logging() -> None:
     root = logging.getLogger()
     if not root.handlers:
@@ -89,7 +109,7 @@ def configure_file_logging(
         return None
     handler.setLevel(level)
     handler.setFormatter(
-        logging.Formatter(
+        DiagnosticFormatter(
             fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S%z",
         )
