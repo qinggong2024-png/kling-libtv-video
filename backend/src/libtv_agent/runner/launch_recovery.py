@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from libtv_agent.adapters.libtv import LibTVError
-from libtv_agent.domain.enums import CommandStatus
+from libtv_agent.domain.enums import AttemptStatus, CommandStatus
 from libtv_agent.domain.models import GenerationAttempt, GenerationCommand
 from libtv_agent.services.capacity import release_capacity
 from libtv_agent.services.provider_routing import provider_kind
@@ -38,8 +38,18 @@ async def recover_abandoned_launches(supervisor, session) -> int:
             continue
         command = await session.get(GenerationCommand, command_id, populate_existing=True)
         attempt = await session.get(GenerationAttempt, command.attempt_id, populate_existing=True)
-        if attempt is None or attempt.task_id:
-            # Known remote handles belong to the provider-specific query path.
+        if attempt is None:
+            await session.commit()
+            continue
+        if attempt.task_id:
+            if provider_kind(attempt.provider, supervisor.settings) == "kling" and attempt.status in {
+                AttemptStatus.LAUNCHING, AttemptStatus.RUNNING,
+            }:
+                attempt.status = AttemptStatus.RUNNING
+                attempt.state_version += 1
+                command.status = CommandStatus.PROCESS_STARTED
+                command.lease_expires_at = None
+                resolved += 1
             await session.commit()
             continue
         command.lease_expires_at = None

@@ -487,3 +487,23 @@ async def test_recovered_charge_is_reconcilable_not_lost(session, tmp_path):
         )
         is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_known_handle_is_handed_to_polling_without_settlement(session, tmp_path):
+    _, _, attempt, command, reservation = await _stranded_command(
+        session, provider=KLING_PROVIDER,
+        lease_expires_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    attempt.task_id = "synthetic-existing-remote"
+    await session.commit()
+    supervisor = _supervisor(tmp_path)
+    assert await supervisor.recover_stale_launch_started_commands(session) == 1
+    assert await supervisor.recover_stale_launch_started_commands(session) == 0
+    assert attempt.task_id == "synthetic-existing-remote"
+    assert attempt.status == AttemptStatus.RUNNING
+    assert command.status == CommandStatus.PROCESS_STARTED
+    assert command.lease_expires_at is None
+    assert reservation.status == ReservationStatus.RESERVED
+    entries = list(await session.scalars(select(PointsLedger)))
+    assert [entry.entry_type for entry in entries] == [LedgerEntryType.RESERVE]
