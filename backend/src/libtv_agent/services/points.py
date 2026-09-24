@@ -106,6 +106,12 @@ async def settle_points(
         ReservationStatus.UNCERTAIN,
     }:
         return
+    if reservation.status == ReservationStatus.UNCERTAIN and not (
+        charge_status == ChargeStatus.NOT_CHARGED
+        or (charge_status == ChargeStatus.CHARGED and actual_points is not None)
+    ):
+        # Repeated recovery with no new charge evidence is not a new ledger event.
+        return
     if reservation.status == ReservationStatus.RESERVED:
         summary.reserved_points -= reservation.estimated_points
     else:
