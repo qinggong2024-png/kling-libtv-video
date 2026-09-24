@@ -541,9 +541,12 @@ class _KlingMockHandler(BaseHTTPRequestHandler):
 
 @contextmanager
 def _mock_server() -> Iterator[ThreadingHTTPServer]:
+    import os
+
     _KlingMockHandler.post_bodies = []
     _KlingMockHandler.query_count = 0
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _KlingMockHandler)
+    port = int(os.environ.get("G1_TEST_HTTP_PORT", "0"))
+    server = ThreadingHTTPServer(("127.0.0.1", port), _KlingMockHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

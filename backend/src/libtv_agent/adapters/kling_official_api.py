@@ -1110,6 +1110,8 @@ class KlingOfficialApiAdapter:
                 if not 200 <= status < 300:
                     raise OSError(f"unexpected HTTP status {status}")
                 content_type = str(response.headers.get("Content-Type") or "")
+                declared_length = response.headers.get("Content-Length")
+                expected_size = int(declared_length) if declared_length is not None else None
                 if content_type and not (
                     content_type.startswith("video/") or content_type == "application/octet-stream"
                 ):
@@ -1120,6 +1122,8 @@ class KlingOfficialApiAdapter:
             size = temporary.stat().st_size
             if size <= 0:
                 raise OSError("downloaded Kling output is empty")
+            if expected_size is not None and size != expected_size:
+                raise OSError("downloaded Kling output is incomplete")
             temporary.replace(destination)
             return size
 
