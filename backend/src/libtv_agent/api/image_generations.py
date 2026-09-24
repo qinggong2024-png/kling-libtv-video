@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.domain.models import AuditEvent
 from libtv_agent.services.image_generations import (
     ImageBatchConflictError,
     ImageItemSpec,
