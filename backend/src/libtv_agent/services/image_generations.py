@@ -258,8 +258,7 @@ async def submit_batch(
 
     for item in batch.items:
         if item.status == "SUBMITTING" and not item.provider_task_id:
-            item.status = "WRITE_UNCERTAIN"
-            item.error_json = {
+            error = {
                 "code": "WAVESPEED_SUBMISSION_UNCERTAIN",
                 "message": (
                     "A previous WaveSpeed submission was interrupted before its prediction "
@@ -268,8 +267,29 @@ async def submit_batch(
                 "retryable": False,
                 "details": {"submitted": True},
             }
+            await session.execute(
+                update(ImageGenerationItem)
+                .where(
+                    ImageGenerationItem.id == item.id,
+                    ImageGenerationItem.status == "SUBMITTING",
+                    ImageGenerationItem.provider_task_id.is_(None),
+                )
+                .values(status="WRITE_UNCERTAIN", error_json=error)
+                .execution_options(synchronize_session=False)
+            )
+            await session.refresh(item)
         elif item.status == "SUBMITTING" and item.provider_task_id:
-            item.status = "CREATED"
+            await session.execute(
+                update(ImageGenerationItem)
+                .where(
+                    ImageGenerationItem.id == item.id,
+                    ImageGenerationItem.status == "SUBMITTING",
+                    ImageGenerationItem.provider_task_id.is_not(None),
+                )
+                .values(status="CREATED")
+                .execution_options(synchronize_session=False)
+            )
+            await session.refresh(item)
     await session.commit()
 
     pending_items = [item for item in batch.items if item.status == "PENDING"]
