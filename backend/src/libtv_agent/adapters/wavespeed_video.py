@@ -303,6 +303,8 @@ class WaveSpeedVideoAdapter:
         )
 
     async def download(self, output: ProviderOutput, destination: Path) -> DownloadResult:
+        from libtv_agent.adapters.download_worker import stage_download
+
         existing_size = await asyncio.to_thread(
             lambda: destination.stat().st_size if destination.is_file() else 0
         )
@@ -334,13 +336,14 @@ class WaveSpeedVideoAdapter:
                 raise OSError("downloaded output length does not match Content-Length")
             if size <= 0:
                 raise OSError("downloaded WaveSpeed output is empty")
-            temporary.replace(destination)
             return size
 
         started_at = time.monotonic()
         try:
-            size = await asyncio.wait_for(
-                asyncio.to_thread(download_file),
+            size = await stage_download(
+                download_file,
+                temporary,
+                destination,
                 timeout=self.settings.wavespeed_video_download_timeout_seconds,
             )
         except Exception as exc:

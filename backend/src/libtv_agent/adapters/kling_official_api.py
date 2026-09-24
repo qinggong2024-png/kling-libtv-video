@@ -1089,6 +1089,8 @@ class KlingOfficialApiAdapter:
         return await asyncio.to_thread(send)
 
     async def download(self, output: ProviderOutput, destination: Path) -> DownloadResult:
+        from libtv_agent.adapters.download_worker import stage_download
+
         existing_size = await asyncio.to_thread(
             lambda: destination.stat().st_size if destination.is_file() else 0
         )
@@ -1124,13 +1126,14 @@ class KlingOfficialApiAdapter:
                 raise OSError("downloaded Kling output is empty")
             if expected_size is not None and size != expected_size:
                 raise OSError("downloaded Kling output is incomplete")
-            temporary.replace(destination)
             return size
 
         try:
             started_at = time.monotonic()
-            size = await asyncio.wait_for(
-                asyncio.to_thread(download_file),
+            size = await stage_download(
+                download_file,
+                temporary,
+                destination,
                 timeout=self.settings.kling_api_download_timeout_seconds,
             )
         except Exception as exc:
