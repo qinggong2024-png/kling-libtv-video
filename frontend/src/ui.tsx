@@ -49,8 +49,9 @@ export function FoundationThumbnail({ src, alt, ratio = 'square', fit = 'contain
 }
 
 export function FoundationConfirmPanel({ title, description, confirmLabel = '确认', cancelLabel = '取消', busy = false, onConfirm, onCancel, children }: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; busy?: boolean; onConfirm: () => void; onCancel?: () => void; children?: ReactNode }) {
-  return <section className="foundation-confirm-panel" aria-labelledby="foundation-confirm-title">
-    <div><h2 id="foundation-confirm-title">{title}</h2>{description ? <p>{description}</p> : null}{children}</div>
+  const titleId = useId()
+  return <section className="foundation-confirm-panel" aria-labelledby={titleId}>
+    <div><h2 id={titleId}>{title}</h2>{description ? <p>{description}</p> : null}{children}</div>
     <div className="foundation-confirm-panel__actions">
       {onCancel ? <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{cancelLabel}</button> : null}
       <button type="button" className="primary-button" disabled={busy} onClick={onConfirm}>{confirmLabel}</button>
@@ -60,28 +61,29 @@ export function FoundationConfirmPanel({ title, description, confirmLabel = '确
 
 export function FoundationDrawer({ open, title, eyebrow, onClose, children, footer }: { open: boolean; title: string; eyebrow?: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const titleId = useId()
+  const dialogRef = useRef<HTMLDialogElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (!open) return
+    const dialog = dialogRef.current
+    if (!dialog) return
     const previous = document.activeElement as HTMLElement | null
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
+    const wasLocked = document.body.classList.contains('overlay-open')
     document.body.classList.add('overlay-open')
-    document.addEventListener('keydown', onKeyDown)
+    dialog.showModal()
     closeRef.current?.focus()
     return () => {
-      document.body.classList.remove('overlay-open')
-      document.removeEventListener('keydown', onKeyDown)
-      previous?.focus?.()
+      dialog.close()
+      if (!wasLocked) document.body.classList.remove('overlay-open')
+      if (previous?.isConnected) previous.focus()
     }
-  }, [open, onClose])
+  }, [open])
   if (!open) return null
-  return <div className="foundation-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="foundation-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+  return <dialog ref={dialogRef} className="foundation-drawer-backdrop" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose() }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="foundation-drawer">
       <header className="foundation-drawer__header"><div>{eyebrow ? <span>{eyebrow}</span> : null}<h2 id={titleId}>{title}</h2></div><button ref={closeRef} type="button" className="icon-button" onClick={onClose} aria-label="关闭"><X size={18} /></button></header>
       <div className="foundation-drawer__content">{children}</div>
       {footer ? <footer className="foundation-drawer__footer">{footer}</footer> : null}
     </section>
-  </div>
+  </dialog>
 }
