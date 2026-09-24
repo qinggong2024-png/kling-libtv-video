@@ -526,12 +526,35 @@ async def _materialize_output(app: Any, output: ImageGenerationOutput) -> None:
         await asyncio.to_thread(destination.unlink, missing_ok=True)
 
 
+async def _claim_image_observation(session: AsyncSession, item: ImageGenerationItem) -> bool:
+    claimed = await session.execute(
+        update(ImageGenerationItem)
+        .where(
+            ImageGenerationItem.id == item.id,
+            ImageGenerationItem.status == item.status,
+            ImageGenerationItem.last_polled_at == item.last_polled_at,
+        )
+        .values(last_polled_at=datetime.now(UTC))
+        .execution_options(synchronize_session=False)
+    )
+    await session.refresh(item, attribute_names=["outputs"])
+    if claimed.rowcount != 1:
+        await session.refresh(item)
+        await session.commit()
+        return False
+    return True
+
+
 async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerationBatch) -> None:
     for item in batch.items:
         if item.status not in ACTIVE_ITEM_STATUSES or not item.provider_task_id:
             continue
+        claimed = False
         try:
             result = await app.state.wavespeed_adapter.get_prediction(item.provider_task_id)
+            claimed = await _claim_image_observation(session, item)
+            if not claimed:
+                continue
             provider_status, urls, raw, error = _prediction_result(result)
             item.status = provider_status
             item.raw_response_json = raw
@@ -558,6 +581,11 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
                                 "details": {"remoteUrlRetained": True},
                             }
         except Exception as exc:
+            if not session.is_active:
+                await session.rollback()
+                raise
+            if not claimed and not await _claim_image_observation(session, item):
+                continue
             error = _provider_error(exc, submission=False)
             if not error.retryable:
                 item.status = "FAILED"
@@ -568,6 +596,16 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
                 "details": error.details,
             }
         await session.commit()
+    # Serialize aggregate updates and reload items changed by other API/worker sessions.
+    await session.execute(
+        update(ImageGenerationBatch)
+        .where(ImageGenerationBatch.id == batch.id)
+        .values(status=ImageGenerationBatch.status)
+        .execution_options(synchronize_session=False)
+    )
+    await session.refresh(batch, attribute_names=["items"])
+    for item in batch.items:
+        await session.refresh(item)
     _update_batch_status(batch)
     await session.commit()
 

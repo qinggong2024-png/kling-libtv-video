@@ -74,6 +74,21 @@ newer nonterminal versions and normal unchanged observations with success/error
 query responses. Main verification uses poll-race-main.xml. No live supplier,
 callback authentication or browser lifecycle coverage is implied.
 
+## Image Polling Race
+
+image-poll-race-before.xml reproduced terminal state regression on SQLite and
+PostgreSQL. API batch reads now happen inside the refresh lock; service-level
+conditional writes compare persisted item status and last_polled_at so independent
+workers also reject stale observations. Output collections are refreshed under
+the write guard and batch aggregation reloads persisted item states under a
+batch write lock. Failed flushes are rolled back and propagated, not committed.
+
+image-poll-race-testing.xml: 18 passed, including four independent-session cases
+and the existing image batch suite. Two preloaded sessions produce one output,
+one materialization and no extra generation POST. Main verification is recorded
+in image-poll-race-main.xml. This does not prove process interruption during an
+image download or full frontend account isolation.
+
 ## Consolidated Regression
 
 2026-09-24: same 15 test modules executed on codex/testing fa15c38 and main d781c2e.
