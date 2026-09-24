@@ -527,12 +527,17 @@ async def _materialize_output(app: Any, output: ImageGenerationOutput) -> None:
 
 
 async def _claim_image_observation(session: AsyncSession, item: ImageGenerationItem) -> bool:
+    last_polled_predicate = (
+        ImageGenerationItem.last_polled_at.is_(None)
+        if item.last_polled_at is None
+        else ImageGenerationItem.last_polled_at == item.last_polled_at
+    )
     claimed = await session.execute(
         update(ImageGenerationItem)
         .where(
             ImageGenerationItem.id == item.id,
             ImageGenerationItem.status == item.status,
-            ImageGenerationItem.last_polled_at == item.last_polled_at,
+            last_polled_predicate,
         )
         .values(last_polled_at=datetime.now(UTC))
         .execution_options(synchronize_session=False)
