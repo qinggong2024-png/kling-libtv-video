@@ -50,7 +50,7 @@ Traceback ...
 ValueError: set_wakeup_fd only works in main thread of the main interpreter
 ```
 
-结论：根因是 pywin32 的 `SvcDoRun` 在服务线程中执行，而 Python 默认 Windows Proactor 事件循环尝试设置只能在主解释器线程使用的 signal wakeup fd。不是数据库、Kling API、认证合同或 ACL 根因。
+结论：上述两次启动失败的直接原因是 pywin32 服务宿主下创建 Proactor 事件循环时调用 signal wakeup fd 失败。Selector 策略已修改，但尚未在真实 SCM 下验证；不能据此排除修复后出现其他独立问题。无需为这个异常继续扩大 ACL 或研究供应商合同。
 
 ## 3. 已完成的修复
 
@@ -63,7 +63,7 @@ ValueError: set_wakeup_fd only works in main thread of the main interpreter
 
 1. 新增 `configure_service_event_loop_policy()`。
 2. 在 Windows 服务的 `SvcDoRun()` 调用 `asyncio.run()` 之前设置 `WindowsSelectorEventLoopPolicy`。
-3. 增加回归测试，验证服务线程使用 Selector policy。
+3. 增加 mock 回归测试，验证配置函数设置 Selector policy；该测试没有模拟真实 SCM 线程或宿主。
 
 该修复只改变服务宿主的事件循环策略，不改变 API 路由、供应商逻辑、认证策略或生产数据。
 
@@ -132,6 +132,33 @@ Format-List
 
 不要只依据 `Start-Service` 的通用错误判断根因。必须以该事件中的 traceback 为准。
 
+本机曾出现 `Message` 为空、按 `ProviderName` 直接过滤报提供程序不存在的情况。此时保留上面的日志级过滤，再读取事件属性：
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+  LogName='Application'
+  StartTime=(Get-Date).AddMinutes(-10)
+} | Where-Object { $_.ProviderName -eq 'LibTVProductionApi' } |
+ForEach-Object {
+  $_.TimeCreated
+  $_.Properties | ForEach-Object { $_.Value }
+}
+```
+
+也可调用事件对象的 `.ToXml()` 查看原始 EventData。分享日志前检查是否含配置值或密钥。
+
+### 6.5 工作树和测试隔离
+
+- 测试源码：`E:\Projects\libtv自动化生成`，分支 `codex/testing`。
+- 生产源码：`C:\Users\Reel\Documents\libtv-auto-main-sync`，分支 `main`，是独立仓库。
+- 生产配置/数据：`F:\Users\Reel\Documents\libtv-production`，不是本次源码推广目标；其中已有用户修改，不要覆盖。
+- 测试源码的 `var` 是指向生产数据的 junction。不要运行可能写入默认 `var`、加载真实 `.env` 或访问生产数据库的测试。
+- 已有隔离运行器：`E:\Codex\visualizations\2026\09\23\01a0cdb7-c7c6-7840-ab2f-0c932e004dc2\G1\run_isolated.py`。先阅读其参数与隔离规则，再用于后续测试。
+- 上述 7 项测试是在测试树直接运行的历史结果；尚无生产树同组测试或本次修复后的真实服务验收结果。
+- 每次源码变更在测试分支验证后，再将对应提交推广到 `main`，保留生产差异。不得同步密钥、真实 `.env`、运行数据或缓存。
+- 当前工具会话此前不具备管理员服务操作权限，管理员启动需由用户执行；不要绕过权限限制。
+- 前端 5173 的后台托管是另一项任务。后端服务通过，不代表前端已长期托管或整个 G1 已验收。
+
 ### 6.4 维护模式验收
 
 服务稳定后，验证：
@@ -163,4 +190,3 @@ Format-List
 5. 没有启动 Runner 或任何付费供应商路径；
 6. 测试分支和 `main` 均包含 `41b877a` 对应修复；
 7. 新的事件日志中不再出现 `set_wakeup_fd` 异常。
-
