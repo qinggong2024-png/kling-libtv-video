@@ -362,6 +362,46 @@ async def test_operational_metric_units_and_windows_are_explicit(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_video_quota_rejections_are_published_separately(tmp_path: Path) -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        now = datetime.now(UTC)
+        session.add_all(
+            [
+                AuditEvent(
+                    action="VIDEO_QUOTA_REJECTED",
+                    entity_type="PARENT_TASK",
+                    entity_id=str(uuid.uuid4()),
+                    reason="daily video quota exceeded",
+                    correlation_id=str(uuid.uuid4()),
+                    evidence_refs_json=[],
+                    created_at=now,
+                ),
+                AuditEvent(
+                    action="IMAGE_QUOTA_REJECTED",
+                    entity_type="IMAGE_GENERATION_BATCH",
+                    entity_id=str(uuid.uuid4()),
+                    reason="daily image quota exceeded",
+                    correlation_id=str(uuid.uuid4()),
+                    evidence_refs_json=[],
+                    created_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+        snapshot = await operations_snapshot(
+            session,
+            Settings(object_store_mode="local", runner_root=tmp_path / "runner", _env_file=None),
+        )
+    assert snapshot["metrics"]["videoQuotaRejectionCount"] == 1
+    assert snapshot["metrics"]["imageQuotaRejectionCount"] == 1
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_pilot_runtime_lock_drift_is_critical_and_blocks_paid_path(tmp_path: Path) -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:

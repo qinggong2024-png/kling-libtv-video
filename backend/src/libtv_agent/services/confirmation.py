@@ -308,6 +308,19 @@ async def confirm_task(
         task.phase = ParentTaskPhase.ACTION_REQUIRED
         task.phase_reason_code = "POINTS_LIMIT_EXCEEDED"
         task.state_version += 1
+        session.add(
+            AuditEvent(
+                actor_id=task.user_id,
+                action="VIDEO_QUOTA_REJECTED",
+                entity_type="PARENT_TASK",
+                entity_id=str(task.id),
+                from_state=ParentTaskPhase.AWAITING_CONFIRMATION.value,
+                to_state=ParentTaskPhase.ACTION_REQUIRED.value,
+                reason="daily video quota exceeded",
+                correlation_id=str(uuid.uuid4()),
+                evidence_refs_json=[],
+            )
+        )
         await session.commit()
         raise
 
