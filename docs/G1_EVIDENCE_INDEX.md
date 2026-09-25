@@ -1,6 +1,7 @@
 # G1 Evidence Index
 
-Updated 2026-09-24. Overall gate: INCOMPLETE. This index supersedes stale
+Updated 2026-09-25. Acceptance profile: TIERED. G1-Core remains INCOMPLETE;
+conditional isolation evidence and Release Readiness are tracked separately. This index supersedes stale
 "main lacks launch recovery" and "callback decision required" entries in earlier
 G1 reports; it does not erase their historical evidence.
 
@@ -48,6 +49,45 @@ verified against those fields, not merely declared present.
 
 No completion claim is based on summed test counts. Each row must match its actual
 scope, both branches, and current source before the G1 gate can close.
+
+## Tiered Acceptance Profile
+
+The previous single gate mixed core safety invariants with evidence that requires
+browser control, a real CLI executable, paid supplier access, or a production
+observation window. The project now uses three explicit gates:
+
+### G1-Core (mandatory safety gate)
+
+G1-Core can close only when the isolated test and source evidence proves: unknown
+paid submission is never blindly retried/refunded/switched; original-provider
+polling/download/settlement is retained; idempotency, quota, cancellation,
+settlement and stale-observation races are fenced; public callbacks remain
+fail-closed; API/Runner crash recovery preserves the persisted state contract;
+user ownership and controlled audit data are enforced; and both `codex/testing`
+and `main` pass the same scoped evidence. Real supplier calls and production
+deployment are not prerequisites. Current status: **INCOMPLETE**, because fresh
+process confirmation replay and the complete confirmation/dispatch restart matrix
+remain open.
+
+### G1-Conditional (isolated assurance)
+
+These strengthen confidence but are reported independently: CLI executable
+process crash/recovery, background download interruption, PostgreSQL recovery
+variants, SSE snapshot reconnect, frontend partial-refresh resilience, metric
+contract checks and the full confidentiality inventory. A failure here does not
+silently waive a Core invariant; it remains a tracked conditional gap.
+
+### Release Readiness (separate approval)
+
+Real supplier billing/task lifecycle, real media quality, browser network
+interruption, formal production observation, deployment/restart and rollback
+evidence require an explicit scope, account, spend limit, call limit, stop
+condition and approver. They are not implied by G1-Core and are not executed by
+this isolated acceptance. Until separately approved, they remain **NOT RUN**.
+
+The tiering changes the reporting boundary, not the safety invariants. A green
+conditional suite or a large test count cannot close G1-Core, and G1-Core cannot
+be presented as production release approval.
 
 ## Video Create Increment
 
