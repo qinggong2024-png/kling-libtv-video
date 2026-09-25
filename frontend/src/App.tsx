@@ -3143,12 +3143,28 @@ function App() {
       } else {
         setApiUserId(null)
       }
-      const [page, currentActor] = await Promise.all([getTaskPage(), getCurrentUser()])
-      setActor(currentActor)
-      setTasks(page.items)
-      setNextTaskCursor(page.nextCursor)
-      setAuthRequired(false)
-      setError('')
+      const [pageResult, actorResult] = await Promise.allSettled([getTaskPage(), getCurrentUser()])
+      if (pageResult.status === 'fulfilled') {
+        setTasks(pageResult.value.items)
+        setNextTaskCursor(pageResult.value.nextCursor)
+      }
+      if (actorResult.status === 'fulfilled') {
+        setActor(actorResult.value)
+      }
+      const failed = [pageResult, actorResult].find((result) => result.status === 'rejected')
+      if (!failed) {
+        setAuthRequired(false)
+        setError('')
+      } else {
+        const cause = failed.reason
+        if (cause instanceof ApiError && cause.status === 401) {
+          setActor(null)
+          setAuthRequired(true)
+          setError('')
+        } else {
+          setError(cause instanceof ApiError ? cause.message : '暂时无法连接生产服务')
+        }
+      }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         setActor(null)
