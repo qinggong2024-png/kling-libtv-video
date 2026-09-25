@@ -190,3 +190,48 @@ ForEach-Object {
 5. 没有启动 Runner 或任何付费供应商路径；
 6. 测试分支和 `main` 均包含 `41b877a` 对应修复；
 7. 新的事件日志中不再出现 `set_wakeup_fd` 异常。
+
+---
+
+## 9. 接手后验收结果（2026-09-25 15:41–15:47）
+
+### 9.1 事件时间线修正
+
+交接时两次失败（15:25:05、15:28:24）的 traceback 都指向 `api_windows_service.py:125`，而两棵树的修复提交（`41b877a` / `3014b43`）时间戳是 15:32:15。也就是说 **Selector 修复在真实 SCM 下从未被执行过**，那两次失败不能作为"修复无效"的证据。凡遇到"改了但现象没变"的服务问题，第一件事是核对 traceback 行号与当前源码是否对应。
+
+### 9.2 第二层故障（新发现）
+
+Selector 修复生效后 `set_wakeup_fd` 异常消失，随即暴露一个独立故障：
+
+```text
+File "...uvicorn/server.py", line 327, in capture_signals
+  original_handlers = {sig: signal.signal(sig, self.handle_exit) for sig in HANDLED_SIGNALS}
+ValueError: signal only works in main thread of the main interpreter
+```
+
+根因：pywin32 从 SCM 回调线程导入服务模块，`threading` 的首次导入发生在该线程，于是 `threading.main_thread()` 把回调线程当作主线程，uvicorn 内部那句 `threading` 守卫被绕过，直接调用 `signal.signal` 失败。修复：服务使用的 uvicorn Server 子类把 `capture_signals` 覆写为 no-op。
+
+提交：
+
+- `codex/testing`：`4cc99d4 fix: skip uvicorn signal capture in Windows API service`
+- `main`：`58fb334 fix: skip uvicorn signal capture in Windows API service`
+
+### 9.3 验收证据
+
+| 检查项 | 结果 |
+| --- | --- |
+| 服务状态 | `Running`（PID 46472） |
+| `GET /api/v1/health/live` | 200 `{"status":"ok"}` |
+| `GET /api/v1/health/ready` | 200，`postgresql` / `databaseSchema` 均 ok |
+| `Restart-Service` 后 | 重新 `Running`，健康检查 200 |
+| `SvcStop` | 日志出现 `Application shutdown complete`，优雅退出 |
+| 未认证 `GET /api/v1/auth/me`、`/api/v1/tasks` | 401 |
+| 非白名单 GET、POST 写操作 | 503 `MAINTENANCE_QUERY_ONLY` |
+| 服务进程子进程 | 无 |
+| 事件日志中的 `set_wakeup_fd` / traceback | 不再出现 |
+
+隔离测试：两棵树各 `9 passed`（原有 7 项 + 新增 2 项）。执行方式与第 6 条一致；测试器副本额外把 `tempfile.tempdir` 指向隔离目录，否则 pytest 捕获用的临时文件会被审计钩子拦下。
+
+### 9.4 遗留建议（未实施）
+
+`logging_config.configure_file_logging` 写入失败时返回 `None` 而不抛异常，`SvcDoRun` 也没有检查返回值。若日志目录对服务账户不可写，服务会照常启动但丢失全部诊断信息——正是这次故障最难排查的原因。建议后续在 `SvcDoRun` 中检查返回值，失败时调用 `servicemanager.LogErrorMsg`。本次验收确认文件日志写入正常（629 → 1141 字节），因此没有扩大改动范围。
