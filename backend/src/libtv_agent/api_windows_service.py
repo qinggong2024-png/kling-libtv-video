@@ -102,6 +102,20 @@ def service_preflight() -> dict[str, object]:
     }
 
 
+def configure_service_event_loop_policy() -> None:
+    """Use a thread-safe Windows loop policy for the pywin32 service thread.
+
+    ``ServiceFramework.SvcDoRun`` is invoked from a worker thread.  Python's
+    default Windows Proactor policy attempts to install a signal wakeup fd and
+    raises ``ValueError`` outside the main interpreter thread.  The selector
+    policy does not use that signal machinery and is sufficient for uvicorn's
+    local HTTP listener.
+    """
+    policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if policy is not None:
+        asyncio.set_event_loop_policy(policy())
+
+
 if win32serviceutil is not None:
     class ApiService(win32serviceutil.ServiceFramework):
         _svc_name_ = SERVICE_NAME
@@ -122,6 +136,7 @@ if win32serviceutil is not None:
             configure_file_logging(data_root / "var" / "logs" / "api-service.log")
             servicemanager.LogInfoMsg("LibTV Production API query-only service started")
             try:
+                configure_service_event_loop_policy()
                 asyncio.run(_serve(self.stopping, service_settings(data_root)))
             finally:
                 servicemanager.LogInfoMsg("LibTV Production API query-only service stopped")

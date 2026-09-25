@@ -1,7 +1,11 @@
 from pathlib import Path
 import threading
 
-from libtv_agent.api_windows_service import _stop_when_requested, service_settings
+from libtv_agent.api_windows_service import (
+    _stop_when_requested,
+    configure_service_event_loop_policy,
+    service_settings,
+)
 from libtv_agent.api_windows_service import configure_service_account, SERVICE_ACCOUNT
 from unittest.mock import Mock
 import pytest
@@ -40,6 +44,20 @@ def test_service_contract_declares_query_only_mode() -> None:
     text = path.read_text(encoding="utf-8")
     assert 'SERVICE_NAME = "LibTVProductionApi"' in text
     assert 'mode": "query-only"' in text
+
+
+def test_service_configures_thread_safe_windows_event_loop_policy(monkeypatch):
+    class FakePolicy:
+        pass
+
+    import libtv_agent.api_windows_service as service
+
+    monkeypatch.setattr(service.asyncio, "WindowsSelectorEventLoopPolicy", FakePolicy, raising=False)
+    set_policy = Mock()
+    monkeypatch.setattr(service.asyncio, "set_event_loop_policy", set_policy)
+    configure_service_event_loop_policy()
+    set_policy.assert_called_once()
+    assert isinstance(set_policy.call_args.args[0], FakePolicy)
 
 
 async def test_stop_requests_graceful_uvicorn_shutdown():
