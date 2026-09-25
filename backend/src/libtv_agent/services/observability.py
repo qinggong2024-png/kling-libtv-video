@@ -854,6 +854,10 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
                 "source": "audit_event.action=IMAGE_QUOTA_REJECTED",
                 "windowDays": 7,
             },
+            "videoQuotaRejectionCount": {
+                "source": "audit_event.action=VIDEO_QUOTA_REJECTED",
+                "windowDays": 7,
+            },
         },
         "runners": [
             {
