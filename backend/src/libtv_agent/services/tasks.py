@@ -591,14 +591,27 @@ def _build_task_timing(
         for attempt in attempts
         if (artifact := artifacts_by_attempt.get(attempt.id)) is not None
     ]
-    confirmed_values = [value for variant in task.variants if (value := variant.confirmed_at)]
+    confirmed_values = [
+        normalized
+        for variant in task.variants
+        if (normalized := _timestamp(variant.confirmed_at)) is not None
+    ]
     confirmed_at = min(confirmed_values, default=None)
     generation_starts = [
-        value
+        normalized
         for attempt in attempts
-        if (value := attempt.submitted_at or attempt.process_started_at or attempt.created_at)
+        if (
+            normalized := _timestamp(
+                attempt.submitted_at or attempt.process_started_at or attempt.created_at
+            )
+        )
+        is not None
     ]
-    generation_ends = [value for attempt in attempts if (value := attempt.completed_at)]
+    generation_ends = [
+        normalized
+        for attempt in attempts
+        if (normalized := _timestamp(attempt.completed_at)) is not None
+    ]
     ready_artifacts = [artifact for artifact in artifacts if artifact.status.value == "READY"]
     analysis_finished = task.analysis_heartbeat_at if task.analysis_stage != "QUEUED" else None
     analysis_duration = task.analysis_duration_seconds
