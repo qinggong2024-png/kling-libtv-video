@@ -945,7 +945,7 @@ function ProductionComposer({ seed, onCreated, system, actorId }: {
         ? validBatchGroups
         : [{ key: storyboards[0]?.file.name.replace(/\.[^.]+$/, '') || 'video', productFront: subjectMode === 'upload' ? subjectFiles.frontalImage : null, productBack: subjectMode === 'upload' ? subjectFiles.backImage : null, storyboards: storyboards.map((item) => item.file), errors: [] }]
       const uploadCount = submissionGroups.reduce((total, group) => total + group.storyboards.length + (group.productFront ? 1 : 0) + (group.productBack ? 1 : 0), 0)
-      const uploadOne = async (file: File, label: string, sourceImageOutputId?: string) => {
+      const uploadOne = async (file: File, label: string) => {
         try {
           const uploaded = await uploadStoryboard(file, uploadController.signal)
           completedUploads += 1
