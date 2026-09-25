@@ -35,8 +35,8 @@ function Set-ApiServiceConfiguration {
     Assert-Administrator
     $service = Get-Service -Name $ServiceName -ErrorAction Stop
     if ($service.Status -ne 'Stopped') { throw 'Stop the API service before configuring its account.' }
-    # Stop parsing preserves the empty password argument in Windows PowerShell 5.1.
-    sc.exe --% config LibTVProductionApi obj= "NT SERVICE\LibTVProductionApi" password= ""
+    if (-not (Test-Path -LiteralPath $python)) { throw 'Pass -PythonPath to the installed pywin32 Python runtime.' }
+    & $python $serviceScript --configure-account
     if ($LASTEXITCODE -ne 0) { throw 'Service account configuration failed; do not start the service.' }
     & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000
     if ($LASTEXITCODE -ne 0) { throw 'Service recovery configuration failed.' }
