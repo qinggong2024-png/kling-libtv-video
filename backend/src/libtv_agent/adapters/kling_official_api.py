@@ -125,12 +125,12 @@ def _classify_api_error(
     elif service_code in {1100, 1101, 1102, 1103}:
         code = "KLING_API_ACCOUNT_UNAVAILABLE"
         retryable = False
-    elif http_status == 429 or service_code in {1302, 1303}:
-        code = "KLING_API_RATE_LIMITED"
-        retryable = True
     elif service_code in {1200, 1201, 1202, 1203, 1300, 1301, 1304}:
         code = "KLING_API_VALIDATION_FAILED"
         retryable = False
+    elif http_status == 429 or service_code in {1302, 1303}:
+        code = "KLING_API_RATE_LIMITED"
+        retryable = True
     elif http_status >= 500 or service_code in {5000, 5001, 5002}:
         code = "KLING_API_SERVER_ERROR"
         retryable = True
@@ -577,11 +577,12 @@ class KlingOfficialApiAdapter:
                             missing_ok=True,
                         )
                     except KlingApiError as recovery_error:
-                        if not recovery_error.retryable:
-                            raise
-                        recovered = None
+                        raise exc from recovery_error
                     if recovered is not None:
                         return self._submission_result(recovered, recovered=True)
+                # An empty lookup does not prove that a paid submission was rejected.
+                if exc.uncertain:
+                    raise
                 if not exc.retryable or retry_index + 1 >= self.settings.kling_api_max_retries:
                     raise
                 delay = max(
