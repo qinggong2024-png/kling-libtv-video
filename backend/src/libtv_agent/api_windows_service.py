@@ -45,6 +45,30 @@ def service_settings(data_root: Path) -> Settings:
     )
 
 
+def configure_service_account(api=None) -> None:
+    api = api or win32service
+    if api is None:
+        raise RuntimeError("pywin32 is required")
+    manager = api.OpenSCManager(None, None, api.SC_MANAGER_CONNECT)
+    try:
+        service = api.OpenService(
+            manager, SERVICE_NAME, api.SERVICE_CHANGE_CONFIG | api.SERVICE_QUERY_STATUS
+        )
+        try:
+            if api.QueryServiceStatus(service)[1] != api.SERVICE_STOPPED:
+                raise RuntimeError("Stop the API service before configuring its account")
+            # Virtual service accounts require a NULL password, not an empty string.
+            api.ChangeServiceConfig(
+                service, api.SERVICE_NO_CHANGE, api.SERVICE_NO_CHANGE,
+                api.SERVICE_NO_CHANGE, None, None, 0, None,
+                SERVICE_ACCOUNT, None, None,
+            )
+        finally:
+            api.CloseServiceHandle(service)
+    finally:
+        api.CloseServiceHandle(manager)
+
+
 def service_preflight() -> dict[str, object]:
     issues: list[str] = []
     if os.name != "nt":
@@ -130,6 +154,10 @@ async def _stop_when_requested(server, stopping: threading.Event) -> None:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--configure-account"]:
+        configure_service_account()
+        print("Service account configured: " + SERVICE_ACCOUNT)
+        raise SystemExit(0)
     if sys.argv[1:] == ["--preflight"]:
         result = service_preflight()
         print(json.dumps(result, ensure_ascii=False))

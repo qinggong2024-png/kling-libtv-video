@@ -2,6 +2,32 @@ from pathlib import Path
 import threading
 
 from libtv_agent.api_windows_service import _stop_when_requested, service_settings
+from libtv_agent.api_windows_service import configure_service_account, SERVICE_ACCOUNT
+from unittest.mock import Mock
+import pytest
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_account_configuration_uses_null_password_and_closes_handles(running):
+    api = Mock()
+    api.SC_MANAGER_CONNECT = 1
+    api.SERVICE_CHANGE_CONFIG = 2
+    api.SERVICE_QUERY_STATUS = 4
+    api.SERVICE_NO_CHANGE = 0xffffffff
+    api.SERVICE_STOPPED = 1
+    api.OpenSCManager.return_value = "manager"
+    api.OpenService.return_value = "service"
+    api.QueryServiceStatus.return_value = (0, 4 if running else 1)
+    if running:
+        with pytest.raises(RuntimeError, match="Stop"):
+            configure_service_account(api)
+        api.ChangeServiceConfig.assert_not_called()
+    else:
+        configure_service_account(api)
+        args = api.ChangeServiceConfig.call_args.args
+        assert args[8] == SERVICE_ACCOUNT
+        assert args[9] is None
+    assert [call.args[0] for call in api.CloseServiceHandle.call_args_list] == ["service", "manager"]
 
 
 def test_api_windows_service_entrypoint_compiles() -> None:
