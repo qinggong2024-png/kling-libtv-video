@@ -235,3 +235,43 @@ ValueError: signal only works in main thread of the main interpreter
 ### 9.4 遗留建议（未实施）
 
 `logging_config.configure_file_logging` 写入失败时返回 `None` 而不抛异常，`SvcDoRun` 也没有检查返回值。若日志目录对服务账户不可写，服务会照常启动但丢失全部诊断信息——正是这次故障最难排查的原因。建议后续在 `SvcDoRun` 中检查返回值，失败时调用 `servicemanager.LogErrorMsg`。本次验收确认文件日志写入正常（629 → 1141 字节），因此没有扩大改动范围。
+
+---
+
+## 10. 后端独立性确认与前端常驻托管（2026-09-25 17:00–17:20）
+
+### 10.1 后端不依赖前端页面
+
+服务在 `5173` 完全关闭的情况下连续 `Running` 约 1 小时 14 分，据此确认：
+
+- `StartMode=Auto`，无 `DependOnService` / `DependOnGroup` 依赖；
+- `app.py` 未挂载 `StaticFiles`，服务不托管前端产物；
+- 服务只绑定回环 `8000`，局域网入口 `5173` 由前端进程独立承担。
+
+边界不变：服务是 `query-only`，只读不写。
+
+### 10.2 新增：前端常驻托管
+
+后端常驻之后，剩下的缺口是前端依赖人手启动。新增 `scripts\manage-frontend-host.ps1`（只保 `5173`，不碰迁移、不起 Runner、不抢 `8000`），计划任务 `LibTV Frontend Host`。设计取舍、命令与验收证据见 `docs/FRONTEND_HOST.md`。
+
+关键结论：
+
+- 计划任务的失败重启动作对手工启动的任务不触发，可靠性改由脚本内 supervisor 循环 + 1 分钟重复触发器两层承担，实测杀掉 Vite 后约 11s 恢复；
+- Vite 的项目根取自工作目录，必须先 `Set-Location` 到 `frontend`；
+- 登录任务不继承交互式 PATH，解析出的 `node.exe` 绝对路径写进任务参数。
+
+### 10.3 本次未触发迁移与 Runner 的取证
+
+| 判据 | 结果 |
+| --- | --- |
+| `var/logs` 全目录搜索 `upgrade head` | 0 命中 |
+| `var/logs/api-service.log` 中的 alembic 记录 | 仅只读版本比对（`Context impl SQLiteImpl.` / `Will assume non-transactional DDL.`，来自 `/api/v1/health/ready`） |
+| `var/development.db` mtime | 09:11，早于本轮全部操作 |
+| `GET /api/v1/health/ready` | `checks.databaseSchema = ok` |
+| 机器上的 Runner 进程 | 无（`local_runner.py` 未出现；`libtv_automation` 下唯一 Python 进程是服务本体 PID 46472） |
+| `Get-NetTCPConnection` | `8000` 归属服务，`5173` 归属 `node.exe` |
+
+### 10.4 仍未处理的风险
+
+计划任务 `LibTV Local Stack Watchdog`（`State=Ready`，`-Mode Lan`）今天 09:13:13 触发过一次，结果 `0xC000013A`（被终止），且没有写入任何日志。它调用链最终会执行 `uv run alembic -c backend/alembic.ini upgrade head`、启动 `local_runner.py` 并抢占 `8000`，与本方案的三条约束全部冲突。它是 `AtLogOn` 触发器，**下一次登录会再触发**。本次按约定未修改它，处理前需要先确定整体自启动编排应该由谁负责。
+

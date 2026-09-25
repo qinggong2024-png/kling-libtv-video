@@ -36,6 +36,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-api-serv
 
 服务已在 SCM 中安装，并于 2026-09-25 完成真实启动、重启和维护模式验收：状态 `Running`、`/api/v1/health/ready` 返回 200、`SvcStop` 优雅关闭、服务进程无子进程（未启动 Runner）、SCM 故障重启动作 5s/15s/60s 已配置。整机重启演练尚未执行，开机自启以服务 `Start` 类型 `Automatic` 为准。
 
+后端不托管前端：服务只绑定回环 `8000`，不挂载 `StaticFiles`，前端进程消失与否都不影响它的启动和重启。前端目前由 `scripts\manage-frontend-host.ps1` 单独常驻在局域网 `5173`，详见 `docs/FRONTEND_HOST.md`。
+
 前端目前仍是 Vite 开发服务器，适合局域网验收，不是长期正式静态托管方案。正式部署时应另行构建 `frontend/dist` 并交给 IIS/Nginx，不能让 Windows Service 托管 Vite 热更新进程。
 
 ## 已知启动故障与修复
