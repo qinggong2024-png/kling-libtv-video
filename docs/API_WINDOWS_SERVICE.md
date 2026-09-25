@@ -30,6 +30,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-api-serv
 
 安装需要管理员权限。卸载使用 `-Action Uninstall`。安装前应确认 `8000` 没有其他 API 进程占用；不要同时运行前台 uvicorn 和该服务。
 
+如果安装后账户仍显示 LocalSystem，说明安装只完成了注册而未完成账户配置。保持服务停止，在管理员 PowerShell 执行同一脚本的 `-Action Configure`，确认 StartName 为 `NT SERVICE\LibTVProductionApi` 后再处理目录权限。不要重复 Install，也不要使用 LocalSystem 绕过权限问题。Windows PowerShell 5.1 的空字符串原生命令参数可能丢失；脚本对 sc.exe 使用停止解析语法保留空密码参数。
+
 服务账户为 `NT SERVICE\LibTVProductionApi`，安装后、启动前需由管理员授予源码、Python 和依赖目录读取/执行权限、正式 `.env` 与所需运行配置读取权限、日志目录修改权限。不要对整个生产目录授予完全控制。若凭据使用用户范围 DPAPI 加密，新服务账户可能无法解密；应先核实凭据机制，不复制或重置真实密钥。本脚本不自动修改生产 ACL、不安装依赖、不迁移数据库，也不自动启动服务。
 
 当前交付为服务托管代码与隔离测试，尚未在 SCM 中安装或验证开机启动和故障重启。安装并完成健康检查前，不能关闭现有前台服务并宣称后台托管成功。
