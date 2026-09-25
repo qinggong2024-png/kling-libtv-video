@@ -650,12 +650,23 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
         )
         or 0
     )
-    quota_rejections = int(
+    image_quota_rejections = int(
         await session.scalar(
             select(func.count())
             .select_from(AuditEvent)
             .where(
                 AuditEvent.action == "IMAGE_QUOTA_REJECTED",
+                AuditEvent.created_at >= window_started_at,
+            )
+        )
+        or 0
+    )
+    video_quota_rejections = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action == "VIDEO_QUOTA_REJECTED",
                 AuditEvent.created_at >= window_started_at,
             )
         )
@@ -738,7 +749,8 @@ async def operations_snapshot(session: AsyncSession, settings: Settings) -> dict
             "pointsConsumed": reservations[ReservationStatus.SETTLED.value],
             "pointsUncertain": reservations[ReservationStatus.UNCERTAIN.value],
             "deliveryFailureCount": delivery_failures,
-            "imageQuotaRejectionCount": quota_rejections,
+            "imageQuotaRejectionCount": image_quota_rejections,
+            "videoQuotaRejectionCount": video_quota_rejections,
         },
         "metricEvidence": {
             "duplicateGenerationTotal": {
