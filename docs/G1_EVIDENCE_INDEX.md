@@ -78,6 +78,15 @@ are deleted in bounded batches. The first main run failed at collection because
 the implementation and test were absent; that negative evidence is retained by
 the command output and is not counted as a pass.
 
+Video quota observability: quota-observability-testing.xml and
+quota-observability-main.xml each passed 11 tests. `PointsLimitExceededError`
+confirmation failures now write a controlled `VIDEO_QUOTA_REJECTED` audit event;
+the operations snapshot publishes `videoQuotaRejectionCount` separately from
+`imageQuotaRejectionCount` over the same seven-day window. Audit rows contain
+task identity only in controlled storage and no request payload or idempotency key.
+This closes the durable video-quota rejection metric gap, but not idempotency
+replay/conflict counters or external bounded-label export.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
