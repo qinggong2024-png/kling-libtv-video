@@ -1,12 +1,15 @@
 from pathlib import Path
+import contextlib
 import threading
 
 from libtv_agent.api_windows_service import (
     _stop_when_requested,
     configure_service_event_loop_policy,
+    create_service_uvicorn_server,
     service_settings,
 )
 from libtv_agent.api_windows_service import configure_service_account, SERVICE_ACCOUNT
+from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 
@@ -67,6 +70,31 @@ async def test_stop_requests_graceful_uvicorn_shutdown():
     server = SimpleNamespace(should_exit=False)
     await _stop_when_requested(server, stopping)
     assert server.should_exit is True
+
+
+def test_service_server_replaces_uvicorn_signal_capture():
+    """The service thread cannot use ``signal.signal``; uvicorn must not try."""
+
+    class SignalHostileServer:
+        def __init__(self, config):
+            self.config = config
+
+        @contextlib.contextmanager
+        def capture_signals(self):
+            raise ValueError("signal only works in main thread of the main interpreter")
+
+    uvicorn = SimpleNamespace(Server=SignalHostileServer)
+    server = create_service_uvicorn_server(uvicorn, "config")
+    assert server.config == "config"
+    with server.capture_signals():
+        pass
+
+
+def test_uvicorn_still_exposes_capture_signals():
+    """Guard the override against an uvicorn upgrade renaming the hook."""
+    import uvicorn
+
+    assert callable(getattr(uvicorn.Server, "capture_signals", None))
 
 
 def test_settings_force_shared_authentication(tmp_path, monkeypatch):

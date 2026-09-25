@@ -141,6 +141,26 @@ if win32serviceutil is not None:
             finally:
                 servicemanager.LogInfoMsg("LibTV Production API query-only service stopped")
 
+def create_service_uvicorn_server(uvicorn, config):
+    """Build a uvicorn server that never installs process signal handlers.
+
+    pywin32 imports the service module from the SCM callback thread.  Because
+    ``threading`` is first imported there, ``threading.main_thread()`` reports
+    that callback thread as the main thread while CPython's own check still
+    refuses ``signal.signal``.  uvicorn's ``capture_signals`` trusts
+    ``threading`` and therefore dies with ``ValueError: signal only works in
+    main thread of the main interpreter``.  A Windows service is stopped
+    through the SCM (see ``SvcStop``), so it has no use for process signals.
+    """
+
+    class ServiceUvicornServer(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self):
+            yield
+
+    return ServiceUvicornServer(config)
+
+
 async def _serve(stopping: threading.Event, settings: Settings) -> None:
     import uvicorn
 
@@ -152,7 +172,7 @@ async def _serve(stopping: threading.Event, settings: Settings) -> None:
         log_config=None,
         access_log=False,
     )
-    server = uvicorn.Server(config)
+    server = create_service_uvicorn_server(uvicorn, config)
     watcher = asyncio.create_task(_stop_when_requested(server, stopping))
     try:
         await server.serve()
