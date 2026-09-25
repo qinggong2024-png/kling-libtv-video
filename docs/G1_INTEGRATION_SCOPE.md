@@ -38,4 +38,19 @@
 保留回调拒绝、原供应商路由、幂等和账务保护，不批量回滚。后续逐项复核只针对会影响代表性业务流程的代码。
 前端 `Promise.allSettled` 刷新改动需要优先定向复核：任一请求返回 401 时必须优先清除用户与任务数据，不能只处理列表中的第一个错误。已有通用测试通过不代表该认证分支已验证。
 
-当前状态：范围已纠偏；供应商/版本尚待确认；尚未宣称接入验收通过。
+## 已确认的实际接入（2026-09-25）
+
+用户确认使用可灵官方 Kling 3.0 Omni。当前验收以以下官方在线文档为准，不再将供应商选择列为待办：
+
+- 入口：https://klingai.com/document-api/guides/get-started/overview
+- 鉴权及国内域名：https://klingai.com/document-api/guides/get-started/quick-start
+- Omni 提交与查询：https://klingai.com/document-api/api/video/3-0-omni/video-omni
+- 错误码：https://klingai.com/document-api/api/get-started/error-codes
+
+本轮已读取当前在线正文并核对 `kling_official_api.py`：Bearer API Key、北京域名默认值、`POST /omni-video/kling-3.0-omni`、`contents/settings/options`、提交返回 `data.id`、`GET /tasks` 的两种 ID 查询、四种任务状态、`outputs[].url` 均与主链路实现相符。模型 3.0 不等于接口版本号，不据此改为旧版 JWT 或旧版请求结构。
+
+定向修复两处本地问题：HTTP 429 / 业务码 1304 是 IP 白名单策略错误，不应限流重试；提交超时后查询为空或查询失败不能证明未提交成功，必须保留 uncertain，不再次 POST。官方只承诺 external_task_id 可查询且账号内唯一，未承诺重复提交幂等。
+
+高级素材组合尚有本地预校验缺口：参考视频的音频/首尾帧/多镜头限制，以及不同主体类型的数量组合。当前不将供应商对非法组合的参数拒绝当成安全失败；实际启用这些组合时按官方规则定向补齐。主体管理的旧接口不在本轮视频主链路核对结论内。
+
+当前状态：供应商、模型和文档已确认，主链路合同核对已完成；这不等于真实付费联调、正式部署或整个 G1 已通过。回调继续默认拒绝，按原供应商轮询、下载、结算。

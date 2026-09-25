@@ -425,6 +425,50 @@ async def test_rate_limit_is_retryable_and_honors_retry_after(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_ip_allowlist_error_is_not_retried(tmp_path: Path) -> None:
+    calls = []
+
+    async def reject(method, url, headers, body, request_timeout):
+        calls.append(method)
+        return ApiHttpResponse(
+            429, {}, json.dumps({"code": 1304, "message": "IP restricted"}).encode()
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=reject)
+    with pytest.raises(KlingApiError) as caught:
+        await adapter.submit(_request(_image(tmp_path / "first.png", "red")))
+    assert caught.value.code == "KLING_API_VALIDATION_FAILED"
+    assert caught.value.retryable is False
+    assert calls == ["POST"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lookup_code", [0, 1001, 1303])
+async def test_uncertain_submit_never_reposts_after_unresolved_lookup(
+    tmp_path: Path, lookup_code: int
+) -> None:
+    calls = []
+
+    async def unresolved(method, url, headers, body, request_timeout):
+        calls.append(method)
+        if method == "POST":
+            raise TimeoutError
+        return ApiHttpResponse(
+            {0: 200, 1001: 401, 1303: 429}[lookup_code],
+            {},
+            json.dumps({"code": lookup_code, "data": []}).encode(),
+        )
+
+    adapter = KlingOfficialApiAdapter(_settings(tmp_path), http_request=unresolved)
+    with pytest.raises(KlingApiError) as caught:
+        await adapter.submit(_request(_image(tmp_path / "first.png", "red")))
+    assert caught.value.code == "KLING_API_NETWORK_ERROR"
+    assert caught.value.uncertain is True
+    assert caught.value.submitted is True
+    assert calls == ["POST", "GET"]
+
+
+@pytest.mark.asyncio
 async def test_timeout_recovers_by_external_task_id_without_second_submit(tmp_path: Path) -> None:
     first = _image(tmp_path / "first.png", "red")
     calls: list[tuple[str, str]] = []
