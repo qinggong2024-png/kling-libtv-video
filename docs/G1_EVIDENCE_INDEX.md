@@ -17,9 +17,9 @@ migration, live credentials or paid provider call forms part of this acceptance.
 | S06 query retries | retry-policy-testing-full.xml: 48 passed; download-retry-main-full.xml: 51 passed | Per-provider scheduling semantics, not just WaveSpeed/Kling API parsers |
 | S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry | Other downloaders, interruption of background download thread, workflow-level recovery |
 | S08 cancellation | cancel-race-both.xml and cancel-race-main.xml: 4 passed each | Real Runner cancellation/confirmation ordering and settlement integration |
-| S09 quota | Image quota concurrency; video-quota-testing.xml and video-quota-main.xml: 2 passed each, SQLite/PostgreSQL final quota, user isolation and reservation replay | Full video API confirmation lifecycle remains separate from reservation-service coverage |
+| S09 quota | Image quota concurrency; video-quota-testing.xml and video-quota-main.xml: 2 passed each, SQLite/PostgreSQL final quota, user isolation and reservation replay; video quota rejection audit/metric | Full video API confirmation lifecycle remains separate from reservation-service coverage |
 | S10 Shanghai date | cross-day-testing.xml, settlement-main-final.xml; repeated unknown no duplicate ledger, old snapshot settlement serialized | Cross-day concurrent recovery with real task lifecycle |
-| S11 events | g1-consolidated-testing.xml and g1-consolidated-main.xml: SQLite/PostgreSQL service snapshot+REST ownership | Browser network disconnect/reconnect workflow |
+| S11 events | g1-consolidated-testing.xml and g1-consolidated-main.xml: SQLite/PostgreSQL service snapshot+REST ownership; event-reconnect-testing-pg.xml and event-reconnect-main-pg.xml: 2 passed each | Browser-level network interruption remains unverified |
 | S12 confidentiality | Logging exception/URL/data URI regressions | Full response, audit, metric and provider-error injection inventory |
 
 ## Operational State Contract
@@ -228,7 +228,16 @@ successful idempotent replay counts zero. quota-metrics-testing.xml covers
 on testing. Negative evidence is retained in
 quota-metrics-main-missing-import.xml. After promoting the missing import,
 quota-callback-main-fixed.xml passed 17 quota/concurrency/callback cases.
-This metric does not include video quota rejection, which remains unimplemented.
+Video quota rejection is published separately as `videoQuotaRejectionCount`; it is
+not folded into the image count. Neither metric is an external bounded-label
+export.
+
+SSE reconnect: event-reconnect-testing-pg.xml and event-reconnect-main-pg.xml
+each passed SQLite and isolated PostgreSQL cases. Reconnect ignores
+`Last-Event-ID` as a replay cursor and emits a fresh owner-scoped snapshot from
+persisted task rows; the REST task endpoint remains the authoritative detail
+source. This is ASGI/HTTP snapshot coverage, not a browser network interruption
+or durable event-history replay test.
 
 ### Approved Callback Contract Reverification
 
