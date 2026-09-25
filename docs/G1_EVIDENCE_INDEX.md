@@ -239,6 +239,13 @@ persisted task rows; the REST task endpoint remains the authoritative detail
 source. This is ASGI/HTTP snapshot coverage, not a browser network interruption
 or durable event-history replay test.
 
+Frontend reconnect resilience: `frontend/src/App.tsx` now applies task/user
+refresh results independently with `Promise.allSettled`; a successful task
+snapshot is retained when the parallel actor request fails. Testing frontend
+passed 166 tests, build and lint; main passed 163 tests, build and lint after a
+production-only unused-parameter cleanup. This improves polling fallback but is
+not browser-level SSE network interruption evidence.
+
 ### Approved Callback Contract Reverification
 
 callback-contract-testing-verified.xml and callback-contract-main-verified.xml
