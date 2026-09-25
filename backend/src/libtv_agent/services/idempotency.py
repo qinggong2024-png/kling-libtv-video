@@ -113,3 +113,32 @@ async def release_idempotency_claim(
         )
     )
     await session.commit()
+
+
+STALE_CLAIM_GRACE = timedelta(minutes=15)
+
+
+async def release_stale_idempotency_claims(
+    session: AsyncSession,
+    *,
+    older_than: timedelta = STALE_CLAIM_GRACE,
+    limit: int = 200,
+) -> int:
+    """Release abandoned response-less claims without touching live or settled rows."""
+    cutoff = datetime.now(UTC) - older_than
+    stale = list(
+        await session.scalars(
+            select(ApiIdempotencyRecord.id)
+            .where(
+                ApiIdempotencyRecord.response_status == 0,
+                ApiIdempotencyRecord.created_at <= cutoff,
+            )
+            .order_by(ApiIdempotencyRecord.created_at)
+            .limit(limit)
+        )
+    )
+    if not stale:
+        return 0
+    await session.execute(delete(ApiIdempotencyRecord).where(ApiIdempotencyRecord.id.in_(stale)))
+    await session.commit()
+    return len(stale)

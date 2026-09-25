@@ -19,6 +19,7 @@ from libtv_agent.domain.models import AuditEvent, RunnerHost
 from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
+from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
     load_kling_admin_config,
@@ -141,6 +142,7 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     last_metric_sample = 0.0
     last_metric_retention = 0.0
     last_launch_recovery = 0.0
+    last_idempotency_sweep = 0.0
     last_orphan_signature: tuple[int, ...] = ()
     try:
         while not stopping.is_set():
@@ -235,6 +237,13 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         # Recovery never submits; retain it even when disk policy pauses work.
                         await supervisor.recover_stale_launch_started_commands(session)
                         last_launch_recovery = now
+                    if now - last_idempotency_sweep >= 5 * 60:
+                        released = await release_stale_idempotency_claims(session)
+                        if released:
+                            logger.warning(
+                                "released %d abandoned idempotency claim(s)", released
+                            )
+                        last_idempotency_sweep = now
                     if now - last_metric_sample >= settings.runner_metric_sample_seconds:
                         await record_operational_sample(
                             session,
