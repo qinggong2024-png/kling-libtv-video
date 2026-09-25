@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Preflight', 'Install', 'Start', 'Stop', 'Restart', 'Uninstall', 'Status')]
+    [ValidateSet('Preflight', 'Install', 'Configure', 'Start', 'Stop', 'Restart', 'Uninstall', 'Status')]
     [string]$Action = 'Status',
     [ValidateSet('LibTVProductionApi')]
     [string]$ServiceName = 'LibTVProductionApi',
@@ -31,6 +31,20 @@ function Invoke-ApiPreflight {
     if ($LASTEXITCODE -ne 0) { throw "API service preflight failed with exit code $LASTEXITCODE" }
 }
 
+function Set-ApiServiceConfiguration {
+    Assert-Administrator
+    $service = Get-Service -Name $ServiceName -ErrorAction Stop
+    if ($service.Status -ne 'Stopped') { throw 'Stop the API service before configuring its account.' }
+    # Stop parsing preserves the empty password argument in Windows PowerShell 5.1.
+    sc.exe --% config LibTVProductionApi obj= "NT SERVICE\LibTVProductionApi" password= ""
+    if ($LASTEXITCODE -ne 0) { throw 'Service account configuration failed; do not start the service.' }
+    & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000
+    if ($LASTEXITCODE -ne 0) { throw 'Service recovery configuration failed.' }
+    $configured = Get-CimInstance Win32_Service -Filter "Name='LibTVProductionApi'"
+    if ($configured.StartName -ne $ServiceAccount) { throw 'Service account verification failed.' }
+    $configured | Select-Object Name,StartName,State
+}
+
 switch ($Action) {
     'Preflight' { Invoke-ApiPreflight }
     'Status' {
@@ -49,13 +63,13 @@ switch ($Action) {
         $registryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
         New-Item -Path $registryPath -Force | Out-Null
         New-ItemProperty -Path $registryPath -Name DataRoot -Value $env:LIBTV_API_DATA_ROOT -PropertyType String -Force | Out-Null
-        & sc.exe config $ServiceName obj= $ServiceAccount password= ""
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-        & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Set-ApiServiceConfiguration
     }
+    'Configure' { Set-ApiServiceConfiguration }
     'Start' {
         Assert-Administrator
+        $configured = Get-CimInstance Win32_Service -Filter "Name='LibTVProductionApi'"
+        if ($configured.StartName -ne $ServiceAccount) { throw 'Service account is not configured; run Configure first.' }
         if (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 8000 is already occupied; stop the verified foreground API first.' }
         Start-Service -Name $ServiceName
     }
