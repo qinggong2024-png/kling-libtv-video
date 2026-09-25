@@ -6,7 +6,9 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const UPLOAD_TIMEOUT_MS = 60_000
 const LONG_RUNNING_TIMEOUT_MS = 120_000
 const DOWNLOAD_TIMEOUT_MS = 300_000
-let developmentUserId: string | null = DEFAULT_USER_ID
+// 生产构建不内置兜底身份：未建立登录态之前，请求就不该带着一个固定 UUID 出去。
+// 开发构建保留默认值，方便本地直连后端调试（该模式没有 cookie session）。
+let developmentUserId: string | null = import.meta.env.PROD ? null : DEFAULT_USER_ID
 let csrfCookieName = 'libtv_csrf'
 let csrfToken = ''
 

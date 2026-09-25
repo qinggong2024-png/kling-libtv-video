@@ -1,5 +1,6 @@
 import type { Task } from './types'
 import type { ImageGenerationTask, ImageTaskStatus } from './imageCenterModel'
+import { readStorage, writeStorage } from './safeStorage'
 
 export const BROWSER_NOTIFICATION_PREFERENCE_KEY = 'browser-notifications-enabled'
 
@@ -10,11 +11,12 @@ export type TaskNotification = {
 }
 
 export function readBrowserNotificationPreference(): boolean {
-  return localStorage.getItem(BROWSER_NOTIFICATION_PREFERENCE_KEY) !== 'false'
+  // 存储不可用时按「开启」处理，与默认值保持一致。
+  return readStorage('local', BROWSER_NOTIFICATION_PREFERENCE_KEY) !== 'false'
 }
 
 export function writeBrowserNotificationPreference(enabled: boolean): void {
-  localStorage.setItem(BROWSER_NOTIFICATION_PREFERENCE_KEY, String(enabled))
+  writeStorage('local', BROWSER_NOTIFICATION_PREFERENCE_KEY, String(enabled))
 }
 
 export function taskNotificationForTransition(previousPhase: string | undefined, task: Task): TaskNotification | null {
