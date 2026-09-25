@@ -317,16 +317,6 @@
         ],
         "summary": "Receive Kling Callback",
         "operationId": "receive_kling_callback_api_v1_kling_callback_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KlingCallbackRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5751,6 +5741,65 @@
           }
         }
       }
+    },
+    "/api/v1/submission-recovery/query": {
+      "post": {
+        "tags": [
+          "submission-recovery"
+        ],
+        "summary": "Query Submission",
+        "operationId": "query_submission_api_v1_submission_recovery_query_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6704,126 +6753,6 @@
           "humanReviewSeconds"
         ],
         "title": "ImageQualityDecisionRequest"
-      },
-      "KlingCallbackOutput": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "title": "Type"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4096
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type"
-        ],
-        "title": "KlingCallbackOutput"
-      },
-      "KlingCallbackRequest": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Id"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "submitted",
-              "processing",
-              "succeeded",
-              "failed"
-            ],
-            "title": "Status"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 4000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message"
-          },
-          "create_time": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Create Time"
-          },
-          "update_time": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Update Time"
-          },
-          "external_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 160
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "External Id"
-          },
-          "outputs": {
-            "items": {
-              "$ref": "#/components/schemas/KlingCallbackOutput"
-            },
-            "type": "array",
-            "maxItems": 20,
-            "title": "Outputs"
-          },
-          "billing": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "maxItems": 100,
-            "title": "Billing"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "status"
-        ],
-        "title": "KlingCallbackRequest"
       },
       "KlingCallbackResponse": {
         "properties": {
@@ -8108,6 +8037,136 @@
           "action"
         ],
         "title": "ReconcileRequest"
+      },
+      "RecoveryQuery": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "video",
+              "image"
+            ],
+            "title": "Kind"
+          },
+          "clientId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientid"
+          },
+          "idempotencyKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotencykey"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "RecoveryQuery"
+      },
+      "RecoveryRead": {
+        "properties": {
+          "authority": {
+            "type": "string",
+            "const": "server",
+            "title": "Authority",
+            "default": "server"
+          },
+          "source": {
+            "type": "string",
+            "const": "local_database",
+            "title": "Source",
+            "default": "local_database"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "in_progress",
+              "unknown",
+              "not_found"
+            ],
+            "title": "State"
+          },
+          "resourceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resourceid"
+          },
+          "resourceStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resourcestatus"
+          },
+          "stateVersion": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stateversion"
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checkedat"
+          },
+          "auditId": {
+            "type": "string",
+            "title": "Auditid"
+          },
+          "retryAllowed": {
+            "type": "boolean",
+            "const": false,
+            "title": "Retryallowed",
+            "default": false
+          },
+          "requiresAdminReview": {
+            "type": "boolean",
+            "title": "Requiresadminreview"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "checkedAt",
+          "auditId",
+          "requiresAdminReview"
+        ],
+        "title": "RecoveryRead"
       },
       "ReorderRequest": {
         "properties": {
