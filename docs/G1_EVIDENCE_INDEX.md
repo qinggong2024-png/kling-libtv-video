@@ -94,6 +94,14 @@ unrelated existing fake-provider partial-delivery phase assertion failure;
 `timing-main.xml` is retained as negative evidence and no phase semantics were
 changed to hide it.
 
+Confirmation-to-dispatch replay: dispatch-workflow-testing-fixed.xml and
+dispatch-workflow-main.xml each passed one isolated HTTP workflow. The test uses
+synthetic media bytes and validation but real confirmation, Runner dispatch,
+local object-store publication, idempotency replay/conflict and points ledger
+settlement. One generation, one download, one RESERVE and one CONSUME are
+observed; replay is a no-op and changed payload is rejected. This does not prove
+real supplier billing, real media quality or process restart during dispatch.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
