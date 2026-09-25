@@ -142,14 +142,30 @@ function Invoke-FrontendServe {
     # the Windows service and is never inspected or stopped here.
     $existing = Assert-WorkspacePortOwnership -Port $Port -ProjectRoot $ProjectRoot -ServiceName 'frontend'
     if ($existing.Listening) {
-        if (Test-FrontendHttp -TargetPort $Port) {
-            Write-StackLog -Path $frontendLogPath -Text @(
-                ("[{0}] frontend already served by PID {1}; nothing to do" -f `
-                    [DateTimeOffset]::Now.ToString('o'), $existing.ProcessId)
-            )
-            exit 0
+        if (-not (Test-FrontendHttp -TargetPort $Port)) {
+            Stop-FrontendStartup "Port $Port is owned by this workspace (PID $($existing.ProcessId)) but the frontend check failed."
         }
-        Stop-FrontendStartup "Port $Port is owned by this workspace (PID $($existing.ProcessId)) but the frontend check failed."
+        # Adopt the existing listener instead of exiting. Stop-ScheduledTask kills
+        # only the task process and leaves the Vite child listening, so "a
+        # listener with no supervisor behind it" is a normal state, not a healthy
+        # one. Exiting here would hand the repeating trigger a no-op and leave
+        # that orphan unguarded; waiting turns this instance into its supervisor.
+        Write-StackLog -Path $frontendLogPath -Text @(
+            ("[{0}] frontend already served by PID {1}; supervising it until it exits" -f `
+                [DateTimeOffset]::Now.ToString('o'), $existing.ProcessId)
+        )
+        while ($true) {
+            Start-Sleep -Seconds 10
+            $probe = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $ProjectRoot
+            if (-not $probe.Listening) { break }
+            if (-not $probe.OwnedByWorkspace) {
+                Stop-FrontendStartup "Port $Port was taken over by a process outside this workspace; not starting a second copy."
+            }
+        }
+        Write-StackLog -Path $frontendLogPath -Text @(
+            ("[{0}] previous listener is gone; falling through to start one" -f `
+                [DateTimeOffset]::Now.ToString('o'))
+        )
     }
 
     $env:VITE_HOST = $HostAddress
@@ -255,11 +271,16 @@ function Install-FrontendHost {
 }
 
 function Stop-FrontendHost {
+    # Disable before stopping: the repeating trigger restarts the host within a
+    # minute, so a stop that is not also a disable does not hold.
+    Disable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     $identity = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $ProjectRoot
     if ($identity.Listening -and $identity.OwnedByWorkspace) {
-        # Only a listener this workspace owns is ever stopped; a foreign process
-        # on our port is reported, never killed.
+        # Stop-ScheduledTask kills only the task process; the Vite child it
+        # started survives as an orphan and keeps the port, so it is released
+        # here explicitly. Only a listener this workspace owns is ever stopped;
+        # a foreign process on our port is reported, never killed.
         Stop-Process -Id $identity.ProcessId -ErrorAction SilentlyContinue
     }
     Get-FrontendHostStatus
@@ -277,6 +298,9 @@ switch ($Action) {
         Get-FrontendHostStatus | Format-List
     }
     'Start' {
+        # Re-enable first: Stop disables the task, and a disabled task ignores
+        # Start-ScheduledTask.
+        Enable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
         Start-ScheduledTask -TaskName $TaskName
         Start-Sleep -Seconds 2
         Get-FrontendHostStatus | Format-List

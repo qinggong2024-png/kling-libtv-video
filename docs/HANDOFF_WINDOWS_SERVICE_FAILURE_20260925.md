@@ -258,7 +258,8 @@ ValueError: signal only works in main thread of the main interpreter
 
 - 计划任务的失败重启动作对手工启动的任务不触发，可靠性改由脚本内 supervisor 循环 + 1 分钟重复触发器两层承担，实测杀掉 Vite 后约 11s 恢复；
 - Vite 的项目根取自工作目录，必须先 `Set-Location` 到 `frontend`；
-- 登录任务不继承交互式 PATH，解析出的 `node.exe` 绝对路径写进任务参数。
+- 登录任务不继承交互式 PATH，解析出的 `node.exe` 绝对路径写进任务参数；
+- `Stop-ScheduledTask` 只杀任务进程，不杀它启动的 Vite 子进程。因此"端口上有本工作区的监听者但背后没有 supervisor"是正常状态，脚本改为**接管**该监听者而不是发现已服务就退出，否则重复触发器的下一次触发会变成空操作、留下孤儿；`-Action Stop` 也改为先禁用任务，否则一分钟内会被自动拉起。
 
 ### 10.3 本次未触发迁移与 Runner 的取证
 

@@ -31,7 +31,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\manage-frontend-
 | `Status` | 只读。报告计划任务状态、触发条件数、`5173` 监听者与是否由本工作区所有、HTTP 是否可用、日志路径。 |
 | `Serve` | 前台驻留循环，由计划任务调用，一般不手工执行。 |
 | `Install` | 注册计划任务并立即启动，等待 HTTP 就绪后打印 `Status`。 |
-| `Start` / `Stop` | 启动/停止计划任务；`Stop` 同时只回收本工作区所有的监听进程。 |
+| `Start` / `Stop` | 启动/停止。`Stop` 会先禁用任务再停止，并回收本工作区所有的监听进程——不禁用的停止没有意义，重复触发器一分钟内就会把它拉回来；`Start` 会先重新启用。 |
 | `Uninstall` | 停止、注销任务，保留日志。 |
 
 `Install` 不需要管理员权限：任务是当前交互用户 + `RunLevel Limited`。
@@ -42,11 +42,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\manage-frontend-
 
 现状仍然是 Vite dev server，适合局域网验收，**不是**长期正式静态托管方案。正式部署应构建 `frontend/dist` 交给 IIS/Nginx，不能让常驻进程托管热更新服务。本脚本只是把"局域网入口不消失"这件事先兜住。
 
-## 三个必须知道的行为约束
+## 四个必须知道的行为约束
 
 1. **Vite 的项目根来自工作目录。** 脚本先 `Set-Location` 到 `<ProjectRoot>\frontend` 再启动，与 `npm run dev --prefix frontend` 等价。从仓库根启动会服务一个没有 `index.html` 的目录，`/` 直接 404。
 2. **登录任务不继承交互式 shell 的 PATH。** 本机 `node.exe` 不在机器 PATH 也不在 Program Files。脚本按 `-NodePath` → 机器 PATH → 用户 PATH → 当前进程 PATH 的顺序探测，并把解析出的绝对路径写进计划任务参数，所以后续登录不依赖 PATH 解析。
-3. **计划任务的"失败重启"对手工启动的任务不生效。** 因此可靠性由两层承担：脚本内部的 supervisor 循环负责拉起 Vite 本身；任务上的 1 分钟重复触发器负责在任务进程被杀后复活宿主。`-MultipleInstances IgnoreNew` 保证第二层不会复制出第二个健康实例。
+3. **计划任务的"失败重启"对手工启动的任务不生效。** 因此可靠性由两层承担：脚本内部的 supervisor 循环负责拉起 Vite 本身；任务上的 1 分钟重复触发器负责在任务进程被杀后复活宿主。`-MultipleInstances IgnoreNew` 保证第二层不会复制出第二个健康实例。回退：vite 被杀 → 内层在 5s 内拉起；宿主被杀 → 外层在 1 分钟内拉起。
+4. **`Stop-ScheduledTask` 只杀任务进程，不杀它启动的 Vite 子进程。** 于是"有监听者但背后没有 supervisor"是一个正常状态，而不是健康状态。脚本遇到端口已被本工作区占用时**不退出**，而是转成该监听者的 supervisor，等它退出后再自己拉起新的——否则重复触发器会拿到一次空操作，留下一个没人看管的孤儿。同理，`-Action Stop` 必须一并禁用任务。
 
 supervisor 退避：5s 起步、翻倍、封顶 60s；某次运行存活满 120s 视为健康并把退避重置回 5s。配置坏掉时退化成慢重试，不会变成紧凑空转。
 
@@ -68,6 +69,8 @@ supervisor 退避：5s 起步、翻倍、封顶 60s；某次运行存活满 120s
 | 局域网入口 | `http://192.168.30.126:5173/` → 200 `text/html` |
 | API 代理 | `http://127.0.0.1:5173/api/v1/health/ready` → 200，`X-LibTV-Maintenance: query-only` |
 | 进程被杀后恢复 | 杀掉 Vite 后约 11s 内自动恢复（日志 `vite exited with code -1 after 14s; restarting in 5s`） |
+| 宿主被杀后恢复 | `Stop-ScheduledTask` 后 Vite 子进程成为孤儿并留在端口上；下一分钟的触发实例发现端口已被本工作区占用，转为该孤儿的 supervisor 并保持 `Running`（日志 `frontend already served by PID 50940; supervising it until it exits`） |
+| 端口被外部占用 | 只报告，不杀；不启动第二份 |
 
 ## 已知遗留
 
