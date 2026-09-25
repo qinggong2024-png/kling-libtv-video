@@ -70,6 +70,14 @@ with zero generation calls. This is foreground confirmation coverage only;
 PostgreSQL, background confirmation, fresh-process replay and actual paid-dispatch
 lifecycle coverage remain open.
 
+Stale confirmation-claim sweep: stale-confirm-testing.xml and
+stale-confirm-main-fixed.xml each passed 8 tests. The production service runtime
+now includes the same bounded five-minute sweep and `STALE_CLAIM_GRACE` helper as
+testing. Settled and live claims are preserved; abandoned response-less claims
+are deleted in bounded batches. The first main run failed at collection because
+the implementation and test were absent; that negative evidence is retained by
+the command output and is not counted as a pass.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
