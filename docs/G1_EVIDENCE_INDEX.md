@@ -87,6 +87,13 @@ task identity only in controlled storage and no request payload or idempotency k
 This closes the durable video-quota rejection metric gap, but not idempotency
 replay/conflict counters or external bounded-label export.
 
+Task timing hardening: timing-testing.xml passed the targeted timing workflow and
+the task read builder now normalizes naive SQLite timestamps to UTC before min/max
+or duration calculations. The same targeted timing run on main still exposed an
+unrelated existing fake-provider partial-delivery phase assertion failure;
+`timing-main.xml` is retained as negative evidence and no phase semantics were
+changed to hide it.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
