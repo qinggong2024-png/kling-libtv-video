@@ -39,6 +39,15 @@ describe('API request identity and CSRF contracts', () => {
     expect(writeHeaders.get('X-User-Id')).toBe(USER_ID)
   })
 
+  it('omits the user header while no identity has been established', async () => {
+    setApiUserId(null)
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([]))
+
+    await getTasks()
+
+    expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).has('X-User-Id')).toBe(false)
+  })
+
   it('changes the current account password without an administrator target id', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-from-login' }))

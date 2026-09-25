@@ -150,6 +150,7 @@ import {
   writeBrowserNotificationPreference,
 } from './browserNotifications'
 import type { TaskNotification } from './browserNotifications'
+import { readJsonStorage, readStorage, removeStorage, writeJsonStorage, writeStorage } from './safeStorage'
 import {
   buildKlingConfigPatch,
   createKlingConfigDraft,
@@ -1791,13 +1792,9 @@ function HomeView({ active, tasks, seed, system, actorId, onCreated, onOpen, onV
     task.phaseReasonCode ?? '',
     ...task.variants.flatMap((variant) => [variant.kind, variant.generationStatus, variant.errorCode ?? '']),
   ].join(':')
-  const [dismissedAttentionItems, setDismissedAttentionItems] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(DISMISSED_ATTENTION_ITEMS_STORAGE_KEY) ?? '{}') as Record<string, string>
-    } catch {
-      return {}
-    }
-  })
+  const [dismissedAttentionItems, setDismissedAttentionItems] = useState<Record<string, string>>(
+    () => readJsonStorage<Record<string, string>>('local', DISMISSED_ATTENTION_ITEMS_STORAGE_KEY, {}),
+  )
   const needsAction = actionableTasks
     .filter((task) => dismissedAttentionItems[task.id] !== attentionSignatureFor(task))
     .slice(0, 3)
@@ -1806,16 +1803,16 @@ function HomeView({ active, tasks, seed, system, actorId, onCreated, onOpen, onV
   const activeCount = tasks.filter((task) => ACTIVE_PHASES.has(task.phase)).length
   const completedCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
   const attentionSignature = needsAction.map((task) => `${task.id}:${task.phase}:${task.variants.some((variant) => variant.generationStatus === 'UNKNOWN')}`).sort().join('|')
-  const [dismissedAttention, setDismissedAttention] = useState(() => sessionStorage.getItem(DISMISSED_ATTENTION_STORAGE_KEY) ?? '')
+  const [dismissedAttention, setDismissedAttention] = useState(() => readStorage('session', DISMISSED_ATTENTION_STORAGE_KEY) ?? '')
   const showAttention = Boolean(needsAction.length && attentionSignature !== dismissedAttention)
   const dismissAttention = () => {
-    sessionStorage.setItem(DISMISSED_ATTENTION_STORAGE_KEY, attentionSignature)
+    writeStorage('session', DISMISSED_ATTENTION_STORAGE_KEY, attentionSignature)
     setDismissedAttention(attentionSignature)
   }
   const dismissAttentionItem = (task: Task) => {
     setDismissedAttentionItems((current) => {
       const next = { ...current, [task.id]: attentionSignatureFor(task) }
-      localStorage.setItem(DISMISSED_ATTENTION_ITEMS_STORAGE_KEY, JSON.stringify(next))
+      writeJsonStorage('local', DISMISSED_ATTENTION_ITEMS_STORAGE_KEY, next)
       return next
     })
   }
@@ -1928,6 +1925,8 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [copiedActionId, setCopiedActionId] = useState('')
+  // 复制失败单独存放：本组件的 error 会连带隐藏整个内容库列表，不适合承载这类瞬时提示。
+  const [copyActionError, setCopyActionError] = useState('')
   const [editor, setEditor] = useState<
     | { kind: 'action'; item?: MotionActionSummary; initialScope?: 'general' | 'brand' }
     | { kind: 'style'; item?: SiteStyleProfileSummary; initialScope?: 'general' | 'brand' }
@@ -2005,9 +2004,16 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
     || (tab === 'actions' && category !== 'all')
 
   const copyAction = async (action: MotionActionSummary) => {
-    await navigator.clipboard.writeText(action.instruction)
-    setCopiedActionId(action.id)
-    window.setTimeout(() => setCopiedActionId(''), 1800)
+    // 必须走 copyText：局域网 IP + HTTP 属于非安全上下文，此时 navigator.clipboard 不存在，
+    // 直接调用会抛 TypeError，复制功能整条不可用。copyText 内部会退化为 execCommand 方案。
+    try {
+      await copyText(action.instruction)
+      setCopyActionError('')
+      setCopiedActionId(action.id)
+      window.setTimeout(() => setCopiedActionId(''), 1800)
+    } catch (cause) {
+      setCopyActionError(cause instanceof Error ? cause.message : '复制失败，请手动选中提示词后复制')
+    }
   }
 
   const catalogSaved = (
@@ -2066,6 +2072,7 @@ function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog }: {
 
     {tab !== 'subjects' && loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
     {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
+    {copyActionError ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{copyActionError}</span></div> : null}
 
     {!loading && !error && tab === 'actions' ? <section className="action-library-grid" aria-label="动作提示词列表">
       {visibleActions.map((action) => <article className="action-library-card" key={action.id}>
@@ -2832,9 +2839,9 @@ function SettingsView({
   onDisableBrowserNotifications: () => void
 }) {
   useEffect(() => {
-    localStorage.setItem('generation-provider', 'kling')
-    localStorage.removeItem('default-model')
-    ;['default-output-variants', 'video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'].forEach((key) => localStorage.removeItem(key))
+    writeStorage('local', 'generation-provider', 'kling')
+    removeStorage('local', 'default-model')
+    removeStorage('local', ['default-output-variants', 'video-direction', 'default-ratio', 'default-duration', 'max-concurrency', 'retry-count', 'save-directory'])
   }, [])
   return <div className="page-view settings-view"><div className="page-title"><div><span>个人工作区</span><h1>偏好设置</h1><p>这里只保留会影响你个人工作流的选项；生成模型、API 通道与固定生产规格由管理员统一维护。</p></div><div className="page-title-actions">{system?.sharedAuthentication ? <button className="secondary-button" onClick={onLogout}>退出登录</button> : null}</div></div>
     {system?.sharedAuthentication ? <PersonalPasswordSetting /> : null}
@@ -3253,7 +3260,7 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [system, setSystem] = useState<SystemStatus | null>(null)
   const [actor, setActor] = useState<AuthUser | null>(null)
-  const [devActorRole, setDevActorRole] = useState<'user' | 'admin'>(() => localStorage.getItem('development-actor-role') === 'admin' ? 'admin' : 'user')
+  const [devActorRole, setDevActorRole] = useState<'user' | 'admin'>(() => readStorage('local', 'development-actor-role') === 'admin' ? 'admin' : 'user')
   const [view, setView] = useState<View>(() => readAppLocation().view)
   const [detailId, setDetailId] = useState<string | null>(() => readAppLocation().detailId)
   const [adminSection, setAdminSection] = useState<AdminSection>(() => readAppLocation().adminSection)
@@ -3783,7 +3790,7 @@ function App() {
   const switchView = (next: View) => { navigate(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const switchDevelopmentActor = () => {
     const next = devActorRole === 'admin' ? 'user' : 'admin'
-    localStorage.setItem('development-actor-role', next)
+    writeStorage('local', 'development-actor-role', next)
     setDevActorRole(next)
     setSidebarInfo(null)
     setLoading(true)
