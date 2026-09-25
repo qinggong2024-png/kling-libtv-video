@@ -1,5 +1,12 @@
 # G1 PM Execution Board
 
+## Current Direction (2026-09-25)
+
+The user approved contract-first integration acceptance. Follow
+[G1_INTEGRATION_SCOPE.md](G1_INTEGRATION_SCOPE.md) before the historical packages
+below. Do not expand the fault matrix or require paid supplier tests merely to
+close this integration review. Historical rows below are not the current backlog.
+
 Baseline 2026-09-24: testing 0f0c394, main f7574a3. Latest external UI/recovery
 API additions are preserved. G1 and UI release matrices use separate ID namespaces.
 

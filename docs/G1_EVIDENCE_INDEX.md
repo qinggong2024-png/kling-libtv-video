@@ -1,5 +1,10 @@
 # G1 Evidence Index
 
+Current acceptance scope: [G1_INTEGRATION_SCOPE.md](G1_INTEGRATION_SCOPE.md),
+approved 2026-09-25. Contract-first integration checks supersede the broad
+remaining-boundary lists below as the execution backlog. Existing evidence and
+failures remain historical facts; this scope change does not declare a pass.
+
 Updated 2026-09-25. Acceptance profile: TIERED. G1-Core remains INCOMPLETE;
 conditional isolation evidence and Release Readiness are tracked separately. This index supersedes stale
 "main lacks launch recovery" and "callback decision required" entries in earlier
