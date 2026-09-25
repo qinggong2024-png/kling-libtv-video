@@ -48,6 +48,7 @@ import {
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { settleSessionRefresh } from './sessionRefresh'
 import {
   ApiError,
   analyzeTask,
@@ -3293,6 +3294,7 @@ function App() {
       if (cause instanceof ApiError && cause.status === 401) {
         setActor(null)
         setTasks([])
+        setNextTaskCursor(null)
         setAuthRequired(true)
         setError('')
       } else {
@@ -3312,7 +3314,7 @@ function App() {
       } else {
         setApiUserId(null)
       }
-      const [pageResult, actorResult] = await Promise.allSettled([getTaskPage(), getCurrentUser()])
+      const [pageResult, actorResult] = await settleSessionRefresh(getTaskPage(), getCurrentUser())
       if (pageResult.status === 'fulfilled') {
         setTasks(pageResult.value.items)
         setNextTaskCursor(pageResult.value.nextCursor)
@@ -3326,18 +3328,13 @@ function App() {
         setError('')
       } else {
         const cause = failed.reason
-        if (cause instanceof ApiError && cause.status === 401) {
-          setActor(null)
-          setAuthRequired(true)
-          setError('')
-        } else {
-          setError(cause instanceof ApiError ? cause.message : '暂时无法连接生产服务')
-        }
+        setError(cause instanceof ApiError ? cause.message : '暂时无法连接生产服务')
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         setActor(null)
         setTasks([])
+        setNextTaskCursor(null)
         setAuthRequired(true)
         setError('')
       } else {

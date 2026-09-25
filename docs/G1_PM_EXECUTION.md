@@ -7,6 +7,10 @@ The user approved contract-first integration acceptance. Follow
 below. Do not expand the fault matrix or require paid supplier tests merely to
 close this integration review. Historical rows below are not the current backlog.
 
+Latest local closeout: [G1_LOCAL_CLOSEOUT.md](G1_LOCAL_CLOSEOUT.md). The scoped
+authentication-refresh fix and local recovery/isolation checks are complete.
+Production business acceptance remains separate from source synchronization.
+
 Baseline 2026-09-24: testing 0f0c394, main f7574a3. Latest external UI/recovery
 API additions are preserved. G1 and UI release matrices use separate ID namespaces.
 
