@@ -6,7 +6,9 @@ param(
     [ValidateRange(15, 600)]
     [int]$StartupTimeoutSeconds = 90,
     [ValidateRange(60, 7200)]
-    [int]$MaxBackoffSeconds = 600
+    [int]$MaxBackoffSeconds = 600,
+    [ValidateRange(30, 3600)]
+    [int]$HeartbeatSeconds = 300
 )
 
 $ErrorActionPreference = 'Continue'
@@ -28,6 +30,59 @@ $logDegradedReason = $logTarget.Reason
 function Write-WatchdogLog([string]$Message) {
     $timestamp = [DateTimeOffset]::Now.ToString('o')
     Write-StackLog -Path $logPath -Text @("$timestamp $Message")
+}
+
+function Write-HeartbeatIfDue {
+    # The loop used to log only on state transitions, so a healthy "ready"
+    # stretch wrote nothing at all. The last line of the log was therefore a
+    # lower bound on how long the watchdog ran, never an upper one - and a
+    # quiet log could not be told apart from a healthy one. On 2026-09-25 the
+    # process died with 0xC000013A and the log ended on "Local stack is ready."
+    # with no way to say whether that was thirty seconds or three hours before.
+    #
+    # This writes an unconditional line at a fixed cadence, so both edges of a
+    # death window are bounded: no "alive" line for more than twice
+    # HeartbeatSeconds means the loop stopped turning. The cadence is recorded
+    # on the startup line so the reader does not have to guess it, and a stale
+    # process running an older script is visible as a startup line without the
+    # heartbeat field.
+    #
+    # It reports the readiness flags the loop already computed instead of
+    # probing again. A second set of health criteria in the same process is how
+    # a watchdog starts disagreeing with the launcher it supervises.
+    $now = [DateTimeOffset]::Now
+    if (($now - $script:lastHeartbeat).TotalSeconds -lt $HeartbeatSeconds) { return }
+    $uptime = [int]($now - $script:startedAt).TotalSeconds
+    # An offline data volume short-circuits the loop before the readiness probes
+    # run, so these are still null. Say so rather than printing an empty field
+    # that reads like a formatting bug.
+    $api = if ($null -eq $script:apiReady) { 'unmeasured' } else { $script:apiReady }
+    $frontend = if ($null -eq $script:frontendReady) { 'unmeasured' } else { $script:frontendReady }
+    Write-WatchdogLog (
+        "alive: iteration=$($script:iteration) uptime=${uptime}s state=$($script:lastState) " +
+        "api=$api frontend=$frontend logDegraded=$logDegraded"
+    )
+    $script:lastHeartbeat = $now
+}
+
+function Wait-WithHeartbeat([int]$Seconds) {
+    # Heartbeats are emitted at the top of the loop, but two branches sleep far
+    # longer than the cadence: the backoff after a failed start (up to
+    # MaxBackoffSeconds, 600s by default) and the data-volume-offline branch
+    # (up to PollSeconds, which the parameter allows to reach 3600s). A sleep
+    # that long reproduces exactly the ambiguity this heartbeat exists to
+    # remove - silence was indistinguishable from a stalled loop.
+    #
+    # Sleep in chunks no larger than the cadence and re-emit between them, so
+    # expected silence stays bounded by the cadence regardless of which branch
+    # is running. Short sleeps are untouched: one chunk, same duration.
+    $remaining = $Seconds
+    while ($remaining -gt 0) {
+        $chunk = [Math]::Min($remaining, $HeartbeatSeconds)
+        Start-Sleep -Seconds $chunk
+        $remaining -= $chunk
+        Write-HeartbeatIfDue
+    }
 }
 
 function Test-DataVolume {
@@ -93,14 +148,25 @@ if (-not (Test-Path -LiteralPath $startScript)) {
     throw $message
 }
 
-Write-WatchdogLog "Watchdog started (PID $PID, mode=$Mode, poll=${PollSeconds}s)."
+Write-WatchdogLog (
+    "Watchdog started (PID $PID, mode=$Mode, poll=${PollSeconds}s, " +
+    "heartbeat=${HeartbeatSeconds}s)."
+)
 if ($logDegraded) {
     Write-WatchdogLog "WARNING: logging is degraded - $logDegradedReason"
 }
-$lastState = $null
+$lastState = 'starting'
 $consecutiveFailures = 0
+$iteration = 0
+$startedAt = [DateTimeOffset]::Now
+$lastHeartbeat = $startedAt
+$apiReady = $null
+$frontendReady = $null
 
 while ($true) {
+    $iteration++
+    Write-HeartbeatIfDue
+
     $dataVolume = Test-DataVolume
 
     if (-not $dataVolume.Available) {
@@ -112,7 +178,7 @@ while ($true) {
             )
             $lastState = 'data-volume-offline'
         }
-        Start-Sleep -Seconds $PollSeconds
+        Wait-WithHeartbeat $PollSeconds
         continue
     }
     if ($lastState -eq 'data-volume-offline') {
@@ -135,7 +201,7 @@ while ($true) {
             $lastState = 'ready'
         }
         $consecutiveFailures = 0
-        Start-Sleep -Seconds $PollSeconds
+        Wait-WithHeartbeat $PollSeconds
         continue
     }
 
@@ -177,10 +243,10 @@ while ($true) {
             "Startup attempt failed with exit code $startupExitCode " +
             "(consecutive failures: $consecutiveFailures); retrying in $delay seconds."
         )
-        Start-Sleep -Seconds $delay
+        Wait-WithHeartbeat $delay
         continue
     }
     $consecutiveFailures = 0
 
-    Start-Sleep -Seconds $PollSeconds
+    Wait-WithHeartbeat $PollSeconds
 }
