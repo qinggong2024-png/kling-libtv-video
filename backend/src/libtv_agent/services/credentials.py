@@ -106,6 +106,12 @@ def _secure_file(path: Path, settings: Settings) -> None:
         import win32api
 
         current_user = win32api.GetUserNameEx(win32api.NameSamCompatible)
+        # icacls output is never inspected - only the exit status matters. Do not
+        # capture it: icacls emits bytes in the machine's OEM code page (cp936 on
+        # zh-CN), while Popen(text=True) without an explicit encoding decodes with
+        # locale.getpreferredencoding(), which is UTF-8 under PYTHONUTF8=1. That
+        # mismatch makes the reader thread die with UnicodeDecodeError. Dropping the
+        # pipes removes the decode entirely and keeps this locale-independent.
         subprocess.run(
             [
                 "icacls.exe",
@@ -116,14 +122,14 @@ def _secure_file(path: Path, settings: Settings) -> None:
                 "SYSTEM:(F)",
             ],
             check=True,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         runner_acl = subprocess.run(
             ["icacls.exe", str(path), "/grant:r", f"{settings.runner_service_account}:(R)"],
             check=False,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         if runner_acl.returncode != 0 and settings.app_env in {"staging", "production"}:
             raise RuntimeError("Runner service account ACL could not be applied")
