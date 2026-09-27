@@ -6,7 +6,9 @@ param(
     [int]$Port = 5173,
     [string]$NodePath,
     [string]$TaskName = 'LibTV Frontend Host',
-    [int]$StartupTimeoutSeconds = 40
+    [int]$StartupTimeoutSeconds = 40,
+    [ValidateRange(30, 3600)]
+    [int]$HeartbeatSeconds = 300
 )
 
 # Frontend-only host. It keeps the Vite entry point on the LAN up after logon
@@ -30,6 +32,61 @@ $scriptPath = $MyInvocation.MyCommand.Path
 
 $logTarget = Get-StackLogPath -ProjectRoot $ProjectRoot -Name 'frontend.host.log'
 $frontendLogPath = $logTarget.Path
+
+# Heartbeat state, mirroring watch-local-stack.ps1. On 2026-09-25 this host was
+# killed (task result 0xC000013A) and the log ended on a Vite HMR line with no
+# way to tell whether that was seconds or hours before; on 2026-09-27 the host
+# proved it can sit in a supervision loop for two days writing nothing at all.
+# A quiet log is therefore not evidence of health, which is the one thing an
+# unattended supervisor has to be able to state.
+$script:startedAt = [DateTimeOffset]::Now
+$script:lastHeartbeat = $script:startedAt
+$script:iteration = 0
+$script:lastMode = 'starting'
+
+function Write-FrontendLog([string]$Message) {
+    Write-StackLog -Path $frontendLogPath -Text @(
+        ("[{0}] {1}" -f [DateTimeOffset]::Now.ToString('o'), $Message)
+    )
+}
+
+function Write-HeartbeatIfDue {
+    # An unconditional line at a fixed cadence, so both edges of a death window
+    # are bounded: no "alive" line for more than twice HeartbeatSeconds means
+    # the loop stopped turning. The cadence is recorded on the startup line so a
+    # stale process running an older script is visible as a startup line that
+    # has no heartbeat field.
+    #
+    # Known blind spot, stated rather than papered over: while Vite streams, this
+    # process is blocked inside the output pipeline and no heartbeat can be
+    # emitted from here at all. That is why the serving state is NOT diagnosed
+    # from this log - the authoritative liveness probe for a serving frontend is
+    # http://127.0.0.1:5173/ from outside (watch-local-stack.ps1, and
+    # check-local-services.ps1). The heartbeat covers the supervision loops,
+    # which are pure sleeps and were the branch that went silent for two days.
+    $now = [DateTimeOffset]::Now
+    if (($now - $script:lastHeartbeat).TotalSeconds -lt $HeartbeatSeconds) { return }
+    $uptime = [int]($now - $script:startedAt).TotalSeconds
+    Write-FrontendLog (
+        "alive: iteration=$($script:iteration) uptime=${uptime}s mode=$($script:lastMode) " +
+        "port=$Port heartbeat=${HeartbeatSeconds}s"
+    )
+    $script:lastHeartbeat = $now
+}
+
+function Wait-WithHeartbeat([int]$Seconds) {
+    # Sleep in chunks no larger than the cadence and re-emit between them, so
+    # expected silence stays bounded by the cadence regardless of which branch
+    # is running. Short sleeps are untouched: one chunk, same duration, so this
+    # does not change when Vite is restarted.
+    $remaining = $Seconds
+    while ($remaining -gt 0) {
+        $chunk = [Math]::Min($remaining, $HeartbeatSeconds)
+        Start-Sleep -Seconds $chunk
+        $remaining -= $chunk
+        Write-HeartbeatIfDue
+    }
+}
 
 function Stop-FrontendStartup([string]$Message) {
     # Logged before throwing: the scheduled task runs this in a hidden window
@@ -98,12 +155,28 @@ function Get-FrontendHostStatus {
         $lastResult = '0x{0:X8}' -f [uint32]$info.LastTaskResult
         $triggerCount = @($task.Triggers).Count
     }
+    # 0x800710E0 is ERROR_OPERATOR_OR_ADMIN_REFUSED_THE_REQUEST, which Task
+    # Scheduler surfaces in the task History as "Launch request ignored,
+    # instance already running". Install deliberately pairs a long-resident
+    # action with a PT1M repeating trigger, so a healthy host is refused once a
+    # minute and this field is pinned to that code by design. It is therefore
+    # NOT a health signal, and it cannot become one: a real Serve failure would
+    # be overwritten by the next refusal within 60 seconds. Do not chase it.
+    # Health is: Listening + OwnedByWorkspace + Serving below, plus "alive:"
+    # heartbeats in the log.
+    $lastResultNote = if ($lastResult -eq '0x800710E0') {
+        'expected by design: PT1M trigger refused because the resident host is still running'
+    }
+    elseif ($lastResult) { 'see scripts/manage-frontend-host.ps1 and the task History tab' }
+    else { '' }
     return [pscustomobject]@{
         TaskName = $TaskName
         TaskState = $taskState
         TriggerCount = $triggerCount
         LastRunTime = $lastRun
         LastTaskResult = $lastResult
+        LastTaskResultNote = $lastResultNote
+        HeartbeatSeconds = $HeartbeatSeconds
         Listening = $identity.Listening
         OwnedByWorkspace = $identity.OwnedByWorkspace
         ProcessId = $identity.ProcessId
@@ -118,7 +191,7 @@ function Invoke-FrontendServe {
     $frontendRoot = Join-Path $ProjectRoot 'frontend'
     Set-Location -LiteralPath $frontendRoot
     Write-StackLogHeader -Path $frontendLogPath -Component 'frontend-host' `
-        -Detail "projectRoot=$ProjectRoot cwd=$frontendRoot host=$HostAddress port=$Port"
+        -Detail "projectRoot=$ProjectRoot cwd=$frontendRoot host=$HostAddress port=$Port heartbeat=${HeartbeatSeconds}s"
 
     # Vite resolves its project root from the working directory, exactly as
     # 'npm.cmd run dev --prefix frontend' does. Running it from the repository
@@ -150,22 +223,20 @@ function Invoke-FrontendServe {
         # listener with no supervisor behind it" is a normal state, not a healthy
         # one. Exiting here would hand the repeating trigger a no-op and leave
         # that orphan unguarded; waiting turns this instance into its supervisor.
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] frontend already served by PID {1}; supervising it until it exits" -f `
-                [DateTimeOffset]::Now.ToString('o'), $existing.ProcessId)
+        Write-FrontendLog (
+            "frontend already served by PID $($existing.ProcessId); supervising it until it exits"
         )
+        $script:lastMode = 'supervising'
         while ($true) {
-            Start-Sleep -Seconds 10
+            $script:iteration++
+            Wait-WithHeartbeat 10
             $probe = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $ProjectRoot
             if (-not $probe.Listening) { break }
             if (-not $probe.OwnedByWorkspace) {
                 Stop-FrontendStartup "Port $Port was taken over by a process outside this workspace; not starting a second copy."
             }
         }
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] previous listener is gone; falling through to start one" -f `
-                [DateTimeOffset]::Now.ToString('o'))
-        )
+        Write-FrontendLog 'previous listener is gone; falling through to start one'
     }
 
     $env:VITE_HOST = $HostAddress
@@ -183,20 +254,27 @@ function Invoke-FrontendServe {
     # of a tight spin.
     $delay = 5
     while ($true) {
-        $startedAt = Get-Date
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] starting vite (host {1}, port {2})" -f `
-                [DateTimeOffset]::Now.ToString('o'), $HostAddress, $Port)
-        )
+        $script:iteration++
+        $script:lastMode = 'serving-vite'
+        $runStartedAt = Get-Date
+        # Vite streams into the log through the pipeline below, which blocks this
+        # process until Vite exits. Two consequences the reader has to know:
+        #   * no heartbeat line can be written while Vite is streaming, so the
+        #     last line of this log is a lower bound on uptime, never an upper
+        #     one, for as long as this branch is running;
+        #   * therefore "is the frontend up?" must be answered by probing
+        #     http://127.0.0.1:5173/ from outside, not by reading this log.
+        # The heartbeat is still emitted immediately before the stream starts, so
+        # the previous run's exit line and this run's start line both carry a
+        # timestamp and the gap between them is measurable.
+        Write-HeartbeatIfDue
+        Write-FrontendLog "starting vite (host $HostAddress, port $Port); the stream below blocks heartbeats until it exits"
         & $node.Path $viteEntry '--host' $HostAddress '--port' ([string]$Port) '--strictPort' 2>&1 |
             Write-StackLogRecord -Path $frontendLogPath
         $exitCode = $LASTEXITCODE
-        $uptimeSeconds = [int]((Get-Date) - $startedAt).TotalSeconds
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] vite exited with code {1} after {2}s; restarting in {3}s" -f `
-                [DateTimeOffset]::Now.ToString('o'), $exitCode, $uptimeSeconds, $delay)
-        )
-        Start-Sleep -Seconds $delay
+        $uptimeSeconds = [int]((Get-Date) - $runStartedAt).TotalSeconds
+        Write-FrontendLog "vite exited with code $exitCode after ${uptimeSeconds}s; restarting in ${delay}s"
+        Wait-WithHeartbeat $delay
         if ($uptimeSeconds -ge 120) { $delay = 5 } else { $delay = [Math]::Min(60, $delay * 2) }
     }
 }
