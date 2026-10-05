@@ -23,6 +23,7 @@ from libtv_agent.services.bach_config import (
     load_bach_admin_config,
 )
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
+from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
 from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -284,10 +285,17 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         # dies before settling leaves the key at response_status=0, and
                         # every replay then answers 409 IDEMPOTENCY_REQUEST_IN_PROGRESS
                         # for ever. Nothing else in the system ever looks at those rows.
+                        confirmation_recovery = await recover_stale_confirmation_claims(
+                            session, settings
+                        )
                         released = await release_stale_idempotency_claims(session)
-                        if released:
+                        if released or any(confirmation_recovery.values()):
                             logger.warning(
-                                "released %d abandoned idempotency claim(s)", released
+                                "recovered stale idempotency claims",
+                                extra={
+                                    "released": released,
+                                    "confirmation_recovery": confirmation_recovery,
+                                },
                             )
                         last_idempotency_sweep = now
                     await session.commit()

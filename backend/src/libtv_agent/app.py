@@ -26,6 +26,7 @@ from libtv_agent.services.bach_config import (
     bach_admin_config_signature,
     load_bach_admin_config,
 )
+from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
 from libtv_agent.services.credentials import load_admin_credentials
 from libtv_agent.services.feedback_learning import recover_feedback_learning_jobs
 from libtv_agent.services.image_generations import refresh_active_batches
@@ -70,6 +71,20 @@ async def _recover_stale_materialization_tasks(app: FastAPI) -> None:
     except Exception:
         # Recovery must not prevent liveness while a database is still starting up.
         logger.exception("stale materialization recovery failed")
+
+
+async def _recover_stale_confirmation_claims(app: FastAPI) -> None:
+    try:
+        async with app.state.database.session_factory() as session:
+            result = await recover_stale_confirmation_claims(session, app.state.settings)
+            if any(result.values()):
+                logger.warning(
+                    "recovered stale confirmation claims",
+                    extra={"confirmation_recovery": result},
+                )
+    except Exception:
+        # A later runner sweep can retry recovery; startup must remain live.
+        logger.exception("stale confirmation recovery failed")
 
 
 async def _analysis_recovery_loop(app: FastAPI) -> None:
@@ -207,6 +222,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.database = Database(app_settings.database_url)
         await _recover_stale_analyses(app)
         await _recover_stale_materialization_tasks(app)
+        await _recover_stale_confirmation_claims(app)
         try:
             recovered_subject_jobs = await recover_subject_element_jobs(app)
             if recovered_subject_jobs:
