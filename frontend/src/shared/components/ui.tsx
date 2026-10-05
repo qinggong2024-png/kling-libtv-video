@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react'
 import { useEffect, useId, useRef } from 'react'
 import type { ReactNode } from 'react'
-import type { StatusTone } from './types'
+import type { StatusTone } from '../../types'
 
 export type FoundationStatus = {
   label: string

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ImageOutputReview, OutputCard } from './ImageCenter'
-import type { ImageGenerationOutput } from './imageCenterModel'
+import type { ImageGenerationOutput } from '../../imageCenterModel'
 
 const output: ImageGenerationOutput = {
   id: 'output-1', kind: 'fusion', view: 'front', label: '正面结果',

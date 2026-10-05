@@ -7,25 +7,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from './imageFiles'
-import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset, setImageOutputQualityDecision } from './api'
-import { CustomPromptField } from './CustomPromptField'
+import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../imageFiles'
+import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset, setImageOutputQualityDecision } from '../../api'
+import { CustomPromptField } from '../../CustomPromptField'
 import {
   IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
   buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
   createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
   moveImageAssetSlot, normalizeImageGenerationModes, normalizeImageGenerationQuality, parseStoryboardPrompt, validateImageCenterDraft,
-} from './imageCenterModel'
-import type { ImageGenerationBatch, ImageGenerationBatchItem } from './types'
+} from '../../imageCenterModel'
+import type { ImageGenerationBatch, ImageGenerationBatchItem } from '../../types'
 import type {
   ImageAssetSet, ImageCenterDraft, ImageGenerationMode, ImageGenerationOutput,
   ImageGenerationTask, ImageProvider, OutfitDraft,
-} from './imageCenterModel'
-import { loadImageCenterDraft, saveImageCenterDraft } from './imageCenterStore'
-import { createUuid } from './uuid'
-import { imageTaskNotificationForTransition } from './browserNotifications'
-import type { TaskNotification } from './browserNotifications'
-import { FoundationDrawer } from './ui'
+} from '../../imageCenterModel'
+import { loadImageCenterDraft, saveImageCenterDraft } from '../../imageCenterStore'
+import { createUuid } from '../../uuid'
+import { imageTaskNotificationForTransition } from '../../browserNotifications'
+import type { TaskNotification } from '../../browserNotifications'
+import { FoundationDrawer } from '../../shared/components/ui'
 import './imageReview.css'
 
 export type VideoSubjectSource = 'generated' | 'product-front' | 'product-back'
