@@ -82,7 +82,10 @@ def run_service() -> None:
             servicemanager.LogInfoMsg("LibTV Production Runner started")
             # The Windows service has no console at all, so a file log is the
             # only place its failures can surface.
-            configure_file_logging(RUNNER_LOG_PATH)
+            configure_file_logging(
+                RUNNER_LOG_PATH,
+                failure_reporter=servicemanager.LogErrorMsg,
+            )
             try:
                 asyncio.run(run_service_loop(self.stopping, PROJECT_ROOT))
             finally:

@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import re
+from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -83,6 +84,7 @@ def configure_file_logging(
     level: int = logging.INFO,
     max_bytes: int = 5 * 1024 * 1024,
     backup_count: int = 3,
+    failure_reporter: Callable[[str], None] | None = None,
 ) -> Path | None:
     """Attach a UTF-8 rotating file handler to the root logger.
 
@@ -105,7 +107,12 @@ def configure_file_logging(
             backupCount=backup_count,
             encoding="utf-8",
         )
-    except OSError:
+    except OSError as exc:
+        if failure_reporter is not None:
+            try:
+                failure_reporter(f"unable to configure file logging at {path}: {exc}")
+            except Exception:
+                pass
         return None
     handler.setLevel(level)
     handler.setFormatter(
