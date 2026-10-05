@@ -1,12 +1,14 @@
 import pytest
 from libtv_agent.adapters.bach_provider import BachApiAdapter
 from libtv_agent.adapters.kling_provider import create_kling_adapter
-from libtv_agent.config import Settings
+from libtv_agent.config import Settings, _workspace_source_revision
 
 
 def test_contract_defaults() -> None:
     settings = Settings(_env_file=None)
 
+    assert len(settings.deployment_source_revision) == 64
+    assert settings.deployment_source_revision != "unknown"
     assert settings.openai_model == "gpt-5.6-luna"
     assert settings.openai_analysis_fallback_model == "gpt-5.6-terra"
     assert settings.openai_reasoning_effort == "none"
@@ -30,6 +32,36 @@ def test_contract_defaults() -> None:
     assert settings.kling_api_duration == 10
     assert settings.kling_api_aspect_ratio == "9:16"
     assert settings.kling_api_enabled is False
+
+
+def test_explicit_deployment_source_revision_overrides_source_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEPLOYMENT_SOURCE_REVISION", "explicit-test-revision")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.deployment_source_revision == "explicit-test-revision"
+
+
+def test_workspace_source_revision_matches_expected_manifest_shape(tmp_path) -> None:
+    (tmp_path / "backend" / "src").mkdir(parents=True)
+    (tmp_path / "backend" / "alembic" / "versions").mkdir(parents=True)
+    (tmp_path / "backend" / "src" / "app.py").write_text("first", encoding="utf-8")
+    (tmp_path / "backend" / "alembic" / "versions" / "001.py").write_text(
+        "migration", encoding="utf-8"
+    )
+    (tmp_path / "backend" / "alembic.ini").write_text("alembic", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("project", encoding="utf-8")
+    (tmp_path / "uv.lock").write_text("lock", encoding="utf-8")
+
+    initial = _workspace_source_revision(tmp_path)
+
+    assert len(initial) == 64
+    assert initial != "unknown"
+    assert _workspace_source_revision(tmp_path) == initial
+    (tmp_path / "backend" / "src" / "app.py").write_text("second", encoding="utf-8")
+    assert _workspace_source_revision(tmp_path) != initial
 
 
 def test_kling_api_configuration_selects_independent_provider() -> None:
