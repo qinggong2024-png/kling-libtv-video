@@ -9,6 +9,7 @@ from libtv_agent.services.content_catalog import (
     save_catalog_entry,
     site_style_profile_library,
 )
+from libtv_agent.templates.motion_actions import canonical_action_id
 from libtv_agent.templates.video_templates import VIDEO_TEMPLATES
 
 router = APIRouter(prefix="/motion-actions", tags=["motion-actions"])
@@ -33,7 +34,8 @@ async def _save(
     creating: bool,
 ) -> dict[str, object]:
     _require_editor(actor.role)
-    existing = (await motion_action_library(session)).get(payload.id)
+    canonical_id = canonical_action_id(payload.id)
+    existing = (await motion_action_library(session)).get(canonical_id)
     if creating and existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "motion action id already exists")
     if not creating and existing is None:
@@ -75,6 +77,7 @@ async def _save(
             f"unknown compatible template ids: {', '.join(unknown_templates)}",
         )
     value = payload.model_dump(by_alias=True, mode="json")
+    value["id"] = canonical_id
     if payload.required_capabilities is None:
         value["requiredCapabilities"] = (
             [capability.value for capability in existing.required_capabilities]
@@ -84,12 +87,12 @@ async def _save(
     await save_catalog_entry(
         session,
         entry_type=MOTION_ACTION,
-        entry_id=payload.id,
+        entry_id=canonical_id,
         payload=value,
         actor_id=actor.id,
     )
     await session.commit()
-    return (await motion_action_library(session))[payload.id].to_public_dict()
+    return (await motion_action_library(session))[canonical_id].to_public_dict()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -108,6 +111,6 @@ async def update_motion_action(
     actor: Actor,
     session: Session,
 ) -> dict[str, object]:
-    if action_id != payload.id:
+    if canonical_action_id(action_id) != canonical_action_id(payload.id):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "motion action id is immutable")
     return await _save(payload, actor, session, creating=False)

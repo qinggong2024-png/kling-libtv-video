@@ -1,7 +1,12 @@
 from libtv_agent.templates.motion_actions import (
+    ACTION_ALIASES,
     ACTION_LIBRARY,
+    ActionCapability,
+    ActionContext,
     MotionAction,
+    canonical_action_id,
     compatible_action_ids,
+    normalize_action_ids,
     render_action_ids,
 )
 from libtv_agent.templates.site_style_profiles import (
@@ -35,7 +40,12 @@ __all__ = [
     "get_site_style_profile",
     "list_site_style_profiles",
     "ACTION_LIBRARY",
+    "ACTION_ALIASES",
+    "ActionCapability",
+    "ActionContext",
     "MotionAction",
+    "canonical_action_id",
     "compatible_action_ids",
+    "normalize_action_ids",
     "render_action_ids",
 ]

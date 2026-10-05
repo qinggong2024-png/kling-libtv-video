@@ -131,7 +131,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
             "stance_shift",
             "controlled_walk",
             "three_quarter_turn",
-            "chest_print_pause",
+            "print_detail_pause",
         ),
         pacing="slow_to_standard，避免高频跳切",
         product_priorities=("信仰文字可读性", "水洗面料质感", "完整穿搭", "版型稳定"),
@@ -276,7 +276,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         preferred_actions=(
             "controlled_walk",
             "three_quarter_turn",
-            "chest_print_pause",
+            "print_detail_pause",
             "hem_adjust",
         ),
         pacing="standard_to_fast，镜头活泼但动作完整，文字停留清楚且不幼稚",
@@ -312,7 +312,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         preferred_shots=("清晰中景", "胸前文字近景", "肩线/袖口细节"),
         preferred_actions=(
             "stance_shift",
-            "chest_print_pause",
+            "print_detail_pause",
             "sleeve_detail_pause",
         ),
         pacing="standard，商品信息优先",
@@ -487,7 +487,7 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         preferred_actions=(
             "stance_shift",
             "one_step_settle",
-            "chest_print_pause",
+            "print_detail_pause",
             "collar_frame_release",
         ),
         pacing="standard_to_fast；训练切片可短，但商品确认至少保留一到一点五秒",

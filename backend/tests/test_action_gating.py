@@ -5,11 +5,13 @@ from libtv_agent.services.material_validator import (
     validate_materials,
 )
 from libtv_agent.templates.motion_actions import (
+    ACTION_ALIASES,
     ACTION_LIBRARY,
     OOTD_REVIEWED_ACTION_COVERAGE,
     ActionCapability,
     ActionContext,
     MotionAction,
+    canonical_action_id,
     compatible_action_ids,
     evaluate_action,
     evaluate_action_with_base,
@@ -170,6 +172,27 @@ def test_reviewed_ootd_actions_are_fully_normalized_into_the_library() -> None:
     assert len(set(OOTD_REVIEWED_ACTION_COVERAGE.values())) == 43
     assert OOTD_REVIEWED_ACTION_COVERAGE[296] == OOTD_REVIEWED_ACTION_COVERAGE[298]
     assert OOTD_REVIEWED_ACTION_COVERAGE[351] == OOTD_REVIEWED_ACTION_COVERAGE[359]
+
+
+def test_legacy_action_aliases_are_not_exposed_as_duplicate_catalog_entries() -> None:
+    assert set(ACTION_ALIASES) == {
+        "chest_print_pause",
+        "eye_contact_neutral",
+        "cool_detached_glance",
+    }
+    assert set(ACTION_ALIASES).isdisjoint(ACTION_LIBRARY)
+    assert canonical_action_id("chest_print_pause") == "print_detail_pause"
+    assert canonical_action_id("eye_contact_neutral") == "controlled_gaze"
+
+
+def test_legacy_action_ids_are_normalized_before_compatibility_filtering() -> None:
+    assert compatible_action_ids(
+        "garment_detail",
+        ("chest_print_pause", "print_detail_pause"),
+        context=ActionContext(
+            confirmed=frozenset({ActionCapability.FRONT_PRINT_VISIBLE})
+        ),
+    ) == ("print_detail_pause",)
 
 
 @pytest.mark.parametrize(
