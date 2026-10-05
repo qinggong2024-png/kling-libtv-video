@@ -133,7 +133,10 @@ if win32serviceutil is not None:
         def SvcDoRun(self) -> None:
             data_root = Path(win32serviceutil.GetServiceCustomOption(SERVICE_NAME, "DataRoot")).resolve()
             os.chdir(data_root)
-            configure_file_logging(data_root / "var" / "logs" / "api-service.log")
+            configure_file_logging(
+                data_root / "var" / "logs" / "api-service.log",
+                failure_reporter=servicemanager.LogErrorMsg,
+            )
             servicemanager.LogInfoMsg("LibTV Production API query-only service started")
             try:
                 configure_service_event_loop_policy()

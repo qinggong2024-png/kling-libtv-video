@@ -47,3 +47,31 @@ def test_rotating_file_retains_safe_latency_and_redacts_secret(tmp_path):
             root.removeHandler(handler)
             handler.close()
         root.setLevel(old_level)
+
+
+def test_file_logging_failure_can_be_reported_without_raising(tmp_path):
+    errors = []
+    missing_parent = tmp_path / "missing" / "diagnostic.log"
+
+    # A directory at the target path makes the handler construction fail while
+    # keeping the test independent of platform-specific permission behavior.
+    missing_parent.parent.mkdir()
+    missing_parent.mkdir()
+
+    assert (
+        configure_file_logging(missing_parent, failure_reporter=errors.append) is None
+    )
+    assert len(errors) == 1
+    assert "unable to configure file logging" in errors[0]
+    assert str(missing_parent) in errors[0]
+
+
+def test_file_logging_reporter_failure_does_not_block_startup(tmp_path):
+    missing_parent = tmp_path / "missing" / "diagnostic.log"
+    missing_parent.parent.mkdir()
+    missing_parent.mkdir()
+
+    def broken_reporter(_message):
+        raise RuntimeError("event log unavailable")
+
+    assert configure_file_logging(missing_parent, failure_reporter=broken_reporter) is None
