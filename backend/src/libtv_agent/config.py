@@ -1,3 +1,4 @@
+import hashlib
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -5,6 +6,41 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Repository root, derived from this file's location (backend/src/libtv_agent/config.py).
+# Used to resolve in-repo assets without depending on the caller's working directory.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _workspace_source_revision(project_root: Path = _PROJECT_ROOT) -> str:
+    """Return the source fingerprint used by the local startup identity checks."""
+    source_files = [
+        *((project_root / "backend" / "src").rglob("*.py")),
+        *((project_root / "backend" / "alembic").rglob("*.py")),
+        project_root / "backend" / "alembic.ini",
+        project_root / "pyproject.toml",
+        project_root / "uv.lock",
+    ]
+    if not all(path.is_file() for path in source_files):
+        return "unknown"
+
+    manifest: list[str] = []
+    for path in sorted(
+        source_files,
+        key=lambda candidate: candidate.relative_to(project_root).as_posix().casefold(),
+    ):
+        relative_path = path.relative_to(project_root).as_posix()
+        file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest.append(f"{relative_path}\0{file_hash}")
+    return hashlib.sha256("\n".join(manifest).encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _default_deployment_source_revision() -> str:
+    try:
+        return _workspace_source_revision()
+    except OSError:
+        return "unknown"
 
 
 class Settings(BaseSettings):
@@ -19,7 +55,7 @@ class Settings(BaseSettings):
     app_port: int = 8000
     app_public_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     deployment_id: str = "libtv-agent-development"
-    deployment_source_revision: str = "unknown"
+    deployment_source_revision: str = Field(default_factory=_default_deployment_source_revision)
     shared_authentication_enabled: bool = False
 
     database_url: str = "postgresql+asyncpg://libtv_agent:libtv_agent@localhost:5432/libtv_agent"
