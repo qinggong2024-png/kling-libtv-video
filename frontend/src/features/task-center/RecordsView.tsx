@@ -13,8 +13,11 @@ import { TaskThumb } from '../../shared/components/Media'
 
 export type RecordFilter = AppRecordsFilter
 export function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, onRemix, onFeedbackChanged, onCreateTask, initialFilter = 'all', initialQuery = '', onStateChange }: { tasks: Task[]; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; onOpen: (task: Task) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; onCreateTask: () => void; initialFilter?: RecordFilter; initialQuery?: string; onStateChange?: (filter: RecordFilter, query: string, replace?: boolean) => void }) {
- const filter = initialFilter
- const query = initialQuery
+  const filter = initialFilter
+  const query = initialQuery
+  const keyword = query.trim().toLowerCase()
+  const searching = keyword.length > 0
+  const matchesQuery = (task: Task) => !searching || task.title.toLowerCase().includes(keyword)
  const [copied, setCopied] = useState(false)
  const updateFilter = (next: RecordFilter) => { onStateChange?.(next, query) }
  const updateQuery = (next: string) => { onStateChange?.(filter, next, true) }
@@ -35,7 +38,7 @@ export function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, o
     { value: 'cancelled', label: '已取消', test: (task) => task.phase === 'CANCELLED' },
   ]
   const group = groups.find((item) => item.value === filter)!
-  const visible = tasks.filter((task) => group.test(task) && task.title.toLowerCase().includes(query.trim().toLowerCase()))
+  const visible = tasks.filter((task) => group.test(task) && matchesQuery(task))
   const completed = visible.filter((task) => COMPLETED_PHASES.has(task.phase))
   const listRows = filter === 'done' ? [] : visible.filter((task) => !COMPLETED_PHASES.has(task.phase))
   const completedResults = completed

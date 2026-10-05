@@ -6,6 +6,6 @@ export function SectionHeading({ title, count, action }: { title: string; count?
   return <div className="section-heading"><div><h2>{title}</h2>{typeof count === 'number' ? <span className="count-badge">{count}</span> : null}</div>{action}</div>
 }
 
-export function EmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
-  return <div className="empty-state"><span>{icon}</span><strong>{title}</strong><p>{description}</p></div>
+export function EmptyState({ icon, title, description, action }: { icon: React.ReactNode; title: string; description: string; action?: React.ReactNode }) {
+  return <div className="empty-state"><span>{icon}</span><strong>{title}</strong><p>{description}</p>{action ? <div className="empty-state-action">{action}</div> : null}</div>
 }
