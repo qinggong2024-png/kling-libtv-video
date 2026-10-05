@@ -147,6 +147,15 @@ settlement. One generation, one download, one RESERVE and one CONSUME are
 observed; replay is a no-op and changed payload is rejected. This does not prove
 real supplier billing, real media quality or process restart during dispatch.
 
+Fresh-process replay increment: `test_g1_fresh_process_replay.py` passed the
+confirmation replay and confirmation-to-dispatch replay drills in separate Python
+processes on both branches. The second process replays the persisted response and
+verifies that attempt, command, reservation, ledger and delivery-artifact counts
+do not increase. This proves post-completion fresh-process replay only; it does
+not prove recovery when the first process dies during confirmation preparation,
+provider dispatch, download or settlement. The in-flight process-restart matrix
+remains open.
+
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
 now conditionally acquires a write guard using RUNNING status and state_version
