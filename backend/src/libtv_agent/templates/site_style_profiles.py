@@ -673,7 +673,6 @@ _ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
             "graphic_glance_return",
             "stance_shift",
             "eye_contact_soft_smile",
-            "seated_lean_return",
             "existing_prop_return",
             "one_step_settle",
         ),
@@ -708,7 +707,6 @@ _ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
             "hair_tuck_release",
             "cuff_adjust_release",
             "seated_weight_shift",
-            "seated_lean_return",
             "controlled_walk",
             "seated_prop_sip_return",
         ),
@@ -742,7 +740,6 @@ _ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
             "cuff_adjust_release",
             "existing_prop_return",
             "stand_from_seat_settle",
-            "seated_lean_return",
         ),
         "micro_motion_pool": ("controlled_gaze", "cuff_adjust_release", "existing_prop_return"),
         "expression_pool": (
@@ -774,8 +771,7 @@ _ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
         "primary_motion_pool": (
             "graphic_glance_return",
             "print_indicate_release",
-            "seated_outfit_hold",
-            "seated_lean_return",
+            "seated_prop_sip_return",
             "hem_open_release",
         ),
         "micro_motion_pool": ("controlled_gaze", "print_indicate_release", "hem_adjust"),
@@ -807,7 +803,6 @@ _ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
         "primary_motion_pool": (
             "controlled_walk",
             "walk_past_glance",
-            "companion_gaze_return",
             "hair_tuck_release",
             "lean_release",
         ),
