@@ -1,7 +1,8 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 // 代码为逐字搬运，未经逻辑改写。
-import { ChevronRight, ListVideo, LoaderCircle, Search } from 'lucide-react'
+import { Check, ChevronRight, Clipboard, ListVideo, LoaderCircle, Search, X } from 'lucide-react'
 import { useState } from 'react'
+import type { RecordsFilter as AppRecordsFilter } from '../../app/appTypes'
 import { type Task, type Variant } from '../../types'
 import { ACTIVE_PHASES, COMPLETED_PHASES, FAILED_PHASES } from '../../domain/workflowStates'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
@@ -10,10 +11,20 @@ import { formatTime, isAnalysisFailure, taskFailureMessage, variantDisplayName, 
 import { TaskStatusBadge } from '../../shared/components/Badges'
 import { TaskThumb } from '../../shared/components/Media'
 
-export type RecordFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
-export function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, onRemix, onFeedbackChanged }: { tasks: Task[]; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; onOpen: (task: Task) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void }) {
-  const [filter, setFilter] = useState<RecordFilter>('all')
-  const [query, setQuery] = useState('')
+export type RecordFilter = AppRecordsFilter
+export function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, onPlay, onRemix, onFeedbackChanged, onCreateTask, initialFilter = 'all', initialQuery = '', onStateChange }: { tasks: Task[]; hasMore: boolean; loadingMore: boolean; onLoadMore: () => void; onOpen: (task: Task) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; onCreateTask: () => void; initialFilter?: RecordFilter; initialQuery?: string; onStateChange?: (filter: RecordFilter, query: string, replace?: boolean) => void }) {
+ const filter = initialFilter
+ const query = initialQuery
+ const [copied, setCopied] = useState(false)
+ const updateFilter = (next: RecordFilter) => { onStateChange?.(next, query) }
+ const updateQuery = (next: string) => { onStateChange?.(filter, next, true) }
+ const copyLink = async () => {
+   try {
+     await navigator.clipboard.writeText(window.location.href)
+     setCopied(true)
+     window.setTimeout(() => setCopied(false), 1800)
+   } catch { setCopied(false) }
+ }
   const groups: Array<{ value: RecordFilter; label: string; test: (task: Task) => boolean }> = [
     { value: 'all', label: '全部', test: () => true },
     { value: 'attention', label: '需要处理', test: (task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' },
@@ -32,20 +43,29 @@ export function RecordsView({ tasks, hasMore, loadingMore, onLoadMore, onOpen, o
     .filter(({ variant }) => variant.downloadArtifactId)
     .sort((left, right) => Date.parse(right.task.updatedAt) - Date.parse(left.task.updatedAt))
   const displayedCompletedResults = filter === 'all' ? completedResults.slice(0, 3) : completedResults
-  const attentionCount = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED').length
-  const activeCount = tasks.filter((task) => ACTIVE_PHASES.has(task.phase)).length
-  const doneCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
-  return <div className="page-view"><div className="page-title"><div><span>Production Tasks</span><h1>任务</h1><p>查找任务、继续处理，或直接播放和下载已完成视频。</p></div><label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称" aria-label="搜索任务名称" /></label></div>
+  // 计数必须与列表同口径：搜索激活时给出匹配数，否则会出现「卡片 17 条 / 列表没有记录」的矛盾。
+  const countOf = (test: (task: Task) => boolean) => (searching ? tasks.filter(test).filter(matchesQuery).length : tasks.filter(test).length)
+  const attentionCount = countOf((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED')
+  const activeCount = countOf((task) => ACTIVE_PHASES.has(task.phase))
+  const doneCount = countOf((task) => COMPLETED_PHASES.has(task.phase))
+  const allCount = countOf(() => true)
+  return <div className="page-view"><div className="page-title"><div><span>Production Tasks</span><h1>任务</h1><p>查找任务、继续处理，或直接播放和下载已完成视频。</p></div><div className="records-page-actions"><label className="search-field"><Search size={17} /><input value={query} onChange={(event) => updateQuery(event.target.value)} placeholder="搜索任务名称" aria-label="搜索任务名称" />{searching ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); updateQuery('') }} aria-label="清除搜索关键词" title="清除搜索"><X size={15} /></button> : null}</label><button type="button" className="icon-button" onClick={() => void copyLink()} aria-label="复制当前任务筛选链接" title="复制当前筛选链接">{copied ? <Check size={17} /> : <Clipboard size={17} />}</button></div></div>
+    {searching ? <div className="filter-notice" role="status"><Search size={15} /><span>正在按「{query.trim()}」筛选，下方数量与列表均为匹配结果（共 {tasks.length} 条任务）。</span><button type="button" className="text-button" onClick={() => updateQuery('')}>清除搜索</button></div> : null}
     <section className="records-overview" aria-label="任务概览">
-      <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{tasks.length}</strong></span></button>
-      <button type="button" className={filter === 'attention' ? 'is-active' : ''} aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></button>
-      <button type="button" className={filter === 'active' ? 'is-active' : ''} aria-pressed={filter === 'active'} onClick={() => setFilter('active')}><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></button>
-      <button type="button" className={filter === 'done' ? 'is-active' : ''} aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></button>
+      <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => updateFilter('all')}><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{allCount}</strong></span></button>
+      <button type="button" className={filter === 'attention' ? 'is-active' : ''} aria-pressed={filter === 'attention'} onClick={() => updateFilter('attention')}><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></button>
+      <button type="button" className={filter === 'active' ? 'is-active' : ''} aria-pressed={filter === 'active'} onClick={() => updateFilter('active')}><span className="records-overview-dot is-purple" /><span><small>生产中</small><strong>{activeCount}</strong></span></button>
+      <button type="button" className={filter === 'done' ? 'is-active' : ''} aria-pressed={filter === 'done'} onClick={() => updateFilter('done')}><span className="records-overview-dot is-green" /><span><small>已完成</small><strong>{doneCount}</strong></span></button>
     </section>
-    <div className="filter-tabs">{groups.map((item) => { const count = tasks.filter(item.test).length; return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => setFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
-    {displayedCompletedResults.length ? <section className={`records-completed${filter === 'all' ? ' records-completed--preview' : ''}`} aria-label={filter === 'all' ? '最近完成的视频' : '全部已完成视频'}><SectionHeading title={filter === 'all' ? '最近完成' : '视频结果'} count={displayedCompletedResults.length} action={filter === 'all' ? <button type="button" className="text-button" onClick={() => setFilter('done')}>查看全部已完成<ChevronRight size={15} /></button> : undefined} /><div className="results-grid results-grid--library">{displayedCompletedResults.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} />)}</div></section> : null}
+    <div className="filter-tabs">{groups.map((item) => { const count = countOf(item.test); return <button key={item.value} className={filter === item.value ? 'is-active' : ''} onClick={() => updateFilter(item.value)}>{item.label}<span>{count}</span></button> })}</div>
+    {displayedCompletedResults.length ? <section className={`records-completed${filter === 'all' ? ' records-completed--preview' : ''}`} aria-label={filter === 'all' ? '最近完成的视频' : '全部已完成视频'}><SectionHeading title={filter === 'all' ? '最近完成' : '视频结果'} count={displayedCompletedResults.length} action={filter === 'all' ? <button type="button" className="text-button" onClick={() => updateFilter('done')}>查看全部已完成<ChevronRight size={15} /></button> : undefined} /><div className="results-grid results-grid--library">{displayedCompletedResults.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} />)}</div></section> : null}
     {listRows.length ? <div className="task-table"><div className="task-table-head"><span>产品 / 任务</span><span>当前状态</span><span>结果进度</span><span>更新时间</span><span /></div>{listRows.map((task) => <button className="task-table-row" key={task.id} onClick={() => onOpen(task)}><span className="task-name-cell"><TaskThumb task={task} /><span><strong>{task.title}</strong><small>{task.assetCount} 张素材</small></span></span><span><TaskStatusBadge task={task} />{task.phaseReasonCode ? <small>{isAnalysisFailure(task) ? taskFailureMessage(task) : task.phaseReasonCode}</small> : null}</span><span className="mini-variants">{task.variants.map((variant) => <i key={variant.id} className={variant.generationStatus === 'FAILED' ? 'is-failed' : variant.generationStatus === 'SUCCEEDED' ? 'is-done' : ''} aria-label={variantDisplayName(variant)} title={variantDisplayName(variant)}>{variantShortLabel(variant)}</i>)}</span><span>{formatTime(task.updatedAt)}</span><span><ChevronRight size={17} /></span></button>)}</div> : null}
     {hasMore ? <div className="records-load-more"><button className="secondary-button" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? <LoaderCircle className="spin" size={16} /> : null}{loadingMore ? '正在加载' : '加载更早记录'}</button></div> : null}
-    {!visible.length ? <EmptyState icon={<ListVideo size={24} />} title={`没有${group.label === '全部' ? '' : group.label}记录`} description="任务状态变化后会自动归入对应分类。" /> : null}
+    {!visible.length ? (searching
+      ? <EmptyState icon={<Search size={24} />} title={`没有匹配“${query.trim()}”的任务`} description="换个关键词再试，或清除搜索查看全部任务。" action={<button type="button" className="secondary-button" onClick={() => updateQuery('')}>清除搜索</button>} />
+      : tasks.length
+        ? <EmptyState icon={<ListVideo size={24} />} title={group.label === '全部' ? '还没有任务' : `“${group.label}”下暂无任务`} description={group.label === '全部' ? '在「视频制作」上传素材即可创建第一条任务。' : '任务状态变化后会自动归入对应分类。'} action={group.label === '全部' ? <button type="button" className="primary-button" onClick={onCreateTask}>去创建任务</button> : <button type="button" className="secondary-button" onClick={() => updateFilter('all')}>查看全部任务</button>} />
+        : <EmptyState icon={<ListVideo size={24} />} title="还没有任务" description="在「视频制作」上传素材，创建你的第一条服装广告视频。" action={<button type="button" className="primary-button" onClick={onCreateTask}>去创建任务</button>} />
+    ) : null}
   </div>
 }

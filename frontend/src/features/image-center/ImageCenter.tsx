@@ -38,6 +38,7 @@ export interface ImageCenterVideoHandoff {
 
 export interface ImageCenterProps {
   active: boolean
+  draftScope: string | null
   openTaskId: string | null
   onPrepareVideos: (handoffs: ImageCenterVideoHandoff[], onSubmitted: () => void) => void | Promise<void>
   onNotifications: (events: ImageCenterNotificationEvent[]) => void
@@ -548,7 +549,11 @@ function SelectionWorkbench({ tasks, selectedOutputIds, expanded, preparing, onE
   </section>
 }
 
-export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
+export function ImageCenter(props: ImageCenterProps) {
+  return <ScopedImageCenter key={props.draftScope ?? 'anonymous'} {...props} />
+}
+
+function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
   const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
   const [activeOutfitId, setActiveOutfitId] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -573,12 +578,12 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
   useEffect(() => () => {
     if (!loadedRef.current) return
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
-    void saveImageCenterDraft(latestDraftRef.current)
-  }, [])
+    void saveImageCenterDraft(draftScope, latestDraftRef.current).catch(() => { /* The page is already unmounted. */ })
+  }, [draftScope])
 
   useEffect(() => {
     let active = true
-    void loadImageCenterDraft().then((stored) => {
+    void loadImageCenterDraft(draftScope).then((stored) => {
       if (!active || stored?.version !== 1) return
       const defaults = createImageCenterDraft(stored.id, stored.outfits[0]?.id ?? createUuid(), stored.updatedAt)
       setDraft({
@@ -612,13 +617,13 @@ export function ImageCenter({ active, openTaskId, onPrepareVideos, onNotificatio
       })
     }).catch(() => { if (active) setSaveState('error') }).finally(() => { if (active) setLoaded(true) })
     return () => { active = false }
-  }, [])
+  }, [draftScope])
   useEffect(() => {
     if (!loaded) return
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = window.setTimeout(() => { void saveImageCenterDraft(draft).then(() => setSaveState('saved')).catch(() => setSaveState('error')) }, 450)
+    saveTimerRef.current = window.setTimeout(() => { void saveImageCenterDraft(draftScope, draft).then(() => setSaveState('saved')).catch(() => setSaveState('error')) }, 450)
     return () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current) }
-  }, [draft, loaded])
+  }, [draft, draftScope, loaded])
 
   const hasActiveTasks = draft.tasks.some((task) => !TERMINAL_IMAGE_STATUSES.has(task.status))
   useEffect(() => {
