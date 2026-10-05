@@ -38,16 +38,16 @@ performed the release-gate review directly.
 | ID | Package | State | Acceptance evidence |
 | --- | --- | --- | --- |
 | U00 | Recovery query and UI primitives | Foundation only | Previous tests/build; components not yet integrated into business pages |
-| U01 | Safe storage and account isolation | Open, high priority | Blocked storage, logout/account switch, no cross-user IndexedDB draft recovery |
+| U01 | Safe storage and account isolation | Complete on testing and production | Account-scoped IndexedDB keys, anonymous no-persistence, account-switch remount, isolation tests |
 | U02 | Frontend batch progress/recovery presentation | Backend manifest is an external dependency | Consume confirmed server contracts; never infer safe retry or duplicate server implementation |
 | U03 | Unknown reconciliation and quota presentation | Open; release depends on G1 | Server-authoritative result; no unknown resubmission; no invented supplier price |
-| U04 | Selection/review separation | Single-output workflow verified on testing; bulk review open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
-| U05 | Records deep links and bounded lists | Open | Back/forward/detail return, matching counts, pagination, no sensitive URL data |
+| U04 | Selection/review separation | Single-output workflow complete; bulk review open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
+| U05 | Records deep links and bounded lists | Complete on testing and production; pagination remains open | Back/forward/detail return, matching counts, URL-safe filter/search state, copyable filtered link |
 | U06 | Compare/review/delivery/library | Open; contract discovery required | Side-by-side/overlay, traceable decisions, actual version/reference data rather than fabricated metadata |
 | U07 | Shared component integration and visual unification | Open | Existing business pages migrated; coherent status semantics, errors and permission states |
 | U08 | Browser and performance acceptance | Not run | 1440/1024/768/390, keyboard/reduced motion, synthetic media, 50/200/1000 records |
 
-Dependency order: U01/U04/U05/U07 independent frontend increments; U02/U03 when
+Dependency order: U04 bulk review/U07 independent frontend increments; U02/U03 when
 backend contracts are available; U06 and U08. Test changes in isolated fixtures. Incrementally promote
 only verified source patches, preserving production-specific behavior. Do not infer
 brand/workspace roles from cosmetic navigation or invent billing rules.
