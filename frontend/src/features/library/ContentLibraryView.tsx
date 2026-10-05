@@ -106,6 +106,21 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
     || (scope === 'brand' && brandFilter !== 'all')
     || (tab === 'actions' && category !== 'all')
 
+  const clearLibraryFilters = () => {
+    setQuery('')
+    setBrandFilter('all')
+    setCategory('all')
+  }
+
+  function moveTab<T extends string>(event: React.KeyboardEvent<HTMLButtonElement>, values: T[], current: T, select: (value: T) => void) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const index = values.indexOf(current)
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? values.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + values.length) % values.length
+    select(values[nextIndex])
+    requestAnimationFrame(() => document.getElementById(`${values[nextIndex]}-tab`)?.focus())
+  }
+
   const copyAction = async (action: MotionActionSummary) => {
     // 必须走 copyText：局域网 IP + HTTP 属于非安全上下文，此时 navigator.clipboard 不存在，
     // 直接调用会抛 TypeError，复制功能整条不可用。copyText 内部会退化为 execCommand 方案。
@@ -145,7 +160,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
   return <div className="page-view content-library-view">
     <div className="page-title content-library-title">
       <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p></div>
-      {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} /></label> : null}
+      {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} />{query ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); setQuery('') }} aria-label="清除内容库搜索关键词" title="清除搜索"><span aria-hidden="true">×</span></button> : null}</label> : null}
     </div>
 
     <section className="library-overview" aria-label="内容库概览">
@@ -156,15 +171,15 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
     </section>
 
     <div className="library-scope-tabs" role="tablist" aria-label="内容库归属">
-      <button type="button" role="tab" aria-selected={scope === 'general'} className={scope === 'general' ? 'is-active' : ''} onClick={() => { setScope('general'); setBrandFilter('all') }}><Globe2 size={18} /><span><strong>通用内容</strong><small>所有品牌可复用</small></span></button>
-      <button type="button" role="tab" aria-selected={scope === 'brand'} className={scope === 'brand' ? 'is-active' : ''} onClick={() => setScope('brand')}><LockKeyhole size={18} /><span><strong>品牌专属</strong><small>按品牌隔离使用</small></span></button>
-      <button type="button" role="tab" aria-selected={scope === 'subjects'} className={scope === 'subjects' ? 'is-active' : ''} onClick={() => setScope('subjects')}><Package size={18} /><span><strong>历史主体</strong><small>视频主体资产</small></span></button>
+      <button id="general-tab" type="button" role="tab" tabIndex={scope === 'general' ? 0 : -1} aria-selected={scope === 'general'} aria-controls="general-panel" className={scope === 'general' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['general', 'brand', 'subjects'], scope, setScope)} onClick={() => { setScope('general'); setBrandFilter('all') }}><Globe2 size={18} /><span><strong>通用内容</strong><small>所有品牌可复用</small></span></button>
+      <button id="brand-tab" type="button" role="tab" tabIndex={scope === 'brand' ? 0 : -1} aria-selected={scope === 'brand'} aria-controls="brand-panel" className={scope === 'brand' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['general', 'brand', 'subjects'], scope, setScope)} onClick={() => setScope('brand')}><LockKeyhole size={18} /><span><strong>品牌专属</strong><small>按品牌隔离使用</small></span></button>
+      <button id="subjects-tab" type="button" role="tab" tabIndex={scope === 'subjects' ? 0 : -1} aria-selected={scope === 'subjects'} aria-controls="subjects-panel" className={scope === 'subjects' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['general', 'brand', 'subjects'], scope, setScope)} onClick={() => setScope('subjects')}><Package size={18} /><span><strong>历史主体</strong><small>视频主体资产</small></span></button>
     </div>
 
-    {scope !== 'subjects' ? <div className="library-toolbar">
+    {scope !== 'subjects' ? <div id={`${scope}-panel`} role="tabpanel" aria-labelledby={`${scope}-tab`} className="library-toolbar">
       <div className="library-tabs" role="tablist" aria-label={`${scope === 'general' ? '通用' : '品牌专属'}内容类型`}>
-        <button type="button" role="tab" aria-selected={kind === 'actions'} className={kind === 'actions' ? 'is-active' : ''} onClick={() => setKind('actions')}><Activity size={17} />动作库<span>{scope === 'general' ? generalActionCount : brandActionCount}</span></button>
-        <button type="button" role="tab" aria-selected={kind === 'styles'} className={kind === 'styles' ? 'is-active' : ''} onClick={() => setKind('styles')}><Clapperboard size={17} />风格库<span>{scope === 'general' ? generalStyleCount : brandStyleCount}</span></button>
+        <button id="actions-tab" type="button" role="tab" tabIndex={kind === 'actions' ? 0 : -1} aria-selected={kind === 'actions'} aria-controls="actions-panel" className={kind === 'actions' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['actions', 'styles'], kind, setKind)} onClick={() => setKind('actions')}><Activity size={17} />动作库<span>{scope === 'general' ? generalActionCount : brandActionCount}</span></button>
+        <button id="styles-tab" type="button" role="tab" tabIndex={kind === 'styles' ? 0 : -1} aria-selected={kind === 'styles'} aria-controls="styles-panel" className={kind === 'styles' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['actions', 'styles'], kind, setKind)} onClick={() => setKind('styles')}><Clapperboard size={17} />风格库<span>{scope === 'general' ? generalStyleCount : brandStyleCount}</span></button>
       </div>
       <div className="library-toolbar-actions">
         {scope === 'brand' ? <label className="library-filter"><span>品牌</span><select value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)}><option value="all">全部品牌</option>{[...brandNames].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label> : null}
@@ -173,11 +188,14 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       </div>
     </div> : null}
 
+    {tab !== 'subjects' && hasActiveLibraryFilters ? <div className="filter-notice library-filter-notice" role="status"><Search size={15} /><span>当前筛选匹配 {tab === 'actions' ? visibleActions.length : visibleProfiles.length} 条内容。</span><button type="button" className="text-button" onClick={clearLibraryFilters}>清除筛选</button></div> : null}
+
+    {tab !== 'subjects' && (loading || error) ? <div id={`${tab}-panel`} role="tabpanel" aria-labelledby={`${tab}-tab`} /> : null}
     {tab !== 'subjects' && loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
     {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
     {copyActionError ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{copyActionError}</span></div> : null}
 
-    {!loading && !error && tab === 'actions' ? <section className="action-library-grid" aria-label="动作提示词列表">
+    {!loading && !error && tab === 'actions' ? <section id="actions-panel" role="tabpanel" aria-labelledby="actions-tab" className="action-library-grid" aria-label="动作提示词列表">
       {visibleActions.map((action) => <article className="action-library-card" key={action.id}>
         <header>
           <div className="library-card-labels"><span className={`action-category action-category--${action.category}`}>{ACTION_CATEGORY_LABELS[action.category]}</span>{action.brandId ? <span className="library-brand-label"><LockKeyhole size={11} />{brandNames.get(action.brandId) ?? action.brandId}</span> : null}</div>
@@ -192,7 +210,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       </article>)}
     </section> : null}
 
-    {!loading && !error && tab === 'styles' ? <section className="style-library-grid" aria-label="站点视频风格列表">
+    {!loading && !error && tab === 'styles' ? <section id="styles-panel" role="tabpanel" aria-labelledby="styles-tab" className="style-library-grid" aria-label="站点视频风格列表">
       {visibleProfiles.map((profile) => {
         const status = styleStatus(profile)
         return <article className="style-library-card" key={profile.id}>
@@ -220,9 +238,9 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       </article>})}
     </section> : null}
 
-    {tab === 'subjects' ? <KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /> : null}
+    {tab === 'subjects' ? <div id="subjects-panel" role="tabpanel" aria-labelledby="subjects-tab"><KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /></div> : null}
 
-    {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={scope === 'brand' ? <LockKeyhole size={24} /> : <Search size={24} />} title={hasActiveLibraryFilters ? '没有匹配内容' : `还没有${scope === 'brand' ? '品牌专属' : '通用'}${tab === 'actions' ? '动作' : '风格'}`} description={hasActiveLibraryFilters ? '换一个关键词或清除筛选后再试。' : canEditCatalog ? `使用右上角按钮新增第一条${tab === 'actions' ? '动作' : '风格'}。` : '当前库尚未录入内容。'} /> : null}
+    {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={scope === 'brand' ? <LockKeyhole size={24} /> : <Search size={24} />} title={hasActiveLibraryFilters ? '没有匹配内容' : `还没有${scope === 'brand' ? '品牌专属' : '通用'}${tab === 'actions' ? '动作' : '风格'}`} description={hasActiveLibraryFilters ? '换一个关键词或清除筛选后再试。' : canEditCatalog ? `使用右上角按钮新增第一条${tab === 'actions' ? '动作' : '风格'}。` : '当前库尚未录入内容。'} action={hasActiveLibraryFilters ? <button type="button" className="secondary-button" onClick={clearLibraryFilters}>清除筛选</button> : undefined} /> : null}
     {editor ? <CatalogEditor target={editor} actions={actions} profiles={profiles} templates={templates} onClose={() => setEditor(null)} onSaved={catalogSaved} /> : null}
   </div>
 }
