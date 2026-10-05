@@ -41,7 +41,7 @@ function PageLoading() {
 }
 
 function App() {
-  const { view, detailId, adminSection, navigate } = useAppNavigation()
+  const { view, detailId, adminSection, recordsFilter, recordsQuery, navigate, navigateRecords } = useAppNavigation()
   const [sidebarInfo, setSidebarInfo] = useState<'account' | 'help' | null>(null)
   const [hasActiveImageTasks, setHasActiveImageTasks] = useState(false)
   const [imageNotificationTaskId, setImageNotificationTaskId] = useState<string | null>(null)
@@ -194,6 +194,7 @@ function App() {
       <Suspense fallback={null}>
         <ImageCenter
           active={view === 'images'}
+          draftScope={actor?.userId ?? null}
           openTaskId={imageNotificationTaskId}
           onPrepareVideos={prepareImageCenterVideos}
           onNotifications={handleImageNotifications}
@@ -208,7 +209,7 @@ function App() {
         <HomeView active={view === 'make' && !selectedTask} tasks={tasks} seed={seed} system={system} actorId={actorId} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
         {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       </Suspense>
-      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} /> : null}
+      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
         actorId={actorId}
         canDeleteSubjects={actor?.role === 'ADMIN'}

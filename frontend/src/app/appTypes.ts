@@ -3,6 +3,7 @@
 import { type TaskNotification } from '../browserNotifications'
 
 export type View = 'images' | 'make' | 'records' | 'library' | 'admin' | 'settings'
+export type RecordsFilter = 'all' | 'attention' | 'active' | 'partial' | 'done' | 'failed' | 'cancelled'
 export type AdminSection = 'overview' | 'accounts' | 'providers' | 'security'
 export type InPageTaskToast = {
   id: string
