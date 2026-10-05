@@ -44,7 +44,7 @@ performed the release-gate review directly.
 | U04 | Selection/review separation | Complete on testing and production; cross-close recovery remains open | Selection never approves; single and batch review; explicit reject reason; unknown save stops workflow; video transfer only qualified outputs |
 | U05 | Records deep links and bounded lists | Complete on testing and production; pagination remains open | Back/forward/detail return, scroll restoration, matching counts, URL-safe filter/search state, copyable filtered link |
 | U06 | Compare/review/delivery/library | Open; contract discovery required | Side-by-side/overlay, traceable decisions, actual version/reference data rather than fabricated metadata |
-| U07 | Shared component integration and visual unification | Open | Existing business pages migrated; coherent status semantics, errors and permission states |
+| U07 | Shared component integration and visual unification | Content library increment complete; broader page migration open | Content-library tabs, filters, empty states, keyboard behavior and responsive grids aligned; remaining business pages pending |
 | U08 | Browser and performance acceptance | Not run | 1440/1024/768/390, keyboard/reduced motion, synthetic media, 50/200/1000 records |
 
 Dependency order: U04 bulk review/U07 independent frontend increments; U02/U03 when
