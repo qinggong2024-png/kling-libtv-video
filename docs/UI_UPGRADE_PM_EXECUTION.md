@@ -41,7 +41,7 @@ performed the release-gate review directly.
 | U01 | Safe storage and account isolation | Complete on testing and production | Account-scoped IndexedDB keys, anonymous no-persistence, account-switch remount, isolation tests |
 | U02 | Frontend batch progress/recovery presentation | Backend manifest is an external dependency | Consume confirmed server contracts; never infer safe retry or duplicate server implementation |
 | U03 | Unknown reconciliation and quota presentation | Open; release depends on G1 | Server-authoritative result; no unknown resubmission; no invented supplier price |
-| U04 | Selection/review separation | Single-output workflow complete; bulk review open | Selection never approves; explicit review and reject reason; video transfer only qualified outputs |
+| U04 | Selection/review separation | Complete on testing and production; cross-close recovery remains open | Selection never approves; single and batch review; explicit reject reason; unknown save stops workflow; video transfer only qualified outputs |
 | U05 | Records deep links and bounded lists | Complete on testing and production; pagination remains open | Back/forward/detail return, matching counts, URL-safe filter/search state, copyable filtered link |
 | U06 | Compare/review/delivery/library | Open; contract discovery required | Side-by-side/overlay, traceable decisions, actual version/reference data rather than fabricated metadata |
 | U07 | Shared component integration and visual unification | Open | Existing business pages migrated; coherent status semantics, errors and permission states |
