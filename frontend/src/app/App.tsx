@@ -9,7 +9,7 @@
 //   继续轮询来推送图片任务完成通知（onNotifications / onActiveTasksChange）。
 //   因此它被包在 <Suspense fallback={null}> 里且不放进任何条件分支；
 //   一旦改成 {view === 'images' ? <ImageCenter/> : null}，非激活期轮询与通知会直接丢失。
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Bell, Images, Library, ListVideo, LoaderCircle, Plus, RefreshCw, Settings, ShieldCheck, X } from 'lucide-react'
 import { logout } from '../api'
 import { ACTIVE_PHASES } from '../domain/workflowStates'
@@ -41,7 +41,7 @@ function PageLoading() {
 }
 
 function App() {
-  const { view, detailId, adminSection, recordsFilter, recordsQuery, navigate, navigateRecords } = useAppNavigation()
+  const { view, detailId, adminSection, recordsFilter, recordsQuery, recordsRestoreScroll, setRecordsRestoreScroll, navigate, navigateRecords, openTaskFromRecords, closeTaskDetail } = useAppNavigation()
   const [sidebarInfo, setSidebarInfo] = useState<'account' | 'help' | null>(null)
   const [hasActiveImageTasks, setHasActiveImageTasks] = useState(false)
   const [imageNotificationTaskId, setImageNotificationTaskId] = useState<string | null>(null)
@@ -101,6 +101,15 @@ function App() {
     navigate(next)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [navigate])
+
+  useEffect(() => {
+    if (view !== 'records' || recordsRestoreScroll === null) return
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: recordsRestoreScroll, behavior: 'auto' })
+      setRecordsRestoreScroll(null)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [recordsRestoreScroll, setRecordsRestoreScroll, view])
 
   const switchDevelopmentActor = useCallback(() => {
     const next = devActorRole === 'admin' ? 'user' : 'admin'
@@ -207,9 +216,9 @@ function App() {
           改回顶部静态 import 并删掉本 Suspense 即可，entry 会回到约 333 kB。 */}
       <Suspense fallback={<PageLoading />}>
         <HomeView active={view === 'make' && !selectedTask} tasks={tasks} seed={seed} system={system} actorId={actorId} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
-        {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={() => navigate('make')} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
+        {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
       </Suspense>
-      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => navigate('make', task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
+      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
         actorId={actorId}
         canDeleteSubjects={actor?.role === 'ADMIN'}
