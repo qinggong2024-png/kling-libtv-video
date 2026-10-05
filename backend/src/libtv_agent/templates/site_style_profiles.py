@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
 SiteProfileStatus = Literal["draft", "active", "retired"]
@@ -35,6 +35,30 @@ class SiteStyleProfile:
     expression_language: str = "自然、克制并服务于商品展示"
     library_scope: LibraryScope = "brand"
     brand_id: str | None = None
+    motion_energy: str = "standard"
+    primary_motion_pool: tuple[str, ...] = ()
+    micro_motion_pool: tuple[str, ...] = ()
+    expression_pool: tuple[str, ...] = ()
+    camera_pool: tuple[str, ...] = ()
+    forbidden_motion: tuple[str, ...] = ()
+    preferred_environment: tuple[str, ...] = ()
+    product_risk_rules: tuple[str, ...] = ()
+    dedupe_recent_count: int = 5
+    dedupe_combo_window: int = 8
+    dedupe_family_window: int = 10
+    dedupe_family_limit: int = 3
+
+    def __post_init__(self) -> None:
+        # Older catalog records only have preferred_actions and text pools.
+        # Materialize compatible defaults so every profile can use the selector.
+        if not self.expression_pool:
+            object.__setattr__(self, "expression_pool", (self.expression_language,))
+        if not self.camera_pool:
+            object.__setattr__(self, "camera_pool", (self.camera_language,))
+        if not self.forbidden_motion:
+            object.__setattr__(self, "forbidden_motion", self.forbidden_mismatches)
+        if not self.product_risk_rules:
+            object.__setattr__(self, "product_risk_rules", self.product_priorities)
 
     def to_public_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -55,6 +79,18 @@ class SiteStyleProfile:
         value["libraryScope"] = value.pop("library_scope")
         brand_id = value.pop("brand_id")
         value["brandId"] = (brand_id or self.id) if self.library_scope == "brand" else None
+        value["motionEnergy"] = value.pop("motion_energy")
+        value["primaryMotionPool"] = value.pop("primary_motion_pool") or self.preferred_actions
+        value["microMotionPool"] = value.pop("micro_motion_pool")
+        value["expressionPool"] = value.pop("expression_pool")
+        value["cameraPool"] = value.pop("camera_pool")
+        value["forbiddenMotion"] = value.pop("forbidden_motion")
+        value["preferredEnvironment"] = value.pop("preferred_environment")
+        value["productRiskRules"] = value.pop("product_risk_rules")
+        value["dedupeRecentCount"] = value.pop("dedupe_recent_count")
+        value["dedupeComboWindow"] = value.pop("dedupe_combo_window")
+        value["dedupeFamilyWindow"] = value.pop("dedupe_family_window")
+        value["dedupeFamilyLimit"] = value.pop("dedupe_family_limit")
         return value
 
 
@@ -657,6 +693,220 @@ SITE_STYLE_PROFILES: dict[str, SiteStyleProfile] = {
         ),
     ),
 }
+
+
+_ABSORBED_MOTION_LAYERS: dict[str, dict[str, object]] = {
+    "nerdywave": {
+        "motion_energy": "low",
+        "primary_motion_pool": (
+            "stance_shift",
+            "torso_angle_hold",
+            "controlled_gaze",
+            "one_step_settle",
+            "pocket_insert_release",
+            "lean_release",
+            "over_shoulder_back",
+            "hem_adjust",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "graphic_glance_return", "hem_adjust"),
+        "expression_pool": (
+            "neutral confidence",
+            "restrained expression",
+            "subtle half-smile",
+            "detached calm expression",
+        ),
+        "camera_pool": (
+            "slow subtle push-in",
+            "stable handheld",
+            "slight low-angle framing",
+            "static framing with minor handheld imperfection",
+        ),
+        "forbidden_motion": (
+            "big cheerful smile",
+            "playful waving",
+            "excited reaction",
+            "bouncy movement",
+            "overly friendly posing",
+        ),
+        "preferred_environment": ("bedroom mirror UGC", "dark indoor lifestyle"),
+        "product_risk_rules": ("复杂胸前图形时保持双手离开核心印花", "限制大角度转身"),
+    },
+    "geeksoutfit": {
+        "motion_energy": "low_to_medium",
+        "primary_motion_pool": (
+            "graphic_glance_return",
+            "stance_shift",
+            "eye_contact_soft_smile",
+            "seated_lean_return",
+            "existing_prop_return",
+            "one_step_settle",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "graphic_glance_return", "hem_adjust"),
+        "expression_pool": (
+            "subtle pleased smile",
+            "slightly shy smile",
+            "relaxed neutral expression",
+            "brief amused reaction",
+            "mild curiosity",
+        ),
+        "camera_pool": (
+            "casual handheld",
+            "slightly imperfect framing",
+            "fixed smartphone framing",
+            "subtle follow",
+            "minor push-in",
+        ),
+        "forbidden_motion": (
+            "fashion runway behavior",
+            "dramatic posing",
+            "aggressive confidence",
+            "overly polished commercial performance",
+            "large expressive gestures",
+        ),
+        "preferred_environment": ("computer desk", "bookshelf corner", "casual bedroom"),
+        "product_risk_rules": ("手部不得遮挡胸前图案", "道具仅使用输入已存在物件"),
+    },
+    "pagewings": {
+        "motion_energy": "low",
+        "primary_motion_pool": (
+            "hair_tuck_release",
+            "cuff_adjust_release",
+            "seated_weight_shift",
+            "seated_lean_return",
+            "controlled_walk",
+            "seated_prop_sip_return",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "hair_tuck_release", "cuff_adjust_release"),
+        "expression_pool": (
+            "soft thoughtful expression",
+            "subtle warm smile",
+            "calm relaxed expression",
+            "quiet satisfaction",
+            "slightly absorbed expression",
+        ),
+        "camera_pool": (
+            "slow push-in",
+            "gentle handheld",
+            "fixed natural framing",
+            "subtle side movement",
+        ),
+        "forbidden_motion": (
+            "dramatic reaction",
+            "fast energetic gestures",
+            "aggressive camera movement",
+            "commercial model posing",
+            "overly excited expression",
+        ),
+        "preferred_environment": ("quiet reading corner", "library-like interior", "coffee table"),
+        "product_risk_rules": ("只有输入已有书本或杯子时才使用对应交互", "道具不得遮挡核心图形"),
+    },
+    "goodnurselife": {
+        "motion_energy": "medium",
+        "primary_motion_pool": (
+            "cuff_adjust_release",
+            "existing_prop_return",
+            "stand_from_seat_settle",
+            "seated_lean_return",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "cuff_adjust_release", "existing_prop_return"),
+        "expression_pool": (
+            "natural coworker smile",
+            "tired but warm expression",
+            "small genuine laugh",
+            "pleased reaction",
+            "relaxed professional expression",
+        ),
+        "camera_pool": (
+            "coworker smartphone recording",
+            "casual handheld",
+            "slightly imperfect framing",
+            "close conversational distance",
+            "subtle push-in on product",
+        ),
+        "forbidden_motion": (
+            "fashion model posing",
+            "perfect commercial smile",
+            "continuous eye contact with camera",
+            "cinematic dramatic movement",
+            "overly polished performance",
+        ),
+        "preferred_environment": ("break room", "nurse station", "workplace corridor"),
+        "product_risk_rules": ("不新增医疗器械或诊疗行为", "职业文字和胸牌保持清晰"),
+    },
+    "theretrotee": {
+        "motion_energy": "medium",
+        "primary_motion_pool": (
+            "graphic_glance_return",
+            "print_indicate_release",
+            "seated_outfit_hold",
+            "seated_lean_return",
+            "hem_open_release",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "print_indicate_release", "hem_adjust"),
+        "expression_pool": (
+            "nostalgic smile",
+            "amused recognition",
+            "warm familiarity",
+            "small spontaneous laugh",
+            "relaxed happiness",
+        ),
+        "camera_pool": (
+            "casual home-video feeling",
+            "slightly imperfect handheld",
+            "slow push-in",
+            "relaxed static shot",
+            "gentle follow",
+        ),
+        "forbidden_motion": (
+            "future technology HUD",
+            "strong neon",
+            "high-speed whip pan",
+            "film grain obscuring the graphic",
+        ),
+        "preferred_environment": ("living room", "porch", "casual home-video setting"),
+        "product_risk_rules": ("拉下摆只做轻触展示，不拉伸印花", "保持整件复古轮廓可读"),
+    },
+    "orionride": {
+        "motion_energy": "medium",
+        "primary_motion_pool": (
+            "controlled_walk",
+            "walk_past_glance",
+            "companion_gaze_return",
+            "hair_tuck_release",
+            "lean_release",
+        ),
+        "micro_motion_pool": ("controlled_gaze", "hair_tuck_release", "stance_shift"),
+        "expression_pool": (
+            "relaxed smile",
+            "warm spontaneous smile",
+            "calm happiness",
+            "easygoing expression",
+            "genuine interaction",
+        ),
+        "camera_pool": (
+            "walking follow",
+            "casual handheld",
+            "slight tracking",
+            "gentle pull-back",
+            "natural outdoor smartphone motion",
+        ),
+        "forbidden_motion": (
+            "fashion runway movement",
+            "cold detached posing",
+            "overly dramatic cinematic acting",
+            "hyperactive social media performance",
+        ),
+        "preferred_environment": ("outdoor path", "camping scene", "wooden railing"),
+        "product_risk_rules": ("仅在输入存在同伴时使用同伴互动", "不让户外道具遮挡服装"),
+    },
+}
+
+for _profile_id, _motion_layer in _ABSORBED_MOTION_LAYERS.items():
+    if _profile_id in SITE_STYLE_PROFILES:
+        SITE_STYLE_PROFILES[_profile_id] = replace(
+            SITE_STYLE_PROFILES[_profile_id],
+            **_motion_layer,
+        )
 
 
 def list_site_style_profiles(*, include_retired: bool = False) -> tuple[SiteStyleProfile, ...]:

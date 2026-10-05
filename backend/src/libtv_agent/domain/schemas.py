@@ -70,6 +70,18 @@ class SiteStyleProfileWrite(ApiModel):
     product_priorities: list[str] = Field(min_length=1, max_length=30)
     forbidden_mismatches: list[str] = Field(min_length=1, max_length=30)
     research_note: str = Field(min_length=8, max_length=1000)
+    motion_energy: str = Field(default="standard", min_length=2, max_length=40)
+    primary_motion_pool: list[str] = Field(default_factory=list, max_length=30)
+    micro_motion_pool: list[str] = Field(default_factory=list, max_length=30)
+    expression_pool: list[str] = Field(default_factory=list, max_length=20)
+    camera_pool: list[str] = Field(default_factory=list, max_length=20)
+    forbidden_motion: list[str] = Field(default_factory=list, max_length=30)
+    preferred_environment: list[str] = Field(default_factory=list, max_length=20)
+    product_risk_rules: list[str] = Field(default_factory=list, max_length=30)
+    dedupe_recent_count: int = Field(default=5, ge=1, le=20)
+    dedupe_combo_window: int = Field(default=8, ge=1, le=30)
+    dedupe_family_window: int = Field(default=10, ge=1, le=40)
+    dedupe_family_limit: int = Field(default=3, ge=1, le=10)
     library_scope: Literal["general", "brand"] = "brand"
     brand_id: str | None = Field(default=None, min_length=2, max_length=80)
 

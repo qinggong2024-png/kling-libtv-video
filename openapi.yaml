@@ -8431,6 +8431,97 @@
             "minLength": 8,
             "title": "Researchnote"
           },
+          "motionEnergy": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 2,
+            "title": "Motionenergy",
+            "default": "standard"
+          },
+          "primaryMotionPool": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Primarymotionpool"
+          },
+          "microMotionPool": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Micromotionpool"
+          },
+          "expressionPool": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Expressionpool"
+          },
+          "cameraPool": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Camerapool"
+          },
+          "forbiddenMotion": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Forbiddenmotion"
+          },
+          "preferredEnvironment": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Preferredenvironment"
+          },
+          "productRiskRules": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Productriskrules"
+          },
+          "dedupeRecentCount": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Deduperecentcount",
+            "default": 5
+          },
+          "dedupeComboWindow": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Dedupecombowindow",
+            "default": 8
+          },
+          "dedupeFamilyWindow": {
+            "type": "integer",
+            "maximum": 40.0,
+            "minimum": 1.0,
+            "title": "Dedupefamilywindow",
+            "default": 10
+          },
+          "dedupeFamilyLimit": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Dedupefamilylimit",
+            "default": 3
+          },
           "libraryScope": {
             "type": "string",
             "enum": [

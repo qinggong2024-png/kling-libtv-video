@@ -92,6 +92,18 @@ function styleInitial(item?: SiteStyleProfileSummary, initialScope: 'general' | 
     productPriorities: toLines(item?.productPriorities ?? []),
     forbiddenMismatches: toLines(item?.forbiddenMismatches ?? []),
     researchNote: item?.researchNote ?? '',
+    motionEnergy: item?.motionEnergy ?? 'standard',
+    primaryMotionPool: toLines(item?.primaryMotionPool ?? []),
+    microMotionPool: toLines(item?.microMotionPool ?? []),
+    expressionPool: toLines(item?.expressionPool ?? []),
+    cameraPool: toLines(item?.cameraPool ?? []),
+    forbiddenMotion: toLines(item?.forbiddenMotion ?? []),
+    preferredEnvironment: toLines(item?.preferredEnvironment ?? []),
+    productRiskRules: toLines(item?.productRiskRules ?? []),
+    dedupeRecentCount: String(item?.dedupeRecentCount ?? 5),
+    dedupeComboWindow: String(item?.dedupeComboWindow ?? 8),
+    dedupeFamilyWindow: String(item?.dedupeFamilyWindow ?? 10),
+    dedupeFamilyLimit: String(item?.dedupeFamilyLimit ?? 3),
     libraryScope: item?.libraryScope ?? initialScope,
   }
 }
@@ -243,6 +255,18 @@ function StyleEditor({
         productPriorities: fromLines(draft.productPriorities),
         forbiddenMismatches: fromLines(draft.forbiddenMismatches),
         researchNote: draft.researchNote.trim(),
+        motionEnergy: draft.motionEnergy.trim() || 'standard',
+        primaryMotionPool: fromLines(draft.primaryMotionPool),
+        microMotionPool: fromLines(draft.microMotionPool),
+        expressionPool: fromLines(draft.expressionPool),
+        cameraPool: fromLines(draft.cameraPool),
+        forbiddenMotion: fromLines(draft.forbiddenMotion),
+        preferredEnvironment: fromLines(draft.preferredEnvironment),
+        productRiskRules: fromLines(draft.productRiskRules),
+        dedupeRecentCount: Math.max(1, Number(draft.dedupeRecentCount) || 5),
+        dedupeComboWindow: Math.max(1, Number(draft.dedupeComboWindow) || 8),
+        dedupeFamilyWindow: Math.max(1, Number(draft.dedupeFamilyWindow) || 10),
+        dedupeFamilyLimit: Math.max(1, Number(draft.dedupeFamilyLimit) || 3),
         libraryScope: draft.libraryScope as SiteStyleProfileWrite['libraryScope'],
         brandId: draft.libraryScope === 'brand' ? draft.id.trim() : null,
       }
@@ -274,11 +298,20 @@ function StyleEditor({
       <Field label="收束规则" wide hint="明确结束景别、姿态与无遮挡区域。"><textarea required rows={3} value={draft.endingRule} onChange={(event) => update('endingRule', event.target.value)} placeholder="回到正面中景自然定姿，保持图案、领口与下摆完整可见。" /></Field>
       <Field label="镜头语言" wide><textarea required rows={3} value={draft.cameraLanguage} onChange={(event) => update('cameraLanguage', event.target.value)} placeholder="稳定正面观察为主，允许一次缓慢推进与一次干净切镜，不使用甩镜。" /></Field>
       <Field label="节奏"><input required value={draft.pacing} onChange={(event) => update('pacing', event.target.value)} placeholder="slow_to_standard；细节停留 1–1.5 秒" /></Field>
+      <Field label="动作能量"><input required value={draft.motionEnergy} onChange={(event) => update('motionEnergy', event.target.value)} placeholder="low / low_to_medium / medium" /></Field>
       <Field label="字体倾向"><input required value={draft.typography} onChange={(event) => update('typography', event.target.value)} placeholder="清楚的几何无衬线" /></Field>
       <Field label="优先镜头" wide hint="每行一项。"><textarea required rows={3} value={draft.preferredShots} onChange={(event) => update('preferredShots', event.target.value)} placeholder={'正面中景\n三分之四中近景\n图案细节近景'} /></Field>
       <Field label="关联动作 ID" wide hint="每行一个动作 ID；可从动作提示词卡片复制。"><textarea rows={3} value={draft.preferredActions} onChange={(event) => update('preferredActions', event.target.value)} placeholder={'stance_shift\nthree_quarter_turn\nprint_detail_pause'} /></Field>
+      <Field label="主动作池" wide hint="每行一个已批准动作 ID；选择器每条视频选一个主动作。"><textarea rows={4} value={draft.primaryMotionPool} onChange={(event) => update('primaryMotionPool', event.target.value)} placeholder={'stance_shift\nthree_quarter_turn\ncontrolled_walk'} /></Field>
+      <Field label="微动作池" wide hint="每行一个动作 ID；用于补充视线、手部或小幅姿态。"><textarea rows={3} value={draft.microMotionPool} onChange={(event) => update('microMotionPool', event.target.value)} placeholder={'controlled_gaze\nhem_adjust'} /></Field>
+      <Field label="表情池" wide hint="每行一个短语。"><textarea rows={3} value={draft.expressionPool} onChange={(event) => update('expressionPool', event.target.value)} placeholder={'relaxed neutral expression\nsubtle warm smile'} /></Field>
+      <Field label="镜头池" wide hint="每行一个短语；和主动作组合参与去重。"><textarea rows={3} value={draft.cameraPool} onChange={(event) => update('cameraPool', event.target.value)} placeholder={'stable handheld\nslow push-in'} /></Field>
+      <Field label="禁止动作" wide hint="每行一项，进入负面提示词。"><textarea rows={3} value={draft.forbiddenMotion} onChange={(event) => update('forbiddenMotion', event.target.value)} placeholder={'big cheerful smile\nfast energetic gestures'} /></Field>
+      <Field label="优先环境" wide hint="只记录输入素材已经支持的环境，不会自动生成新场景。"><textarea rows={2} value={draft.preferredEnvironment} onChange={(event) => update('preferredEnvironment', event.target.value)} placeholder={'bedroom mirror UGC\nquiet reading corner'} /></Field>
       <Field label="商品呈现重点" wide hint="每行一项。"><textarea required rows={3} value={draft.productPriorities} onChange={(event) => update('productPriorities', event.target.value)} placeholder={'整件版型\n图案和文字可读性\n袖口与下摆'} /></Field>
+      <Field label="商品风险规则" wide hint="优先级高于品牌风格，例如复杂印花时禁用遮挡动作。"><textarea rows={3} value={draft.productRiskRules} onChange={(event) => update('productRiskRules', event.target.value)} placeholder={'复杂胸前图形时保持双手离开核心印花\n限制大角度转身'} /></Field>
       <Field label="禁止错配" wide hint="每行一项，写明确不能出现的内容或动作。"><textarea required rows={3} value={draft.forbiddenMismatches} onChange={(event) => update('forbiddenMismatches', event.target.value)} placeholder={'高速旋转\n手部遮挡核心文字\n特效改变服装颜色'} /></Field>
+      <div className="catalog-editor-field is-wide"><span>动作去重窗口</span><div className="catalog-editor-inline-fields"><label><small>主动作</small><input type="number" min="1" max="20" value={draft.dedupeRecentCount} onChange={(event) => update('dedupeRecentCount', event.target.value)} /></label><label><small>组合</small><input type="number" min="1" max="30" value={draft.dedupeComboWindow} onChange={(event) => update('dedupeComboWindow', event.target.value)} /></label><label><small>家族</small><input type="number" min="1" max="40" value={draft.dedupeFamilyWindow} onChange={(event) => update('dedupeFamilyWindow', event.target.value)} /></label><label><small>家族上限</small><input type="number" min="1" max="10" value={draft.dedupeFamilyLimit} onChange={(event) => update('dedupeFamilyLimit', event.target.value)} /></label></div></div>
       <Field label="色彩关键词" wide hint="每行一项；用于描述倾向，不覆盖输入商品颜色。"><textarea rows={2} value={draft.palette} onChange={(event) => update('palette', event.target.value)} placeholder={'washed neutral\nvintage accent'} /></Field>
       <Field label="证据来源" wide hint="每行一个 URL，仅作内部追溯。"><textarea rows={3} value={draft.sourceUrls} onChange={(event) => update('sourceUrls', event.target.value)} placeholder={'https://example.com/\nhttps://instagram.com/example'} /></Field>
       <Field label="研究说明" wide><textarea required rows={3} value={draft.researchNote} onChange={(event) => update('researchNote', event.target.value)} placeholder="说明哪些规则来自可见证据、哪些内容没有推断，以及生产边界。" /></Field>

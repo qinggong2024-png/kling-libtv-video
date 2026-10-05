@@ -1576,6 +1576,9 @@ body.modal-open { overflow: hidden; }
 .catalog-editor-field > input:focus-visible, .catalog-editor-field > select:focus-visible, .catalog-editor-field > textarea:focus-visible { border-color: #79a7f7; outline: 0; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
 .catalog-editor-field > input:disabled, .catalog-editor-field > select:disabled, .catalog-editor-field > textarea:disabled { border-color: var(--line); background: #f1f5f9; color: var(--muted); box-shadow: none; cursor: not-allowed; }
 .catalog-editor-field > small { color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.55; }
+.catalog-editor-inline-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.catalog-editor-inline-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.catalog-editor-inline-fields input { width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; color: var(--text); font-size: 14px; }
 .catalog-template-checks > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .catalog-template-checks > div > label { min-height: 46px; display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--text-secondary); font-size: 13px; font-weight: 650; cursor: pointer; transition: border-color .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease; }
 .catalog-template-checks > div > label:hover { border-color: #b8cae1; background: var(--primary-soft); color: var(--text); }

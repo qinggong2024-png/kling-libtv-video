@@ -59,16 +59,25 @@ async def _save(
             "active site style profiles require at least one evidence source URL",
         )
     actions = await motion_action_library(session)
-    unknown_actions = sorted(set(payload.preferred_actions) - actions.keys())
+    configured_action_ids = tuple(
+        dict.fromkeys(
+            (
+                *payload.preferred_actions,
+                *payload.primary_motion_pool,
+                *payload.micro_motion_pool,
+            )
+        )
+    )
+    unknown_actions = sorted(set(configured_action_ids) - actions.keys())
     if unknown_actions:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"unknown preferred action ids: {', '.join(unknown_actions)}",
+            f"unknown action ids: {', '.join(unknown_actions)}",
         )
     profile_brand_id = payload.id if payload.library_scope == "brand" else None
     mismatched_actions = sorted(
         action_id
-        for action_id in payload.preferred_actions
+        for action_id in configured_action_ids
         if actions[action_id].library_scope == "brand"
         and actions[action_id].brand_id != profile_brand_id
     )

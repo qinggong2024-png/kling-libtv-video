@@ -1073,6 +1073,65 @@ def normalize_action_ids(action_ids: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(canonical_action_id(action_id) for action_id in action_ids))
 
 
+ACTION_FAMILIES: dict[str, str] = {
+    "stance_shift": "standing_attitude",
+    "torso_angle_hold": "turning",
+    "three_quarter_turn": "turning",
+    "controlled_walk": "walking",
+    "one_step_settle": "walking",
+    "controlled_side_step": "walking",
+    "walk_past_glance": "walking",
+    "back_reveal": "back_reveal",
+    "front_back_quarter_return": "back_reveal",
+    "controlled_gaze": "gaze_reaction",
+    "graphic_glance_return": "gaze_reaction",
+    "companion_gaze_return": "companion",
+    "print_detail_pause": "product_interaction",
+    "print_indicate_release": "product_interaction",
+    "hem_adjust": "garment_detail",
+    "cuff_adjust_release": "garment_detail",
+    "hair_tuck_release": "garment_detail",
+    "pocket_insert_release": "garment_detail",
+    "seated_weight_shift": "seated",
+    "seated_lean_return": "seated",
+    "seated_prop_sip_return": "seated",
+    "stand_from_seat_settle": "seated",
+    "existing_prop_return": "product_interaction",
+    "companion_side_walk": "companion",
+    "companion_product_pause": "companion",
+}
+
+
+def action_family(action_id: str, *, library: Mapping[str, MotionAction] | None = None) -> str:
+    """Return a stable family name used for brand-level diversity controls."""
+
+    canonical_id = canonical_action_id(action_id)
+    explicit = ACTION_FAMILIES.get(canonical_id)
+    if explicit:
+        return explicit
+    action = (ACTION_LIBRARY if library is None else library).get(canonical_id)
+    return action.category if action is not None else "other"
+
+
+@dataclass(frozen=True)
+class BrandMotionSelection:
+    primary_action_id: str | None = None
+    micro_action_id: str | None = None
+    expression: str | None = None
+    camera: str | None = None
+    family: str | None = None
+    combo_key: str | None = None
+    reason: str = ""
+
+    @property
+    def selected_action_ids(self) -> tuple[str, ...]:
+        return tuple(
+            action_id
+            for action_id in (self.primary_action_id, self.micro_action_id)
+            if action_id
+        )
+
+
 # Reviewed OOTD source items 296-360 are normalized to reusable action IDs.
 OOTD_REVIEWED_ACTION_COVERAGE: dict[int, str] = {
     296: "lapel_open_hold",
@@ -1247,3 +1306,121 @@ def render_action_ids(
         base_action = actions[action.base_action_id]
         rendered.append(f"{base_action.instruction}；品牌风格差异：{action.instruction}")
     return "；".join(rendered)
+
+
+def select_brand_motion(
+    *,
+    template_id: str,
+    primary_motion_pool: tuple[str, ...],
+    micro_motion_pool: tuple[str, ...] = (),
+    expression_pool: tuple[str, ...] = (),
+    camera_pool: tuple[str, ...] = (),
+    variant_index: int = 1,
+    recent_selected_action_ids: tuple[str, ...] = (),
+    recent_motion_combinations: tuple[str, ...] = (),
+    dedupe_recent_count: int = 5,
+    dedupe_combo_window: int = 8,
+    dedupe_family_window: int = 10,
+    dedupe_family_limit: int = 3,
+    context: ActionContext | None = None,
+    library: Mapping[str, MotionAction] | None = None,
+) -> BrandMotionSelection:
+    """Choose one approved brand motion without introducing new image facts."""
+
+    actions = ACTION_LIBRARY if library is None else library
+    primary_candidates = compatible_action_ids(
+        template_id,
+        normalize_action_ids(primary_motion_pool),
+        context=context,
+        library=actions,
+    )
+    if not primary_candidates:
+        return BrandMotionSelection(reason="没有兼容的品牌主动作，回退到模板动作骨架")
+
+    recent_primary = set(normalize_action_ids(recent_selected_action_ids[:dedupe_recent_count]))
+    recent_combos = set(recent_motion_combinations[:dedupe_combo_window])
+    family_counts: dict[str, int] = {}
+    for action_id in normalize_action_ids(
+        recent_selected_action_ids[:dedupe_family_window]
+    ):
+        family = action_family(action_id, library=actions)
+        family_counts[family] = family_counts.get(family, 0) + 1
+
+    cameras = tuple(camera_pool)
+    expressions = tuple(expression_pool)
+
+    def camera_for(index: int) -> str | None:
+        if not cameras:
+            return None
+        return cameras[index % len(cameras)]
+
+    ordered = tuple(
+        primary_candidates[
+            (variant_index - 1) % len(primary_candidates) :
+        ]
+        + primary_candidates[
+            :(variant_index - 1) % len(primary_candidates)
+        ]
+    )
+    selected: str | None = None
+    selected_camera: str | None = None
+    selected_reason = "按品牌动作池和素材能力选择"
+    for action_id in ordered:
+        family = action_family(action_id, library=actions)
+        if action_id in recent_primary:
+            continue
+        if family_counts.get(family, 0) >= dedupe_family_limit:
+            continue
+        for camera_index in range(max(1, len(cameras))):
+            camera = camera_for(camera_index)
+            if f"{action_id}::{camera or 'default'}" not in recent_combos:
+                selected = action_id
+                selected_camera = camera
+                break
+        if selected:
+            break
+
+    if selected is None:
+        # Keep production moving when a small pool is exhausted, while preferring
+        # a new camera combination before allowing a recent primary action.
+        for action_id in ordered:
+            for camera_index in range(max(1, len(cameras))):
+                camera = camera_for(camera_index)
+                if f"{action_id}::{camera or 'default'}" not in recent_combos:
+                    selected = action_id
+                    selected_camera = camera
+                    selected_reason = "动作池已接近去重上限，优先保持新的镜头组合"
+                    break
+            if selected:
+                break
+    if selected is None:
+        selected = ordered[0]
+        selected_camera = camera_for(0)
+        selected_reason = "动作池已耗尽，使用确定性回退"
+
+    micro_candidates = tuple(
+        action_id
+        for action_id in compatible_action_ids(
+            template_id,
+            normalize_action_ids(micro_motion_pool),
+            context=context,
+            library=actions,
+        )
+        if action_id != selected
+    )
+    micro = (
+        micro_candidates[(variant_index - 1) % len(micro_candidates)]
+        if micro_candidates
+        else None
+    )
+    expression = expressions[(variant_index - 1) % len(expressions)] if expressions else None
+    family = action_family(selected, library=actions)
+    return BrandMotionSelection(
+        primary_action_id=selected,
+        micro_action_id=micro,
+        expression=expression,
+        camera=selected_camera,
+        family=family,
+        combo_key=f"{selected}::{selected_camera or 'default'}",
+        reason=selected_reason,
+    )

@@ -178,6 +178,18 @@ export interface SiteStyleProfileSummary {
   productPriorities: string[]
   forbiddenMismatches: string[]
   researchNote: string
+  motionEnergy: string
+  primaryMotionPool: string[]
+  microMotionPool: string[]
+  expressionPool: string[]
+  cameraPool: string[]
+  forbiddenMotion: string[]
+  preferredEnvironment: string[]
+  productRiskRules: string[]
+  dedupeRecentCount: number
+  dedupeComboWindow: number
+  dedupeFamilyWindow: number
+  dedupeFamilyLimit: number
   libraryScope: 'general' | 'brand'
   brandId: string | null
 }

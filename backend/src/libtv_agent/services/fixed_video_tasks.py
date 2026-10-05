@@ -38,6 +38,7 @@ from libtv_agent.services.runtime_control import (
 )
 from libtv_agent.services.subject_elements import automatic_element_metadata
 from libtv_agent.services.tasks import get_task
+from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import get_video_template
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,47 @@ DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
 AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v3"
 CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
 MAX_KLING_PROMPT_CHARS = 3072
+
+
+async def _recent_motion_history(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    template_id: str,
+    site_profile: SiteStyleProfile | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if site_profile is None or not site_profile.primary_motion_pool:
+        return (), ()
+    rows = await session.scalars(
+        select(GenerationVariant.variant_seed_json)
+        .join(ParentTask, ParentTask.id == GenerationVariant.parent_task_id)
+        .where(
+            ParentTask.user_id == user_id,
+            ParentTask.template_id == template_id,
+            ParentTask.site_profile_id == site_profile.id,
+        )
+        .order_by(GenerationVariant.created_at.desc())
+        .limit(max(site_profile.dedupe_family_window, site_profile.dedupe_combo_window)),
+    )
+    selected_ids: list[str] = []
+    combinations: list[str] = []
+    for seed in rows:
+        primary = seed.get("selectedPrimaryActionId")
+        if isinstance(primary, str) and primary:
+            selected_ids.append(primary)
+        else:
+            legacy_ids = seed.get("selectedActionIds", ())
+            if isinstance(legacy_ids, list | tuple):
+                selected_ids.extend(
+                    item for item in legacy_ids[:1] if isinstance(item, str) and item
+                )
+        combination = seed.get("selectedMotionCombination")
+        if isinstance(combination, str) and combination:
+            combinations.append(combination)
+    return (
+        tuple(selected_ids[: site_profile.dedupe_family_window]),
+        tuple(combinations[: site_profile.dedupe_combo_window]),
+    )
 
 
 class FixedVideoTaskValidationError(ValueError):
@@ -248,6 +290,12 @@ async def create_fixed_video_task(
             site_profile_id=site_profile.id,
             settings=settings,
         )
+        recent_selected_action_ids, recent_motion_combinations = await _recent_motion_history(
+            session,
+            user_id=user_id,
+            template_id=template.id,
+            site_profile=site_profile,
+        )
         plans = [
             compile_video_plan(
                 PromptCompileInput(
@@ -268,6 +316,8 @@ async def create_fixed_video_task(
                     learning_avoided_action_ids=learning.avoided_action_ids,
                     learning_profile_version=learning.profile_version,
                     learning_evidence_count=learning.evidence_count,
+                    recent_selected_action_ids=recent_selected_action_ids,
+                    recent_motion_combinations=recent_motion_combinations,
                 )
             )
             for index in range(1, payload.result_count + 1)
