@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from libtv_agent.templates.motion_actions import (
     ActionContext,
     MotionAction,
+    canonical_action_id,
     compatible_action_ids,
+    normalize_action_ids,
     render_action_ids,
 )
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
@@ -158,12 +160,18 @@ def _style_instruction(
 ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     if profile is None:
         return "自然日常；镜头平稳跟随并有限推进", (), ()
-    base_action_ids = profile.preferred_actions
+    base_action_ids = normalize_action_ids(profile.preferred_actions)
     allowed = set(base_action_ids)
     preferred = tuple(
-        action_id for action_id in learning_preferred_action_ids if action_id in allowed
+        canonical_action_id(action_id)
+        for action_id in learning_preferred_action_ids
+        if canonical_action_id(action_id) in allowed
     )
-    avoided = set(action_id for action_id in learning_avoided_action_ids if action_id in allowed)
+    avoided = {
+        canonical_action_id(action_id)
+        for action_id in learning_avoided_action_ids
+        if canonical_action_id(action_id) in allowed
+    }
     ordered_action_ids = tuple(
         dict.fromkeys(
             (

@@ -5,10 +5,12 @@ from libtv_agent.services.material_validator import (
     validate_materials,
 )
 from libtv_agent.templates.motion_actions import (
+    ACTION_ALIASES,
     ACTION_LIBRARY,
     ActionCapability,
     ActionContext,
     MotionAction,
+    canonical_action_id,
     compatible_action_ids,
     evaluate_action,
     evaluate_action_with_base,
@@ -35,6 +37,27 @@ def material(
         confirmed_action_capabilities=confirmed,
         denied_action_capabilities=denied,
     )
+
+
+def test_legacy_action_aliases_are_not_exposed_as_duplicate_catalog_entries() -> None:
+    assert set(ACTION_ALIASES) == {
+        "chest_print_pause",
+        "eye_contact_neutral",
+        "cool_detached_glance",
+    }
+    assert set(ACTION_ALIASES).isdisjoint(ACTION_LIBRARY)
+    assert canonical_action_id("chest_print_pause") == "print_detail_pause"
+    assert canonical_action_id("eye_contact_neutral") == "controlled_gaze"
+
+
+def test_legacy_action_ids_are_normalized_before_compatibility_filtering() -> None:
+    assert compatible_action_ids(
+        "garment_detail",
+        ("chest_print_pause", "print_detail_pause"),
+        context=ActionContext(
+            confirmed=frozenset({ActionCapability.FRONT_PRINT_VISIBLE})
+        ),
+    ) == ("print_detail_pause",)
 
 
 def test_unknown_context_keeps_only_unconditional_low_risk_actions() -> None:

@@ -10,6 +10,7 @@ from libtv_agent.templates.motion_actions import (
     ACTION_LIBRARY,
     ActionCapability,
     MotionAction,
+    canonical_action_id,
 )
 from libtv_agent.templates.site_style_profiles import (
     SITE_STYLE_PROFILES,
@@ -88,7 +89,10 @@ async def _overrides(session: AsyncSession, entry_type: str) -> list[CatalogEntr
 async def motion_action_library(session: AsyncSession) -> dict[str, MotionAction]:
     merged = dict(ACTION_LIBRARY)
     for entry in await _overrides(session, MOTION_ACTION):
-        merged[entry.entry_id] = _motion_action(entry.payload_json)
+        canonical_id = canonical_action_id(entry.entry_id)
+        payload = dict(entry.payload_json)
+        payload["id"] = canonical_id
+        merged[canonical_id] = _motion_action(payload)
     return merged
 
 

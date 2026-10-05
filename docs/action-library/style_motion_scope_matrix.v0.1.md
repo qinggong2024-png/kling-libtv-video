@@ -30,7 +30,7 @@
 | `controlled_walk` | 生产库已有 | 展示整体穿搭与垂坠 | 只走 2–3 步；空间不足时禁用 |
 | `three_quarter_turn` | 生产库已有 | 同时展示正面和侧面版型 | 硬切到侧面不能证明连续转身 |
 | `print_detail_pause` | 生产库已有 | 让印花或文字获得可读停留 | 不重绘图案；局部后必须回整件 |
-| `chest_print_pause` | 生产库已有 | 胸前文字正对镜头 | 手、字幕、书、杯子不得遮挡 |
+| `print_detail_pause` | 生产库已有 | 胸前文字或印花正对镜头 | 手、字幕、书、杯子不得遮挡 |
 | `hem_adjust` | 生产库已有 | 整理衣摆或显示宽松量 | 仅触碰无印花区一次并立即放下 |
 | `sleeve_detail_pause` | 生产库已有 | 展示袖口、肩线、raglan/滚边 | 不拉伸袖部图案 |
 | `controlled_gaze` | 生产库已有 | 建立人镜交流或冷感视线 | 表情强度由站点控制 |
@@ -39,7 +39,7 @@
 
 研究语料已经定义但尚未进入生产 `ACTION_LIBRARY` 的通用原子包括：
 `one_step_settle`、`torso_angle_hold`、`print_indicate_release`、`hem_open_release`、
-`sleeve_display`、`over_shoulder_back`、`eye_contact_soft_smile`、`cool_detached_glance`。
+`sleeve_display`、`over_shoulder_back`、`eye_contact_soft_smile`、`controlled_gaze`。
 它们应先完成命名合并和生成回放，避免与现有动作语义重复。
 
 ## 通用镜头语法

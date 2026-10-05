@@ -245,17 +245,6 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         required_capabilities=(ActionCapability.FRONT_PRINT_VISIBLE,),
         avoid=("重新绘制图案", "用景深或特效遮挡文字"),
     ),
-    "chest_print_pause": MotionAction(
-        "chest_print_pause",
-        "胸前文字停留",
-        "detail",
-        "从胸前区域正对镜头的姿态开始，用稳定中近景保持文字可读；停留结束后平稳回到中景。",
-        "优先保护胸前文字与主题图形的可读性。",
-        ("garment_detail", "ootd_walk", "mood_model"),
-        requirements=("胸前图案或文字在输入中可辨认",),
-        required_capabilities=(ActionCapability.FRONT_PRINT_VISIBLE,),
-        avoid=("手臂交叉遮挡文字", "过度拉近导致局部重绘"),
-    ),
     "print_indicate_release": MotionAction(
         "print_indicate_release",
         "指向印花后放下",
@@ -495,24 +484,6 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         avoid=("夸张大笑", "牙齿或口型重绘", "长时间冻结微笑"),
         risk_level="conditional",
     ),
-    "eye_contact_neutral": MotionAction(
-        "eye_contact_neutral",
-        "中性短暂对视",
-        "interaction",
-        "从画面外视线自然移向镜头，保持中性表情短暂停留，再缓慢移开；身体姿态不发生额外变化。",
-        "形成真实 UGC 式交流，同时控制面部变化。",
-        ("ootd_walk", "mood_model"),
-        avoid=("表情突变", "频繁眨眼", "同时大幅转身"),
-    ),
-    "cool_detached_glance": MotionAction(
-        "cool_detached_glance",
-        "克制掠视",
-        "interaction",
-        "保持克制表情，让视线短暂掠过镜头后停在画面外；头部只做小幅移动，服装轮廓保持稳定。",
-        "为暗黑、街头或怪诞方向提供低幅度酷感。",
-        ("ootd_walk", "mood_model"),
-        avoid=("凶狠夸张表情", "高速甩头", "改变人物身份"),
-    ),
     "asymmetric_pause": MotionAction(
         "asymmetric_pause",
         "不对称停格",
@@ -672,6 +643,23 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
 }
 
 
+# Legacy IDs remain valid for persisted profiles and external callers, but are
+# normalized before filtering and are not exposed as duplicate catalog entries.
+ACTION_ALIASES: dict[str, str] = {
+    "chest_print_pause": "print_detail_pause",
+    "eye_contact_neutral": "controlled_gaze",
+    "cool_detached_glance": "controlled_gaze",
+}
+
+
+def canonical_action_id(action_id: str) -> str:
+    return ACTION_ALIASES.get(action_id, action_id)
+
+
+def normalize_action_ids(action_ids: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(canonical_action_id(action_id) for action_id in action_ids))
+
+
 def list_motion_actions() -> tuple[MotionAction, ...]:
     return tuple(ACTION_LIBRARY.values())
 
@@ -734,9 +722,10 @@ def compatible_action_ids(
     library: Mapping[str, MotionAction] | None = None,
 ) -> tuple[str, ...]:
     actions = ACTION_LIBRARY if library is None else library
+    normalized_action_ids = normalize_action_ids(action_ids)
     return tuple(
         action_id
-        for action_id in action_ids
+        for action_id in normalized_action_ids
         if action_id in actions
         and template_id in actions[action_id].compatible_templates
         and (
