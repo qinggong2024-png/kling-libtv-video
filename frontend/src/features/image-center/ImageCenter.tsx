@@ -553,6 +553,79 @@ export function ImageCenter(props: ImageCenterProps) {
   return <ScopedImageCenter key={props.draftScope ?? 'anonymous'} {...props} />
 }
 
+export function BatchImageOutputReview({ outputs, onSaved, onClose }: {
+  outputs: ImageGenerationOutput[]
+  onSaved: (outputId: string, values: Partial<ImageGenerationOutput>) => void
+  onClose: () => void
+}) {
+  const [index, setIndex] = useState(0)
+  const [decision, setDecision] = useState<'QUALIFIED' | 'REJECTED'>('QUALIFIED')
+  const [productPass, setProductPass] = useState(false)
+  const [humanPass, setHumanPass] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [uncertain, setUncertain] = useState(false)
+  const startedAt = useRef(0)
+  const submitting = useRef(false)
+  const output = outputs[index] ?? null
+  useEffect(() => { startedAt.current = performance.now() }, [output?.id])
+  if (!output) return null
+
+  const canSubmit = decision === 'QUALIFIED' ? productPass && humanPass : notes.trim().length > 0
+  const save = async () => {
+    if (!canSubmit || submitting.current || uncertain) return
+    submitting.current = true
+    setBusy(true)
+    setError('')
+    try {
+      const result = await setImageOutputQualityDecision(output.id, {
+        decision,
+        productFidelityPass: decision === 'QUALIFIED' && productPass,
+        humanCriticalPass: decision === 'QUALIFIED' && humanPass,
+        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt.current) / 1000)),
+        notes: notes.trim() || null,
+      })
+      onSaved(output.id, result)
+      if (index + 1 >= outputs.length) {
+        onClose()
+      } else {
+        setIndex((current) => current + 1)
+        setDecision('QUALIFIED')
+        setProductPass(false)
+        setHumanPass(false)
+        setNotes('')
+      }
+    } catch (cause) {
+      const unknown = !(cause instanceof ApiError) || cause.code === 'WRITE_UNCERTAIN' || cause.code === 'REQUEST_TIMEOUT' || cause.status >= 500
+      setUncertain(unknown)
+      setError(unknown ? '审核保存结果待确认，请刷新服务端记录核对，勿重复保存。' : cause instanceof Error ? cause.message : '图片审核保存失败')
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
+  }
+  return <FoundationDrawer open title={`批量审核 · ${index + 1}/${outputs.length}`} onClose={() => { if (!busy) onClose() }} footer={<>
+    <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button>
+    <button type="button" className="primary-button" disabled={busy || uncertain || !canSubmit} onClick={() => void save()}>{busy ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />}{index + 1 >= outputs.length ? '保存并完成' : '保存并继续'}</button>
+  </>}>
+    <div className="image-review-progress" aria-live="polite"><strong>待审核图片</strong><span>{output.label}</span><small>完成当前项后自动进入下一张</small></div>
+    <div className="image-review-media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></div>
+    <fieldset className="image-review-fields" disabled={busy}>
+      <legend>审核结果</legend>
+      <label><input type="radio" name={`batch-image-review-decision-${output.id}`} checked={decision === 'QUALIFIED'} onChange={() => setDecision('QUALIFIED')} />合格</label>
+      <label><input type="radio" name={`batch-image-review-decision-${output.id}`} checked={decision === 'REJECTED'} onChange={() => setDecision('REJECTED')} />退回</label>
+      {decision === 'QUALIFIED' ? <>
+        <label><input type="checkbox" checked={productPass} onChange={(event) => setProductPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构一致</label>
+        <label><input type="checkbox" checked={humanPass} onChange={(event) => setHumanPass(event.target.checked)} />人物与画面无关键缺陷</label>
+      </> : null}
+      <label htmlFor="batch-image-review-notes">{decision === 'REJECTED' ? '退回原因（必填）' : '审核备注'}</label>
+      <textarea id="batch-image-review-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} required={decision === 'REJECTED'} />
+    </fieldset>
+    {uncertain ? <p role="alert" className="notice image-review-uncertain">当前项保存状态未知，已停止批量审核，请刷新服务端记录核对，勿重复保存。</p> : error ? <p role="alert" className="notice">{error}</p> : null}
+  </FoundationDrawer>
+}
+
 function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
   const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
   const [activeOutfitId, setActiveOutfitId] = useState('')
@@ -564,6 +637,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const [previewOutputId, setPreviewOutputId] = useState<string | null>(null)
   const [previewSource, setPreviewSource] = useState<{ file: File; label: string } | null>(null)
   const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
+  const [batchReviewOpen, setBatchReviewOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
@@ -694,6 +768,10 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
     : null
   const reviewOutput = reviewOutputId ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === reviewOutputId) : null
+  const pendingReviewOutputs = useMemo(
+    () => draft.tasks.flatMap((task) => task.outputs).filter((output) => output.qualificationStatus === 'PENDING'),
+    [draft.tasks],
+  )
   const previewSourceImage = (file: File, label: string) => {
     setPreviewOutputId(null)
     setPreviewSource({ file, label })
@@ -874,7 +952,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
         {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
       </section>
     </div> : <section className="image-results" aria-labelledby="image-results-title">
-      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div>
+      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = taskStatusPresentation[task.status]
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
@@ -901,6 +979,14 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
       updateOutputQuality(reviewOutput.id, values)
       if (values.qualificationStatus === 'REJECTED') updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((id) => id !== reviewOutput.id) }))
     }} /> : null}
+    {active && batchReviewOpen ? <BatchImageOutputReview
+      outputs={pendingReviewOutputs}
+      onClose={() => setBatchReviewOpen(false)}
+      onSaved={(outputId, values) => {
+        updateOutputQuality(outputId, values)
+        if (values.qualificationStatus === 'REJECTED') updateDraft((current) => ({ ...current, selectedOutputIds: current.selectedOutputIds.filter((id) => id !== outputId) }))
+      }}
+    /> : null}
     {active && previewOutput ? <OutputPreview
       output={previewOutput}
       selected={selectedIds.has(previewOutput.id)}
