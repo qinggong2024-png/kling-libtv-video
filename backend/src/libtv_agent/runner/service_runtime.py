@@ -19,6 +19,7 @@ from libtv_agent.domain.models import AuditEvent, RunnerHost
 from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
+from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
 from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -238,10 +239,17 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         await supervisor.recover_stale_launch_started_commands(session)
                         last_launch_recovery = now
                     if now - last_idempotency_sweep >= 5 * 60:
+                        confirmation_recovery = await recover_stale_confirmation_claims(
+                            session, settings
+                        )
                         released = await release_stale_idempotency_claims(session)
-                        if released:
+                        if released or any(confirmation_recovery.values()):
                             logger.warning(
-                                "released %d abandoned idempotency claim(s)", released
+                                "recovered stale idempotency claims",
+                                extra={
+                                    "released": released,
+                                    "confirmation_recovery": confirmation_recovery,
+                                },
                             )
                         last_idempotency_sweep = now
                     if now - last_metric_sample >= settings.runner_metric_sample_seconds:

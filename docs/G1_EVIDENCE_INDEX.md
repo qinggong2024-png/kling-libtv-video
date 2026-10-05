@@ -16,7 +16,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 
 | Gate | Current evidence | Remaining boundary |
 | --- | --- | --- |
-| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL | Video confirmation/paid dispatch matrix and actual process restart conflict coverage |
+| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL; confirmation and dispatch fresh-process replay | Video confirmation/paid dispatch interruption matrix and actual process restart conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
 | S04 process recovery | Image real POST acceptance then process kill; video API launch entered then process kill with recovery counts [1,0], UNKNOWN_AFTER_SUBMIT/UNCERTAIN reservation and zero resubmits; launch recovery and known-handle tests on main | Pre-submit crash and known-handle process crash for the video path; CLI-specific provider execution |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
@@ -70,9 +70,8 @@ settlement and stale-observation races are fenced; public callbacks remain
 fail-closed; API/Runner crash recovery preserves the persisted state contract;
 user ownership and controlled audit data are enforced; and both `codex/testing`
 and `main` pass the same scoped evidence. Real supplier calls and production
-deployment are not prerequisites. Current status: **INCOMPLETE**, because fresh
-process confirmation replay and the complete confirmation/dispatch restart matrix
-remain open.
+deployment are not prerequisites. Current status: **INCOMPLETE**, because the
+in-flight confirmation/dispatch restart matrix remains open.
 
 ### G1-Conditional (isolated assurance)
 
@@ -122,6 +121,14 @@ testing. Settled and live claims are preserved; abandoned response-less claims
 are deleted in bounded batches. The first main run failed at collection because
 the implementation and test were absent; that negative evidence is retained by
 the command output and is not counted as a pass.
+
+Stale confirmation recovery increment: startup and runner sweeps now inspect
+expired `CONFIRM_TASK:<taskId>` claims. If the confirmation version is durable,
+the response is reconstructed and the claim becomes replayable; if the task is
+still `PREPARING`, it moves to `ACTION_REQUIRED` with
+`CONFIRMATION_PROCESS_RESTARTED` and no automatic retry. The targeted recovery
+tests pass on both branches. This closes the stale-claim/preparing-task recovery
+boundary, but not a process kill during provider dispatch, download or settlement.
 
 Video quota observability: quota-observability-testing.xml and
 quota-observability-main.xml each passed 11 tests. `PointsLimitExceededError`
