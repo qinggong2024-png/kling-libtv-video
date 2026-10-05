@@ -88,7 +88,7 @@ export function useAppNavigation() {
     setAdminSection(location.adminSection)
     setRecordsFilter(location.recordsFilter)
     setRecordsQuery(location.recordsQuery)
-    setRecordsRestoreScroll(snapshot.scrollY)
+    setRecordsRestoreScroll(snapshot?.scrollY ?? 0)
     window.history.replaceState(null, '', `${next.pathname}${next.search}${next.hash}`)
   }, [])
 
