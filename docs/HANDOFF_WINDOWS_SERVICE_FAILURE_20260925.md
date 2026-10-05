@@ -232,9 +232,16 @@ ValueError: signal only works in main thread of the main interpreter
 
 隔离测试：两棵树各 `9 passed`（原有 7 项 + 新增 2 项）。执行方式与第 6 条一致；测试器副本额外把 `tempfile.tempdir` 指向隔离目录，否则 pytest 捕获用的临时文件会被审计钩子拦下。
 
-### 9.4 遗留建议（未实施）
+### 9.4 A-2 日志失败可见性（已实施）
 
-`logging_config.configure_file_logging` 写入失败时返回 `None` 而不抛异常，`SvcDoRun` 也没有检查返回值。若日志目录对服务账户不可写，服务会照常启动但丢失全部诊断信息——正是这次故障最难排查的原因。建议后续在 `SvcDoRun` 中检查返回值，失败时调用 `servicemanager.LogErrorMsg`。本次验收确认文件日志写入正常（629 → 1141 字节），因此没有扩大改动范围。
+提交：
+
+- 测试分支 `codex/testing`：`585e67b fix(logging): surface service log setup failures`
+- 生产分支 `main`：`d2e5a77 fix(logging): surface service log setup failures`
+
+`logging_config.configure_file_logging` 仍在日志目录不可写时返回 `None`，不阻断服务启动；现在可通过 `failure_reporter` 报告具体路径和操作系统错误。Runner 和 API Windows Service 均将该报告器接到 `servicemanager.LogErrorMsg`，因此日志文件配置失败会出现在 Windows SCM/Application 事件日志中，而不是静默丢失诊断信息。错误报告器自身失败也不会阻断服务启动。
+
+测试覆盖：日志创建失败可报告、报告器失败不阻断启动；testing 和 main 的相关 focused pytest 均通过。
 
 ---
 
@@ -276,3 +283,23 @@ ValueError: signal only works in main thread of the main interpreter
 
 计划任务 `LibTV Local Stack Watchdog`（`State=Ready`，`-Mode Lan`）今天 09:13:13 触发过一次，结果 `0xC000013A`（被终止），且没有写入任何日志。它调用链最终会执行 `uv run alembic -c backend/alembic.ini upgrade head`、启动 `local_runner.py` 并抢占 `8000`，与本方案的三条约束全部冲突。它是 `AtLogOn` 触发器，**下一次登录会再触发**。本次按约定未修改它，处理前需要先确定整体自启动编排应该由谁负责。
 
+---
+
+## 11. A-2 正式重启验收（2026-10-05 15:42–15:44）
+
+本次先确认生产工作树已包含 `main` 提交 `d2e5a77`，再由管理员 PowerShell 执行一次 `Restart-Service LibTVProductionApi`。本次没有启动 Runner、执行迁移、调用付费 API 或写入业务运行态。
+
+| 检查项 | 结果 |
+| --- | --- |
+| 旧服务进程 | PID `12656` 于 15:42:49 退出 |
+| 新服务进程 | PID `23864` 于 15:43:07 启动 |
+| SCM 服务状态 | `Running`，启动类型 `Automatic` |
+| `GET /api/v1/health/live` | 200 `{"status":"ok"}` |
+| `GET /api/v1/health/ready` | 200，`postgresql` / `databaseSchema` 均为 `ok` |
+| 未认证 `GET /api/v1/auth/me` | 401 |
+| 未认证 `GET /api/v1/tasks` | 401 |
+| API 监听 | `127.0.0.1:8000` 归属 PID `23864` |
+| Runner 进程 | 未启动 |
+| 最近 Application 事件 | 未发现 traceback、`set_wakeup_fd` 或 signal 线程错误 |
+
+结论：A-2 的代码、testing 验证、main 同步和正式服务重启后的只读验收均完成。

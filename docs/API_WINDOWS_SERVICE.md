@@ -6,6 +6,7 @@
 - 拒绝生成、确认、上传、供应商调用和其他写操作；
 - 不执行 Alembic 迁移，不启动 Runner，不恢复后台付费任务；
 - 日志写入 `var/logs/api-service.log`；
+- 日志文件配置失败时，错误会通过 Windows SCM/Application 事件日志报告；
 - 服务失败时由 SCM 自动重启。
 
 ## 预检
