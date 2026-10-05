@@ -11,6 +11,7 @@ from libtv_agent.templates.motion_actions import (
     compatible_action_ids,
     normalize_action_ids,
     render_action_ids,
+    select_brand_motion,
 )
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import (
@@ -39,6 +40,8 @@ class PromptCompileInput:
     learning_avoided_action_ids: tuple[str, ...] = ()
     learning_profile_version: int | None = None
     learning_evidence_count: int = 0
+    recent_selected_action_ids: tuple[str, ...] = ()
+    recent_motion_combinations: tuple[str, ...] = ()
     prompt_budget: int = 3072
 
 
@@ -157,10 +160,21 @@ def _style_instruction(
     action_library: Mapping[str, MotionAction] | None,
     learning_preferred_action_ids: tuple[str, ...],
     learning_avoided_action_ids: tuple[str, ...],
-) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    *,
+    variant_index: int,
+    recent_selected_action_ids: tuple[str, ...],
+    recent_motion_combinations: tuple[str, ...],
+) -> tuple[str, tuple[str, ...], tuple[str, ...], dict[str, str]]:
     if profile is None:
-        return "自然日常；镜头平稳跟随并有限推进", (), ()
-    base_action_ids = normalize_action_ids(profile.preferred_actions)
+        return "自然日常；镜头平稳跟随并有限推进", (), (), {}
+    base_action_ids = normalize_action_ids(
+        (
+            *profile.primary_motion_pool,
+            *profile.preferred_actions,
+        )
+        if profile.primary_motion_pool
+        else profile.preferred_actions
+    )
     allowed = set(base_action_ids)
     preferred = tuple(
         canonical_action_id(action_id)
@@ -180,18 +194,82 @@ def _style_instruction(
             )
         )
     )
-    selected_action_ids = compatible_action_ids(
-        template_id,
-        ordered_action_ids,
-        context=action_context,
-        library=action_library,
-    )
-    preferred_actions = render_action_ids(
-        template_id,
-        selected_action_ids,
-        context=action_context,
-        library=action_library,
-    )
+    use_selector = bool(
+        profile.primary_motion_pool
+        or profile.micro_motion_pool
+    ) and action_context is not None
+    motion_metadata: dict[str, str] = {}
+    if use_selector:
+        selection = select_brand_motion(
+            template_id=template_id,
+            primary_motion_pool=ordered_action_ids,
+            micro_motion_pool=profile.micro_motion_pool,
+            expression_pool=profile.expression_pool,
+            camera_pool=profile.camera_pool,
+            variant_index=variant_index,
+            recent_selected_action_ids=recent_selected_action_ids,
+            recent_motion_combinations=recent_motion_combinations,
+            dedupe_recent_count=profile.dedupe_recent_count,
+            dedupe_combo_window=profile.dedupe_combo_window,
+            dedupe_family_window=profile.dedupe_family_window,
+            dedupe_family_limit=profile.dedupe_family_limit,
+            context=action_context,
+            library=action_library,
+        )
+        selected_action_ids = selection.selected_action_ids
+        motion_metadata = {
+            key: value
+            for key, value in (
+                ("selectedPrimaryActionId", selection.primary_action_id),
+                ("selectedMicroActionId", selection.micro_action_id),
+                ("selectedMotionFamily", selection.family),
+                ("selectedMotionCombination", selection.combo_key),
+            )
+            if value
+        }
+        preferred_actions = render_action_ids(
+            template_id,
+            (selection.primary_action_id,) if selection.primary_action_id else (),
+            context=action_context,
+            library=action_library,
+        )
+        selected_layer = "；".join(
+            part
+            for part in (
+                f"主动作：{preferred_actions.rstrip('。；')}" if preferred_actions else "",
+                (
+                    "微动作："
+                    + render_action_ids(
+                        template_id,
+                        (selection.micro_action_id,),
+                        context=action_context,
+                        library=action_library,
+                    ).rstrip("。；")
+                )
+                if selection.micro_action_id
+                else "",
+                f"表情：{selection.expression}" if selection.expression else "",
+                f"镜头配合：{selection.camera}" if selection.camera else "",
+                f"选择依据：{selection.reason}" if selection.reason else "",
+            )
+            if part
+        )
+    else:
+        selected_action_ids = compatible_action_ids(
+            template_id,
+            ordered_action_ids,
+            context=action_context,
+            library=action_library,
+        )
+        preferred_actions = render_action_ids(
+            template_id,
+            selected_action_ids,
+            context=action_context,
+            library=action_library,
+        )
+        selected_layer = (
+            f"可用动作：{preferred_actions.rstrip('。；')}" if preferred_actions else ""
+        )
     expression, expression_negatives = _partition_profile_text(profile.expression_language)
     camera, camera_negatives = _partition_profile_text(profile.camera_language)
     pacing, pacing_negatives = _partition_profile_text(profile.pacing)
@@ -202,7 +280,7 @@ def _style_instruction(
                 f"基调：{profile.tone.rstrip('。；')}",
                 f"表演（面部清晰时）：{expression}" if expression else "",
                 f"镜头：{camera}" if camera else "",
-                f"可用动作：{preferred_actions.rstrip('。；')}" if preferred_actions else "",
+                selected_layer,
                 f"节奏：{pacing}" if pacing else "",
                 "仅采用输入支持的动作，不新增场景、道具或商品面",
             )
@@ -210,6 +288,7 @@ def _style_instruction(
         ),
         selected_action_ids,
         (*expression_negatives, *camera_negatives, *pacing_negatives),
+        motion_metadata,
     )
 
 
@@ -258,13 +337,21 @@ def compile_video_plan(
         if value.storyboard_count == 1
         else _cut_instruction(value.cut_mode)
     )
-    style_instruction, selected_action_ids, style_negatives = _style_instruction(
+    (
+        style_instruction,
+        selected_action_ids,
+        style_negatives,
+        motion_metadata,
+    ) = _style_instruction(
         value.site_profile,
         template.id,
         value.action_context,
         value.action_library,
         value.learning_preferred_action_ids,
         value.learning_avoided_action_ids,
+        variant_index=value.variant_index,
+        recent_selected_action_ids=value.recent_selected_action_ids,
+        recent_motion_combinations=value.recent_motion_combinations,
     )
     duration_seconds = value.duration_seconds or template.duration_seconds
     if not 3 <= duration_seconds <= 15:
@@ -292,7 +379,22 @@ def compile_video_plan(
         for item in template.prompt_rules.invariants
         if value.storyboard_count > 1 or not item.startswith("按输入分镜顺序执行")
     )
-    profile_negatives = value.site_profile.forbidden_mismatches if value.site_profile else ()
+    profile_negatives = (
+        tuple(
+            dict.fromkeys(
+                (
+                    *value.site_profile.forbidden_mismatches,
+                    *(
+                        value.site_profile.forbidden_motion
+                        if value.action_context is not None
+                        else ()
+                    ),
+                )
+            )
+        )
+        if value.site_profile
+        else ()
+    )
     negatives = tuple(
         dict.fromkeys((*template.prompt_rules.negatives, *profile_negatives, *style_negatives))
     )
@@ -382,6 +484,9 @@ def compile_video_plan(
             "pacingSource": "site-profile" if value.site_profile else "template-default",
             "siteProfileId": value.site_profile.id if value.site_profile else "none",
             "selectedActionIds": list(selected_action_ids),
+            **motion_metadata,
+            "recentSelectedActionIds": list(value.recent_selected_action_ids),
+            "recentMotionCombinations": list(value.recent_motion_combinations),
             "learningProfileVersion": value.learning_profile_version,
             "learningEvidenceCount": value.learning_evidence_count,
             "promptCompressionLevel": compression_level,

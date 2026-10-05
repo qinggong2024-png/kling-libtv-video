@@ -92,6 +92,9 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       ...profile.preferredShots,
       ...profile.productPriorities,
       ...profile.preferredActions.map((id) => actionNames.get(id) ?? id),
+      ...profile.primaryMotionPool.map((id) => actionNames.get(id) ?? id),
+      ...profile.microMotionPool.map((id) => actionNames.get(id) ?? id),
+      profile.motionEnergy,
     ].join(' ').toLowerCase().includes(deferredQuery)
   }), [actionNames, brandFilter, deferredQuery, profiles, scope])
   const generalActionCount = actions.filter((action) => action.libraryScope === 'general').length
@@ -225,12 +228,13 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
           <div><span>承</span><p>{profile.middleRule}</p></div>
           <div><span>收</span><p>{profile.endingRule}</p></div>
         </div>
-        <div className="style-camera"><span>镜头触感</span><p>{profile.cameraLanguage}</p><small>{profile.pacing}</small></div>
+        <div className="style-camera"><span>镜头触感 · 动作能量 {profile.motionEnergy}</span><p>{profile.cameraLanguage}</p><small>{profile.pacing}</small></div>
         <details className="library-details style-library-details"><summary>镜头、动作与商品规则<ChevronRight size={16} /></summary><div>
           <section><strong>适用受众</strong><p>{profile.audience}</p></section>
           <section><strong>视觉语言</strong><p>{profile.typography}</p>{profile.palette.length ? <div className="detail-chip-row">{profile.palette.map((item) => <i key={item}>{item}</i>)}</div> : null}</section>
           <section><strong>优先镜头</strong><div className="detail-chip-row">{profile.preferredShots.map((item) => <i key={item}>{item}</i>)}</div></section>
           <section><strong>关联动作</strong><div className="detail-chip-row">{profile.preferredActions.map((id) => <i key={id}>{actionNames.get(id) ?? id}</i>)}</div></section>
+          <section><strong>动作选择器</strong><p>主动作每条选一项，微动作按素材能力补充；最近 {profile.dedupeRecentCount} 条主动作、{profile.dedupeComboWindow} 条动作+镜头组合参与去重。</p><div className="detail-chip-row">{profile.primaryMotionPool.map((id) => <i key={id}>{actionNames.get(id) ?? id}</i>)}</div></section>
           <section><strong>商品重点</strong><ul>{profile.productPriorities.map((item) => <li key={item}>{item}</li>)}</ul></section>
           <section className="style-avoid"><strong>禁止错配</strong><ul>{profile.forbiddenMismatches.map((item) => <li key={item}>{item}</li>)}</ul></section>
           <section className="style-evidence"><strong>研究说明</strong><p>{profile.researchNote}</p><small>复核日期 {profile.retrievedAt} · {profile.sourceUrls.length} 条证据来源</small></section>

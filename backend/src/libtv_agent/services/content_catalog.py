@@ -73,6 +73,18 @@ def _site_style_profile(payload: Mapping[str, Any]) -> SiteStyleProfile:
         brand_id=(payload.get("brandId") or str(payload["id"]))
         if library_scope == "brand"
         else None,
+        motion_energy=str(payload.get("motionEnergy", "standard")),
+        primary_motion_pool=tuple(payload.get("primaryMotionPool", ())),
+        micro_motion_pool=tuple(payload.get("microMotionPool", ())),
+        expression_pool=tuple(payload.get("expressionPool", ())),
+        camera_pool=tuple(payload.get("cameraPool", ())),
+        forbidden_motion=tuple(payload.get("forbiddenMotion", ())),
+        preferred_environment=tuple(payload.get("preferredEnvironment", ())),
+        product_risk_rules=tuple(payload.get("productRiskRules", ())),
+        dedupe_recent_count=int(payload.get("dedupeRecentCount", 5)),
+        dedupe_combo_window=int(payload.get("dedupeComboWindow", 8)),
+        dedupe_family_window=int(payload.get("dedupeFamilyWindow", 10)),
+        dedupe_family_limit=int(payload.get("dedupeFamilyLimit", 3)),
     )
 
 
