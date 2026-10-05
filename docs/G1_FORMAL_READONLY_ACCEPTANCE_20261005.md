@@ -78,6 +78,19 @@ Kling 状态为 `KLING_API_CONFIGURED_UNVERIFIED`，`available=false`。这表�
 
 > 正式服务在线，健康检查和查询型业务页面验收通过；正式后端部署 revision 未确认，不能宣称正式服务已精确同步到 testing 或 main。
 
+### 5.1 2026-10-05 重启后部署身份确认
+
+管理员重启正式 API 后重新确认部署身份：
+
+- 服务 PID：`23864` -> `29468`；
+- `sourceRevision`：`9d5a8775e9159e9b546d7f8e3aa5089c0bbe62c5f81cd0f9c4ffdb5acfe4d144`，与 `main` 当前源码指纹一致；
+- `GET /api/v1/health/live`：200；
+- `GET /api/v1/health/ready`：200，数据库和 schema 均正常；
+- 未认证 `GET /api/v1/auth/me`：401；
+- 未认证 `GET /api/v1/tasks`：401。
+
+因此，前述 `sourceRevision=unknown` 是正式 API 重启前的观测结论，已被重启后的结果修正。正式 API 当前部署身份已确认与 `main` 指纹一致；本确认仍不改变正式版 query-only、Runner 未启动、未调用付费 API 的边界。
+
 ## 6. 后续边界
 
 若要让正式 API 暴露可靠的 `sourceRevision`，需要在 testing 先实现、测试并同步到 main；使该改动在正式版生效还需要用户明确授权正式 API 服务更新/重启。本轮不执行该操作，也不通过修改前端隐藏 `environment=development`。
