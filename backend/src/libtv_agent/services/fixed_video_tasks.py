@@ -35,6 +35,7 @@ from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_vid
 from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
     ensure_provider_submission_allowed,
+    reserve_internal_pilot_budget,
 )
 from libtv_agent.services.subject_elements import automatic_element_metadata
 from libtv_agent.services.tasks import get_task
@@ -510,6 +511,12 @@ async def create_fixed_video_task(
             settings,
             settings.active_kling_provider_name,
             user_id=user_id,
+        )
+        await reserve_internal_pilot_budget(
+            session,
+            settings,
+            user_id=user_id,
+            units=max(len(task.variants), 1),
         )
         attempts = await prepare_kling_task(
             session,

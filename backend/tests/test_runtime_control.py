@@ -37,7 +37,9 @@ from libtv_agent.services.runtime_control import (
     generation_claims_allowed,
     get_runtime_config,
     provider_claims_allowed,
+    reserve_internal_pilot_budget,
     set_libtv_auth_required,
+    update_runtime_config,
     validate_runtime_config,
 )
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -80,6 +82,49 @@ def test_runtime_config_allows_pass_only_auto_confirmation() -> None:
             paid_generation_enabled=True,
             _env_file=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_internal_pilot_allow_list_and_budget_are_atomic(tmp_path: Path) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'pilot.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(app_env="production", _env_file=None)
+
+    async with factory() as session:
+        current = await get_runtime_config(session, settings)
+        assert current is not None
+        config = dict(current.config_json)
+        config.update(
+            {
+                "internalPilotEnabled": True,
+                "pilotUserIds": [str(USER_ID)],
+                "pilotBudgetLimit": 2,
+                "pilotSubmittedCount": 0,
+            }
+        )
+        await update_runtime_config(
+            session,
+            settings,
+            config=config,
+            actor_id=ADMIN_ID,
+            reason="enable pilot for test",
+            expected_version=current.version,
+        )
+        await session.commit()
+
+        await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=2)
+        await session.commit()
+        current = await get_runtime_config(session, settings)
+        assert current is not None
+        assert current.config_json["pilotSubmittedCount"] == 2
+
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=1)
+        assert captured.value.code == "PILOT_BUDGET_EXCEEDED"
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

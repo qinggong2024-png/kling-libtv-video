@@ -4,7 +4,8 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -378,6 +379,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_exception_handler(OperationalError, database_error_response)
     app.add_exception_handler(ProgrammingError, database_error_response)
+
+    def _error_envelope(
+        *,
+        status_code: int,
+        detail: object,
+        validation: bool = False,
+    ) -> dict[str, object]:
+        if validation:
+            field_errors = [
+                {key: value for key, value in item.items() if key != "ctx"}
+                for item in detail
+                if isinstance(item, dict)
+            ] if isinstance(detail, list) else []
+            return {
+                "code": "REQUEST_VALIDATION_FAILED",
+                "message": "请求参数校验失败",
+                "retryable": False,
+                "mayHaveBeenAccepted": False,
+                "mayHaveBeenCharged": False,
+                "requiresReconciliation": False,
+                "fieldErrors": field_errors,
+                "correlationId": secrets.token_hex(16),
+            }
+        if isinstance(detail, dict):
+            payload = dict(detail)
+        else:
+            payload = {"message": str(detail)}
+        code = str(payload.get("code") or "REQUEST_FAILED")
+        may_have_accepted = code in {
+            "REQUEST_TIMEOUT",
+            "WRITE_UNCERTAIN",
+            "UNKNOWN_AFTER_SUBMIT",
+            "WAVESPEED_SUBMISSION_UNCERTAIN",
+            "KLING_SUBMIT_RESULT_UNKNOWN",
+        }
+        requires_reconciliation = may_have_accepted or code in {
+            "PAID_STATE_UNCERTAIN",
+            "RECONCILIATION_REQUIRED",
+        }
+        payload.setdefault("code", code)
+        payload.setdefault("message", "请求未完成")
+        payload.setdefault("retryable", status_code >= 500 and not requires_reconciliation)
+        payload.setdefault("mayHaveBeenAccepted", may_have_accepted)
+        payload.setdefault("mayHaveBeenCharged", may_have_accepted)
+        payload.setdefault("requiresReconciliation", requires_reconciliation)
+        payload.setdefault("correlationId", secrets.token_hex(16))
+        return payload
+
+    async def http_error_response(request: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content={"detail": _error_envelope(status_code=exc.status_code, detail=exc.detail)},
+        )
+
+    async def validation_error_response(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "detail": _error_envelope(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=exc.errors(),
+                    validation=True,
+                )
+            },
+        )
+
+    app.add_exception_handler(HTTPException, http_error_response)
+    app.add_exception_handler(RequestValidationError, validation_error_response)
 
     async def unhandled_error_response(request: Request, exc: Exception) -> JSONResponse:
         # Without this, an unexpected exception produced Starlette's bare

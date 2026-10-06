@@ -214,7 +214,8 @@ async def test_missing_staged_thumbnail_returns_not_found(tmp_path: Path) -> Non
             headers=user_headers(),
         )
         assert response.status_code == 404
-        assert response.json()["detail"] == "thumbnail file was not found"
+        assert response.json()["detail"]["code"] == "REQUEST_FAILED"
+        assert response.json()["detail"]["message"] == "thumbnail file was not found"
 
 
 @pytest.mark.asyncio

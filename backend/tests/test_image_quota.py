@@ -12,15 +12,17 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
-from libtv_agent.domain.models import Base, ImageGenerationBatch
+from libtv_agent.domain.models import Base, ImageGenerationBatch, ImageQuotaReservation
 from libtv_agent.services.image_quota import (
     ImageQuotaExceededError,
     assert_image_quota_available,
     business_day_window,
     images_submitted_on,
+    reserve_image_quota,
+    settle_image_quota,
 )
 from libtv_agent.services.points import business_date
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 PNG_BYTES = base64.b64decode(
@@ -214,6 +216,43 @@ async def test_empty_ledger_and_negative_request_are_handled(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_image_quota_reservation_records_unknown_then_settles(tmp_path: Path) -> None:
+    engine, factory = await _session_factory(tmp_path)
+    subject = uuid.uuid4()
+
+    async with factory() as session:
+        batch = ImageGenerationBatch(
+            user_id=subject,
+            client_batch_id="evidence-batch",
+            idempotency_key="evidence-key",
+            request_hash="0" * 64,
+            name="quota-evidence",
+            provider="nanobanana",
+            status="WRITE_UNCERTAIN",
+            expected_generation_count=3,
+            paid_submission_consent_at=datetime.now(),
+            request_json={},
+        )
+        session.add(batch)
+        await session.flush()
+        reservation = await reserve_image_quota(session, batch=batch)
+        assert reservation.status == "RESERVED"
+        await settle_image_quota(session, batch=batch)
+        assert reservation.status == "UNKNOWN"
+        assert reservation.settled_at is None
+
+        batch.status = "FAILED"
+        await settle_image_quota(session, batch=batch)
+        assert reservation.status == "SETTLED"
+        assert reservation.settled_at is not None
+        stored = await session.get(ImageQuotaReservation, reservation.id)
+        assert stored is not None
+        assert stored.estimated_images == 3
+        await session.rollback()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_api_blocks_over_quota_before_any_paid_call(tmp_path: Path) -> None:
     app, settings = await _app(tmp_path, daily_image_limit=1)
     adapter = FakeWaveSpeedAdapter()
@@ -280,3 +319,39 @@ async def test_idempotent_replay_still_works_when_quota_is_spent(tmp_path: Path)
         async with app.state.database.session_factory() as session:
             stored = list(await session.scalars(select(ImageGenerationBatch)))
         assert len(stored) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_idempotent_replay_backfills_quota_evidence(tmp_path: Path) -> None:
+    app, settings = await _app(tmp_path, daily_image_limit=1)
+    adapter = FakeWaveSpeedAdapter()
+    headers = {"X-User-Id": settings.dev_user_id, "Idempotency-Key": "legacy-replay-key"}
+    data, files = _multipart(_manifest())
+
+    async with app.router.lifespan_context(app):
+        app.state.wavespeed_adapter = adapter
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            first = await client.post(
+                "/api/v1/image-generation-batches", headers=headers, data=data, files=files
+            )
+            assert first.status_code == 201, first.text
+
+        async with app.state.database.session_factory() as session:
+            await session.execute(delete(ImageQuotaReservation))
+            await session.commit()
+
+        replay_data, replay_files = _multipart(_manifest())
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            replay = await client.post(
+                "/api/v1/image-generation-batches",
+                headers=headers,
+                data=replay_data,
+                files=replay_files,
+            )
+            assert replay.status_code == 201, replay.text
+            assert replay.json()["id"] == first.json()["id"]
+
+        async with app.state.database.session_factory() as session:
+            evidence = list(await session.scalars(select(ImageQuotaReservation)))
+        assert len(evidence) == 1
+        assert evidence[0].estimated_images == 1

@@ -24,6 +24,10 @@ export class ApiError extends Error {
   status: number
   details: unknown
   retryable: boolean | null
+  mayHaveBeenAccepted: boolean
+  mayHaveBeenCharged: boolean
+  requiresReconciliation: boolean
+  correlationId: string | null
 
   constructor(
     status: number,
@@ -31,6 +35,10 @@ export class ApiError extends Error {
     message: string,
     details: unknown = null,
     retryable: boolean | null = null,
+    mayHaveBeenAccepted = false,
+    mayHaveBeenCharged = false,
+    requiresReconciliation = false,
+    correlationId: string | null = null,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -38,6 +46,10 @@ export class ApiError extends Error {
     this.code = code
     this.details = details
     this.retryable = retryable
+    this.mayHaveBeenAccepted = mayHaveBeenAccepted
+    this.mayHaveBeenCharged = mayHaveBeenCharged
+    this.requiresReconciliation = requiresReconciliation
+    this.correlationId = correlationId
   }
 }
 
@@ -61,6 +73,10 @@ type ErrorPayload = {
   message?: unknown
   details?: unknown
   retryable?: unknown
+  mayHaveBeenAccepted?: unknown
+  mayHaveBeenCharged?: unknown
+  requiresReconciliation?: unknown
+  correlationId?: unknown
 }
 
 function validationDetailMessage(detail: unknown[]): string {
@@ -103,6 +119,10 @@ function apiErrorFromBody(status: number, statusText: string, body: unknown): Ap
     typeof detail.message === 'string' ? detail.message : `${status} ${statusText}`,
     detail.details ?? null,
     typeof detail.retryable === 'boolean' ? detail.retryable : null,
+    detail.mayHaveBeenAccepted === true,
+    detail.mayHaveBeenCharged === true,
+    detail.requiresReconciliation === true,
+    typeof detail.correlationId === 'string' ? detail.correlationId : null,
   )
 }
 
