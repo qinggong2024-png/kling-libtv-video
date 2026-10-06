@@ -15,6 +15,8 @@ Design notes:
 * Batches that fail later still count for the day. That is deliberate and matches the
   conservative posture of the video quota, where a released reservation has never actually
   happened in production.
+* ``ImageQuotaReservation`` is evidence for reconciliation and settlement; the daily
+  usage query remains based on batch rows so the migration can backfill old batches lazily.
 * The image budget is independent of the video budget: neither consumes the other.
 """
 
@@ -24,7 +26,7 @@ import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
-from libtv_agent.domain.models import ImageGenerationBatch, User
+from libtv_agent.domain.models import ImageGenerationBatch, ImageQuotaReservation, User
 from libtv_agent.services.points import SHANGHAI, business_date
 from sqlalchemy import func, select, update
 
@@ -106,3 +108,61 @@ async def assert_image_quota_available(
     if used + requested_images > daily_limit:
         raise ImageQuotaExceededError(limit=daily_limit, used=used, requested=requested_images)
     return used
+
+
+async def reserve_image_quota(
+    session: AsyncSession,
+    *,
+    batch: ImageGenerationBatch,
+    now: datetime | None = None,
+) -> ImageQuotaReservation:
+    """Persist the quota evidence for a newly admitted image batch."""
+
+    existing = await session.scalar(
+        select(ImageQuotaReservation).where(ImageQuotaReservation.batch_id == batch.id)
+    )
+    if existing is not None:
+        return existing
+    reservation = ImageQuotaReservation(
+        batch_id=batch.id,
+        user_id=batch.user_id,
+        business_date=business_date(now),
+        estimated_images=batch.expected_generation_count,
+        status="RESERVED",
+    )
+    session.add(reservation)
+    await session.flush()
+    return reservation
+
+
+async def settle_image_quota(
+    session: AsyncSession,
+    *,
+    batch: ImageGenerationBatch,
+) -> ImageQuotaReservation | None:
+    """Settle quota evidence once the batch outcome is known.
+
+    Quota remains consumed for failed provider calls, matching the existing
+    conservative daily-quota policy. Only an uncertain submission stays
+    explicitly UNKNOWN for operator reconciliation.
+    """
+
+    reservation = await session.scalar(
+        select(ImageQuotaReservation).where(ImageQuotaReservation.batch_id == batch.id)
+    )
+    if reservation is None or reservation.status not in {"RESERVED", "UNKNOWN"}:
+        return reservation
+    if batch.status == "WRITE_UNCERTAIN":
+        reservation.status = "UNKNOWN"
+        reservation.unknown_reason = "provider submission outcome is uncertain"
+        reservation.settled_at = None
+    elif batch.status in {
+        "COMPLETED",
+        "PARTIAL_FAILED",
+        "FAILED",
+        "MANUAL_REVIEW",
+    }:
+        reservation.status = "SETTLED"
+        reservation.unknown_reason = None
+        reservation.settled_at = datetime.now(UTC)
+    return reservation

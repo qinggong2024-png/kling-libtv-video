@@ -800,6 +800,23 @@ class ImageGenerationBatch(Base):
     )
 
 
+class ImageQuotaReservation(Base):
+    __tablename__ = "image_quota_reservation"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("image_generation_batch.id", ondelete="RESTRICT"), unique=True, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), index=True
+    )
+    business_date: Mapped[date] = mapped_column(Date, index=True)
+    estimated_images: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="RESERVED", index=True)
+    unknown_reason: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ImageGenerationItem(Base):
     __tablename__ = "image_generation_item"
     __table_args__ = (

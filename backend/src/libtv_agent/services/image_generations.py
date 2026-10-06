@@ -20,6 +20,7 @@ from libtv_agent.domain.models import (
     ImageGenerationItem,
     ImageGenerationOutput,
 )
+from libtv_agent.services.image_quota import settle_image_quota
 from PIL import Image
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -302,6 +303,7 @@ async def submit_batch(
     pending_items = [item for item in batch.items if item.status == "PENDING"]
     if not pending_items:
         _update_batch_status(batch)
+        await settle_image_quota(session, batch=batch)
         await session.commit()
         return
 
@@ -383,6 +385,7 @@ async def submit_batch(
             }
         await session.commit()
     _update_batch_status(batch)
+    await settle_image_quota(session, batch=batch)
     await session.commit()
 
 
@@ -619,6 +622,7 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
     for item in batch.items:
         await session.refresh(item)
     _update_batch_status(batch)
+    await settle_image_quota(session, batch=batch)
     await session.commit()
 
 

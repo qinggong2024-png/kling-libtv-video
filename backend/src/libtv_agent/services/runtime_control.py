@@ -160,6 +160,10 @@ def default_runtime_config(settings: Settings) -> dict[str, Any]:
     return {
         "globalPaused": settings.global_paused,
         "paidSubmissionsPaused": settings.paid_submissions_paused,
+        "internalPilotEnabled": False,
+        "pilotUserIds": [],
+        "pilotBudgetLimit": 0,
+        "pilotSubmittedCount": 0,
         "libtvAuthRequired": False,
         "generationConcurrency": {
             "sameProject": settings.generation_same_project,
@@ -177,6 +181,10 @@ def default_runtime_config(settings: Settings) -> dict[str, Any]:
 
 def validate_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized = deepcopy(config)
+    normalized.setdefault("internalPilotEnabled", False)
+    normalized.setdefault("pilotUserIds", [])
+    normalized.setdefault("pilotBudgetLimit", 0)
+    normalized.setdefault("pilotSubmittedCount", 0)
     concurrency = normalized.get("generationConcurrency")
     queue = normalized.get("preparedQueue")
     if not isinstance(concurrency, dict) or not isinstance(queue, dict):
@@ -194,9 +202,23 @@ def validate_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("lowWatermark must cover global concurrency")
     if high < 2 * concurrency["global"]:
         raise ValueError("highWatermark must be at least twice global concurrency")
-    for key in ("globalPaused", "paidSubmissionsPaused"):
+    for key in ("globalPaused", "paidSubmissionsPaused", "internalPilotEnabled"):
         if not isinstance(normalized.get(key), bool):
             raise ValueError(f"{key} must be boolean")
+    pilot_user_ids = normalized.get("pilotUserIds")
+    if (
+        not isinstance(pilot_user_ids, list)
+        or any(not isinstance(value, str) or not value.strip() for value in pilot_user_ids)
+    ):
+        raise ValueError("pilotUserIds must be a list of non-empty strings")
+    if len(pilot_user_ids) != len(set(pilot_user_ids)):
+        raise ValueError("pilotUserIds must not contain duplicates")
+    for key in ("pilotBudgetLimit", "pilotSubmittedCount"):
+        value = normalized.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer")
+    if normalized["pilotSubmittedCount"] > normalized["pilotBudgetLimit"]:
+        raise ValueError("pilotSubmittedCount cannot exceed pilotBudgetLimit")
     # Existing runtime-config rows predate LibTV account health tracking.
     normalized.setdefault("libtvAuthRequired", False)
     if not isinstance(normalized["libtvAuthRequired"], bool):
@@ -208,6 +230,56 @@ def validate_runtime_config(config: dict[str, Any]) -> dict[str, Any]:
     if normalized.get("autoConfirmLevels") != ["PASS"]:
         raise ValueError("only PASS may enter automatic confirmation")
     return normalized
+
+
+async def reserve_internal_pilot_budget(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    user_id: uuid.UUID,
+    units: int,
+) -> RuntimeConfigVersion | None:
+    """Atomically admit a real pilot submission and consume its budget.
+
+    Development and test adapters intentionally bypass this gate. Production
+    defaults remain closed until an administrator explicitly configures the
+    pilot switch, allow-list, and non-zero budget.
+    """
+
+    if settings.app_env in {"development", "test"}:
+        return await get_runtime_config(session, settings)
+    if units < 1:
+        raise ValueError("pilot budget units must be positive")
+    current = await get_runtime_config(session, settings)
+    if current is None:
+        raise RuntimeControlBlockedError("RUNTIME_CONFIG_MISSING", "runtime config is unavailable")
+    config = deepcopy(current.config_json)
+    if not config.get("internalPilotEnabled", False):
+        raise RuntimeControlBlockedError(
+            "INTERNAL_PILOT_DISABLED",
+            "internal pilot submissions are not enabled",
+        )
+    if str(user_id) not in config.get("pilotUserIds", []):
+        raise RuntimeControlBlockedError(
+            "INTERNAL_PILOT_USER_NOT_ALLOWED",
+            "the account is not allow-listed for the internal pilot",
+        )
+    limit = int(config.get("pilotBudgetLimit", 0))
+    used = int(config.get("pilotSubmittedCount", 0))
+    if used + units > limit:
+        raise RuntimeControlBlockedError(
+            "PILOT_BUDGET_EXCEEDED",
+            "the internal pilot submission budget has been reached",
+        )
+    config["pilotSubmittedCount"] = used + units
+    return await update_runtime_config(
+        session,
+        settings,
+        config=config,
+        actor_id=None,
+        reason=f"internal pilot admission for {units} unit(s)",
+        expected_version=current.version,
+    )
 
 
 async def get_runtime_config(

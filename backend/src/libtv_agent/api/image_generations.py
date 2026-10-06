@@ -40,8 +40,13 @@ from libtv_agent.services.image_quota import (
     ImageQuotaExceededError,
     assert_image_quota_available,
     lock_image_quota_user,
+    reserve_image_quota,
 )
-from libtv_agent.services.runtime_control import get_runtime_config
+from libtv_agent.services.runtime_control import (
+    RuntimeControlBlockedError,
+    get_runtime_config,
+    reserve_internal_pilot_budget,
+)
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select
@@ -601,6 +606,14 @@ async def create_image_generation_batch(
                 detail={"code": "IDEMPOTENCY_KEY_REUSED", "message": str(exc)},
             ) from exc
         if existing is not None:
+            # Batches created before the quota-evidence migration have no
+            # reservation row. Backfill it on the idempotent replay without
+            # re-running the quota gate or consuming any new budget.
+            await reserve_image_quota(
+                session,
+                batch=existing,
+                now=existing.created_at,
+            )
             await session.commit()
             await submit_batch(
                 session,
@@ -655,6 +668,18 @@ async def create_image_generation_batch(
                     "retryable": False,
                 },
             ) from exc
+        try:
+            await reserve_internal_pilot_budget(
+                session,
+                settings,
+                user_id=actor.id,
+                units=len(specs),
+            )
+        except RuntimeControlBlockedError as exc:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail={"code": exc.code, "message": str(exc), "retryable": False},
+            ) from exc
         batch = create_batch_record(
             user_id=actor.id,
             idempotency_key=idempotency_key,
@@ -664,6 +689,8 @@ async def create_image_generation_batch(
         )
         session.add(batch)
         try:
+            await session.flush()
+            await reserve_image_quota(session, batch=batch)
             await session.commit()
         except IntegrityError:
             await session.rollback()
