@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, cancelTask, changePassword, clearPersonalVideoLearning, confirmTask, createAdminUser, createKlingElement, createPromptPreset, createTask, createVideoTask, deactivateAdminUser, deleteKlingElement, fetchImageAssetFile, getAdminUsers, getKlingConfig, getKlingElements, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getPersonalVideoLearning, getPromptPresets, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveArtifact, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPersonalVideoLearning, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig, uploadStoryboard } from './api'
+import { ApiError, blockProductVersion, cancelTask, changePassword, clearPersonalVideoLearning, confirmProductVersion, confirmTask, createAdminUser, createKlingElement, createProduct, createProductVersion, createPromptPreset, createTask, createVideoTask, deactivateAdminUser, deleteKlingElement, fetchImageAssetFile, getAdminUsers, getKlingConfig, getKlingElements, getLibTVAccountStatus, getOperations, getPersonalPromptAutoConfirmation, getPersonalVideoLearning, getProductVersions, getProducts, getPromptPresets, getTaskPage, getTasks, login, loginKling, logoutKling, resetAdminUserPassword, runPromptAssistant, saveArtifact, saveTaskPrompts, setApiUserId, setPersonalPromptAutoConfirmation, setPersonalVideoLearning, setPromptAutoConfirmation, setVariantFeedback, startLibTVLogin, switchLibTVAccount, updateKlingConfig, uploadStoryboard } from './api'
 import type { Task, UploadResult } from './types'
 
 const USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -126,6 +126,35 @@ describe('API request identity and CSRF contracts', () => {
     expect(calls[1][1]?.method).toBe('PATCH')
     expect(new Headers(calls[1][1]?.headers).get('X-User-Id')).toBe(USER_ID)
     expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ automatic: true })
+  })
+
+  it('supports product versioning without allowing client-side mutation', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse([{ id: 'product-1' }]))
+      .mockResolvedValueOnce(jsonResponse({ id: 'version-1' }, 201))
+      .mockResolvedValueOnce(jsonResponse({ id: 'version-1' }, 201))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'version-1' }]))
+      .mockResolvedValueOnce(jsonResponse({ id: 'version-1', status: 'APPROVED' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'version-1', status: 'BLOCKED' }))
+
+    await getProducts()
+    await createProduct('SKU-01')
+    await createProductVersion('product-1', { productPageUrl: 'https://example.test/sku-01' })
+    await getProductVersions('product-1')
+    await confirmProductVersion('product-1', 'version-1')
+    await blockProductVersion('product-1', 'version-1', '待人工核验')
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(String(calls[0][0])).toBe('/api/v1/products')
+    expect(String(calls[1][0])).toBe('/api/v1/products')
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ internalSkuId: 'SKU-01' })
+    expect(JSON.parse(String(calls[2][1]?.body))).toMatchObject({
+      productId: 'product-1',
+      productPageUrl: 'https://example.test/sku-01',
+    })
+    expect(String(calls[3][0])).toBe('/api/v1/products/product-1/versions')
+    expect(String(calls[4][0])).toBe('/api/v1/products/product-1/versions/version-1/confirm')
+    expect(String(calls[5][0])).toBe('/api/v1/products/product-1/versions/version-1/block')
   })
 
   it('carries a qualified image output identity into storyboard upload', async () => {

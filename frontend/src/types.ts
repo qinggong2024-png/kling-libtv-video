@@ -1,6 +1,35 @@
 export type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'active'
 export type VariantKind = 'STABLE' | 'DYNAMIC'
 export type FeedbackValue = 'LIKE' | 'DISLIKE'
+export type ProductLicenseStatus = 'UNKNOWN' | 'VERIFIED' | 'BLOCKED'
+export type ProductVersionStatus = 'DRAFT' | 'READY' | 'APPROVED' | 'BLOCKED'
+
+export interface Product {
+  id: string
+  userId: string
+  internalSkuId: string
+  currentVersionId: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface ProductVersion {
+  id: string
+  productId: string
+  versionNumber: number
+  productPageUrl: string
+  pageTitle: string | null
+  candidateNames: string[]
+  truthFields: Record<string, unknown>
+  immutableFields: Record<string, unknown>
+  allowedVariation: string[]
+  sourceAssetReferences: string[]
+  licenseStatus: ProductLicenseStatus
+  status: ProductVersionStatus
+  blockedReason: string | null
+  confirmedAt: string | null
+  createdAt: string | null
+}
 export interface VideoLearningPreference {
   enabled: boolean
   feedbackCount: number

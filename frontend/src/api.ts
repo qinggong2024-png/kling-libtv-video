@@ -1,4 +1,4 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, Product, ProductVersion, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -179,6 +179,40 @@ const key = () => createUuid()
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
+export const getProducts = () => request<Product[]>('/api/v1/products')
+export const getProduct = (productId: string) => request<Product>(`/api/v1/products/${productId}`)
+export const getProductVersions = (productId: string) => request<ProductVersion[]>(`/api/v1/products/${productId}/versions`)
+
+export type ProductVersionDraft = {
+  productPageUrl: string
+  pageTitle?: string | null
+  candidateNames?: string[]
+  truthFields?: Record<string, unknown>
+  immutableFields?: Record<string, unknown>
+  allowedVariation?: string[]
+  sourceAssetReferences?: string[]
+  licenseStatus?: ProductVersion['licenseStatus']
+}
+
+export const createProduct = (internalSkuId: string) => request<Product>('/api/v1/products', {
+  method: 'POST',
+  body: JSON.stringify({ internalSkuId }),
+})
+
+export const createProductVersion = (productId: string, draft: ProductVersionDraft) => request<ProductVersion>(
+  `/api/v1/products/${productId}/versions`,
+  { method: 'POST', body: JSON.stringify({ ...draft, productId }) },
+)
+
+export const confirmProductVersion = (productId: string, versionId: string) => request<ProductVersion>(
+  `/api/v1/products/${productId}/versions/${versionId}/confirm`,
+  { method: 'POST' },
+)
+
+export const blockProductVersion = (productId: string, versionId: string, reason?: string) => request<ProductVersion>(
+  `/api/v1/products/${productId}/versions/${versionId}/block`,
+  { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) },
+)
 export const getPersonalPromptAutoConfirmation = () => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation')
 export const setPersonalPromptAutoConfirmation = (automatic: boolean) => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation', {
   method: 'PATCH',
