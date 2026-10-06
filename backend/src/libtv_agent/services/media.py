@@ -3,8 +3,10 @@ import hashlib
 import json
 import os
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from libtv_agent.adapters.libtv import LibTVAdapter, LibTVError
 
@@ -23,6 +25,35 @@ class TechnicalValidation:
     has_audio: bool
     sha256: str
     size_bytes: int
+
+
+class TechnicalValidationOptions(TypedDict):
+    duration_min: float
+    duration_max: float
+    target_ratio: float
+    allow_audio: bool
+
+
+def technical_validation_options(
+    generation_config: Mapping[str, object],
+) -> TechnicalValidationOptions:
+    expected_duration = float(
+        generation_config.get("duration") or generation_config.get("durationSeconds") or 10
+    )
+    target_ratio = {
+        "16:9": 16 / 9,
+        "9:16": 9 / 16,
+        "1:1": 1.0,
+    }.get(str(generation_config.get("aspectRatio") or "9:16"), 9 / 16)
+    allow_audio = str(
+        generation_config.get("audio") or generation_config.get("sound") or "off"
+    ).lower() in {"native", "original", "on", "true"}
+    return {
+        "duration_min": max(0.1, expected_duration - 1),
+        "duration_max": expected_duration + 1,
+        "target_ratio": target_ratio,
+        "allow_audio": allow_audio,
+    }
 
 
 async def download_with_retries(

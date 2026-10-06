@@ -44,7 +44,11 @@ from libtv_agent.services.generation_safety import (
     PaidGenerationBlockedError,
     require_paid_generation_authorized,
 )
-from libtv_agent.services.media import download_with_retries, technical_validate
+from libtv_agent.services.media import (
+    download_with_retries,
+    technical_validate,
+    technical_validation_options,
+)
 from libtv_agent.services.points import business_date, settle_points
 from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
@@ -1162,123 +1166,129 @@ class RunnerSupervisor:
         attempt.billing_source = BillingSource(billing_source) if has_attributable_billing else None
         command.status = CommandStatus.TERMINAL
         command.lease_expires_at = None
-        variant = await session.get(GenerationVariant, attempt.variant_id)
-        if variant is None:
-            return
-        variant.generation_status = generation_status
-        variant.download_status = DownloadStatus.DOWNLOADING
-        await session.commit()
-        await self._aggregate_task(session, variant.id)
-        task = await session.get(ParentTask, variant.parent_task_id)
-        if task is None:
-            return
-        filename = delivery_filename(
-            business_date().isoformat(),
-            str(task.user_id),
-            str(task.id),
-            variant.variant_key or variant.variant_type.value,
-            variant.revision,
-        )
-        destination = self.settings.runner_root / "downloads" / str(task.id) / filename
-        existing_artifact = await session.scalar(
-            select(DownloadArtifact)
-            .where(
-                DownloadArtifact.attempt_id == attempt.id,
-                DownloadArtifact.status == DownloadStatus.READY,
-            )
-            .order_by(DownloadArtifact.revision.desc())
-            .limit(1)
-        )
-        if existing_artifact is not None:
-            variant.download_status = DownloadStatus.READY
-            await session.commit()
-            await self._aggregate_task(session, variant.id)
-            return
-        expected_duration = float(
-            variant.generation_config_json.get("duration")
-            or variant.generation_config_json.get("durationSeconds")
-            or 10
-        )
-        expected_ratio = {
-            "16:9": 16 / 9,
-            "9:16": 9 / 16,
-            "1:1": 1.0,
-        }.get(str(variant.generation_config_json.get("aspectRatio") or "9:16"), 9 / 16)
-        allow_audio = str(
-            variant.generation_config_json.get("audio")
-            or variant.generation_config_json.get("sound")
-            or "off"
-        ).lower() in {"native", "original", "on", "true"}
         try:
-            await download_with_retries(
-                download_adapter or self.adapter,
-                url=str(result.payload["videoUrl"]),
-                destination=destination,
-            )
-            validation = await technical_validate(
-                destination,
-                duration_min=max(0.1, expected_duration - 1),
-                duration_max=expected_duration + 1,
-                target_ratio=expected_ratio,
-                allow_audio=allow_audio,
-            )
-        except Exception:
-            variant.download_status = DownloadStatus.FAILED
-            variant.validation_status = ValidationStatus.FAILED
-            attempt.last_error_code = "DOWNLOAD_RETRYABLE"
+            variant = await session.get(GenerationVariant, attempt.variant_id)
+            if variant is None:
+                return
+            variant.generation_status = generation_status
+            variant.download_status = DownloadStatus.DOWNLOADING
             await session.commit()
             await self._aggregate_task(session, variant.id)
-            return
-        attempt.local_output_path = str(destination)
-        object_key = await self.object_store.put_file(
-            destination,
-            f"users/{task.user_id}/outputs/{task.id}/{filename}",
-            "video/mp4",
-        )
-        artifact = DownloadArtifact(
-            attempt_id=attempt.id,
-            status=DownloadStatus.READY,
-            object_key=object_key,
-            sha256=validation.sha256,
-            size_bytes=validation.size_bytes,
-            duration_seconds=validation.duration_seconds,
-            width=validation.width,
-            height=validation.height,
-            has_audio=validation.has_audio,
-        )
-        session.add(artifact)
-        variant.download_status = DownloadStatus.READY
-        variant.validation_status = (
-            ValidationStatus.PASSED if validation.passed else ValidationStatus.FAILED
-        )
-        session.add(
-            ValidationResult(
-                attempt_id=attempt.id,
-                status=variant.validation_status,
-                coverage="TECHNICAL",
-                rule_version="1.0.0",
-                issue_codes_json=list(validation.issue_codes),
-                summary="Technical validation passed"
-                if validation.passed
-                else "Technical validation failed",
+            task = await session.get(ParentTask, variant.parent_task_id)
+            if task is None:
+                return
+            filename = delivery_filename(
+                business_date().isoformat(),
+                str(task.user_id),
+                str(task.id),
+                variant.variant_key or variant.variant_type.value,
+                variant.revision,
             )
-        )
+            destination = self.settings.runner_root / "downloads" / str(task.id) / filename
+            existing_artifact = await session.scalar(
+                select(DownloadArtifact)
+                .where(
+                    DownloadArtifact.attempt_id == attempt.id,
+                    DownloadArtifact.status == DownloadStatus.READY,
+                )
+                .order_by(DownloadArtifact.revision.desc())
+                .limit(1)
+            )
+            if existing_artifact is not None:
+                variant.download_status = DownloadStatus.READY
+                await session.commit()
+                await self._aggregate_task(session, variant.id)
+                return
+            validation_options = technical_validation_options(variant.generation_config_json)
+            try:
+                await download_with_retries(
+                    download_adapter or self.adapter,
+                    url=str(result.payload["videoUrl"]),
+                    destination=destination,
+                )
+                validation = await technical_validate(
+                    destination,
+                    **validation_options,
+                )
+            except Exception:
+                variant.download_status = DownloadStatus.FAILED
+                variant.validation_status = ValidationStatus.FAILED
+                attempt.last_error_code = "DOWNLOAD_RETRYABLE"
+                await session.commit()
+                await self._aggregate_task(session, variant.id)
+                return
+            attempt.local_output_path = str(destination)
+            object_key = await self.object_store.put_file(
+                destination,
+                f"users/{task.user_id}/outputs/{task.id}/{filename}",
+                "video/mp4",
+            )
+            artifact = DownloadArtifact(
+                attempt_id=attempt.id,
+                status=DownloadStatus.READY,
+                object_key=object_key,
+                sha256=validation.sha256,
+                size_bytes=validation.size_bytes,
+                duration_seconds=validation.duration_seconds,
+                width=validation.width,
+                height=validation.height,
+                has_audio=validation.has_audio,
+            )
+            session.add(artifact)
+            variant.download_status = DownloadStatus.READY
+            variant.validation_status = (
+                ValidationStatus.PASSED if validation.passed else ValidationStatus.FAILED
+            )
+            session.add(
+                ValidationResult(
+                    attempt_id=attempt.id,
+                    status=variant.validation_status,
+                    coverage="TECHNICAL",
+                    rule_version="1.0.0",
+                    issue_codes_json=list(validation.issue_codes),
+                    summary="Technical validation passed"
+                    if validation.passed
+                    else "Technical validation failed",
+                )
+            )
+            await session.commit()
+            await self._aggregate_task(session, variant.id)
+        finally:
+            # The attempt is already SUCCEEDED and the upstream provider already spent
+            # the credit, so every exit from this function owes the reservation a
+            # decision -- including the four early returns above.
+            await self._finalize_attempt_billing(
+                session,
+                attempt,
+                actual_points=actual_points,
+                has_attributable_billing=has_attributable_billing,
+            )
+            await session.commit()
+
+    async def _finalize_attempt_billing(
+        self,
+        session: AsyncSession,
+        attempt: GenerationAttempt,
+        *,
+        actual_points: int | None,
+        has_attributable_billing: bool,
+    ) -> None:
+        """Settle an attempt's reservation from whichever path is leaving."""
         reservation = await session.scalar(
             select(PointsReservation).where(PointsReservation.attempt_id == attempt.id)
         )
-        if reservation:
-            await settle_points(
-                session,
-                reservation,
-                actual_points=(
-                    reservation.estimated_points if actual_points is None else int(actual_points)
-                )
-                if has_attributable_billing
-                else None,
-                charge_status=attempt.charge_status,
+        if reservation is None:
+            return
+        await settle_points(
+            session,
+            reservation,
+            actual_points=(
+                reservation.estimated_points if actual_points is None else int(actual_points)
             )
-        await session.commit()
-        await self._aggregate_task(session, variant.id)
+            if has_attributable_billing
+            else None,
+            charge_status=attempt.charge_status,
+        )
 
     async def _aggregate_task(self, session: AsyncSession, variant_id: uuid.UUID) -> None:
         variant = await session.get(GenerationVariant, variant_id)
