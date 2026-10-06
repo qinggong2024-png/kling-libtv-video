@@ -31,7 +31,9 @@ async def load_idempotent_response(
         "idempotency_key": key,
         "payload_hash": payload_hash,
         "response_status": 0,
-        "response_body_json": {},
+        # Keep the request only while the claim is unfinished so a fresh process
+        # can reconstruct a response after durable work committed first.
+        "response_body_json": {"_requestPayload": payload},
         "expires_at": datetime.now(UTC) + timedelta(days=90),
     }
     dialect = session.get_bind().dialect.name

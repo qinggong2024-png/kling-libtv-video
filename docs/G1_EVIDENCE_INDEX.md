@@ -16,7 +16,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 
 | Gate | Current evidence | Remaining boundary |
 | --- | --- | --- |
-| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL; confirmation and dispatch fresh-process replay | Paid dispatch interruption matrix and actual process restart conflict coverage |
+| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL; confirmation and dispatch fresh-process replay; stale batch-confirmation response reconstruction | Provider-specific execution semantics and actual supplier conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
 | S04 process recovery | Image real POST acceptance then process kill; video API launch entered then process kill with recovery counts [1,0], UNKNOWN_AFTER_SUBMIT/UNCERTAIN reservation and zero resubmits; launch recovery and known-handle tests on main | Pre-submit crash and known-handle process crash for the video path; CLI-specific provider execution |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
@@ -70,9 +70,8 @@ settlement and stale-observation races are fenced; public callbacks remain
 fail-closed; API/Runner crash recovery preserves the persisted state contract;
 user ownership and controlled audit data are enforced; and both `codex/testing`
 and `main` pass the same scoped evidence. Real supplier calls and production
-deployment are not prerequisites. Current status: **INCOMPLETE**, because the
-provider-dispatch interruption and batch-confirmation response recovery matrix
-remains open.
+deployment are not prerequisites. Current status: **INCOMPLETE**, pending the
+final dual-worktree acceptance review and provider-specific execution evidence.
 
 ### G1-Conditional (isolated assurance)
 
@@ -181,8 +180,18 @@ scenario terminates after the READY artifact commit but before settlement commit
 Both recoveries produce exactly one READY artifact and one `CONSUME` entry; the
 reservation is settled and a second recovery is a no-op. The drill uses no provider
 credentials, network calls or production state. Main must pass the same test after
-promotion. This closes the synthetic delivery/settlement interruption boundary,
-but not confirmation/dispatch interruption or provider-specific execution semantics.
+promotion. This closes the synthetic delivery/settlement interruption boundary.
+
+Batch confirmation/dispatch crash increment: `test_g1_batch_dispatch_process_crash.py`,
+`test_g1_batch_confirmation_recovery.py`, and
+`scripts/g1-batch-dispatch-crash.py` passed on testing. The worker commits the
+confirmation and READY command, then stops before the batch response is settled.
+The fresh application startup reconstructs the original response from the
+unfinished claim snapshot; replay returns the same response without rerunning
+the Runner or creating another command. Claims that are still in PREPARING remain
+owned by the dedicated confirmation recovery path. This closes the batch
+confirmation response-recovery boundary without enabling automatic duplicate
+paid submission.
 
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling

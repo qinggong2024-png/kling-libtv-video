@@ -26,7 +26,10 @@ from libtv_agent.services.bach_config import (
     bach_admin_config_signature,
     load_bach_admin_config,
 )
-from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
+from libtv_agent.services.confirmation_recovery import (
+    recover_stale_batch_confirmation_claims,
+    recover_stale_confirmation_claims,
+)
 from libtv_agent.services.credentials import load_admin_credentials
 from libtv_agent.services.feedback_learning import recover_feedback_learning_jobs
 from libtv_agent.services.image_generations import refresh_active_batches
@@ -77,6 +80,10 @@ async def _recover_stale_confirmation_claims(app: FastAPI) -> None:
     try:
         async with app.state.database.session_factory() as session:
             result = await recover_stale_confirmation_claims(session, app.state.settings)
+            batch_result = await recover_stale_batch_confirmation_claims(
+                session, app.state.settings
+            )
+            result = {**result, "batch_replayed": batch_result["replayed"]}
             if any(result.values()):
                 logger.warning(
                     "recovered stale confirmation claims",

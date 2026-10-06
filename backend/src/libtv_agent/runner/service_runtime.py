@@ -23,7 +23,10 @@ from libtv_agent.services.bach_config import (
     load_bach_admin_config,
 )
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
-from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
+from libtv_agent.services.confirmation_recovery import (
+    recover_stale_batch_confirmation_claims,
+    recover_stale_confirmation_claims,
+)
 from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -288,13 +291,21 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         confirmation_recovery = await recover_stale_confirmation_claims(
                             session, settings
                         )
+                        batch_confirmation_recovery = (
+                            await recover_stale_batch_confirmation_claims(session, settings)
+                        )
                         released = await release_stale_idempotency_claims(session)
-                        if released or any(confirmation_recovery.values()):
+                        if (
+                            released
+                            or any(confirmation_recovery.values())
+                            or any(batch_confirmation_recovery.values())
+                        ):
                             logger.warning(
                                 "recovered stale idempotency claims",
                                 extra={
                                     "released": released,
                                     "confirmation_recovery": confirmation_recovery,
+                                    "batch_confirmation_recovery": batch_confirmation_recovery,
                                 },
                             )
                         last_idempotency_sweep = now
