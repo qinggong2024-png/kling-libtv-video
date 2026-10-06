@@ -16,7 +16,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 
 | Gate | Current evidence | Remaining boundary |
 | --- | --- | --- |
-| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL; confirmation and dispatch fresh-process replay | Video confirmation/paid dispatch interruption matrix and actual process restart conflict coverage |
+| S01/S02 idempotency | Image quota/replay and stale submission regression; video create concurrent replay/conflict and fresh-app replay on SQLite/PostgreSQL; confirmation and dispatch fresh-process replay | Paid dispatch interruption matrix and actual process restart conflict coverage |
 | S03 unknown POST | socket-fault-integration.xml and socket-fault-main.xml; image-http-crash-1/result.json and image-http-crash-main/result.json | Other provider execution backends |
 | S04 process recovery | Image real POST acceptance then process kill; video API launch entered then process kill with recovery counts [1,0], UNKNOWN_AFTER_SUBMIT/UNCERTAIN reservation and zero resubmits; launch recovery and known-handle tests on main | Pre-submit crash and known-handle process crash for the video path; CLI-specific provider execution |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
@@ -71,7 +71,8 @@ fail-closed; API/Runner crash recovery preserves the persisted state contract;
 user ownership and controlled audit data are enforced; and both `codex/testing`
 and `main` pass the same scoped evidence. Real supplier calls and production
 deployment are not prerequisites. Current status: **INCOMPLETE**, because the
-in-flight confirmation/dispatch restart matrix remains open.
+provider-dispatch interruption and batch-confirmation response recovery matrix
+remains open.
 
 ### G1-Conditional (isolated assurance)
 
@@ -159,9 +160,18 @@ confirmation replay and confirmation-to-dispatch replay drills in separate Pytho
 processes on both branches. The second process replays the persisted response and
 verifies that attempt, command, reservation, ledger and delivery-artifact counts
 do not increase. This proves post-completion fresh-process replay only; it does
-not prove recovery when the first process dies during confirmation preparation,
-provider dispatch, download or settlement. The in-flight process-restart matrix
-remains open.
+not prove recovery when the first process dies during provider dispatch, download
+or settlement. Confirmation preparation is covered separately below.
+
+Confirmation preparation crash increment: `test_g1_confirmation_process_crash.py`
+and `scripts/g1-confirmation-crash.py` passed on testing. The worker persists
+`PREPARING` and an unfinished `CONFIRM_TASK:<taskId>` claim, then is terminated
+before materialization and confirmation version commit. A fresh worker recovers
+the task as `ACTION_REQUIRED` with `CONFIRMATION_PROCESS_RESTARTED`, releases only
+that abandoned claim, and performs no automatic materialization, reservation or
+dispatch. Main must pass the same test after promotion. This proves the
+pre-confirmation process boundary; it does not prove recovery after dispatch has
+started or reconstruction of a batch-confirmation response.
 
 Delivery/settlement fresh-process increment: `test_g1_delivery_settlement_crash.py`
 and `scripts/g1-delivery-settlement-crash.py` passed on testing before promotion.
