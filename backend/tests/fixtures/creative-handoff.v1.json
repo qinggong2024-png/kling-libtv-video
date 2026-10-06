@@ -1,0 +1,56 @@
+{
+  "schema_version": "creative-handoff.v1",
+  "handoff_id": "handoff-001",
+  "created_at": "2026-10-06T08:00:00Z",
+  "source_system": "libtv_agent",
+  "target_system": "cutflow",
+  "owner": { "owner_id": "user-001" },
+  "product": { "product_id": "sku-001", "product_version": 3 },
+  "creative": {
+    "strategy_id": "strategy-001",
+    "experiment_id": "experiment-001",
+    "variant_id": "variant-001",
+    "storyboard_id": "storyboard-001",
+    "prompt_version": "prompt-001"
+  },
+  "assets": [
+    {
+      "asset_id": "asset-001",
+      "object_key": "approved/sku-001/first-frame.png",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "image",
+      "mime_type": "image/png",
+      "width": 1080,
+      "height": 1920,
+      "approval": {
+        "status": "APPROVED",
+        "version": 2,
+        "approved_by": "reviewer-001",
+        "approved_at": "2026-10-06T08:01:00Z"
+      },
+      "license": {
+        "status": "VERIFIED",
+        "references": ["license://product-001", "license://person-001"]
+      }
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "shot-001",
+      "asset_id": "asset-001",
+      "slot_id": "hook",
+      "order": 1,
+      "tags": ["full_body", "front"],
+      "duration_seconds": 4,
+      "product_visibility": 0.95,
+      "product_centered": true,
+      "motion_energy": "low"
+    }
+  ],
+  "constraints": {
+    "aspect_ratio": "9:16",
+    "max_duration_seconds": 10,
+    "safe_area": { "top": 0.12, "right": 0.08, "bottom": 0.2, "left": 0.08 },
+    "audio_policy": "post_only"
+  }
+}
