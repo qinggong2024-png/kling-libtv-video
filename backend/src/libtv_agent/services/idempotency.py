@@ -31,7 +31,9 @@ async def load_idempotent_response(
         "idempotency_key": key,
         "payload_hash": payload_hash,
         "response_status": 0,
-        "response_body_json": {},
+        # Keep the request only while the claim is unfinished so a fresh process
+        # can reconstruct a response after durable work committed first.
+        "response_body_json": {"_requestPayload": payload},
         "expires_at": datetime.now(UTC) + timedelta(days=90),
     }
     dialect = session.get_bind().dialect.name
@@ -115,6 +117,9 @@ async def release_idempotency_claim(
     await session.commit()
 
 
+# A claim is normally settled within milliseconds of the request that inserted it. Only
+# an abandoned one is still at response_status=0 this much later, so the grace period can
+# be generous without ever touching a live request.
 STALE_CLAIM_GRACE = timedelta(minutes=15)
 
 
@@ -124,7 +129,16 @@ async def release_stale_idempotency_claims(
     older_than: timedelta = STALE_CLAIM_GRACE,
     limit: int = 200,
 ) -> int:
-    """Release abandoned response-less claims without touching live or settled rows."""
+    """Release claims whose owning request never settled them.
+
+    A confirm claim is inserted by the HTTP request, but the real work moves to a
+    background job that outlives it. When the request dies -- client disconnect, app
+    shutdown, process restart -- no handler is left to settle or release the row. It then
+    sits at response_status=0 for ever and every replay of that key answers
+    409 IDEMPOTENCY_REQUEST_IN_PROGRESS, so the client can never retry and never learns
+    what happened. Production held 11 such rows, two of which corresponded one-to-one
+    with MATERIALIZATION_STALE_RECOVERED tasks.
+    """
     cutoff = datetime.now(UTC) - older_than
     stale = list(
         await session.scalars(

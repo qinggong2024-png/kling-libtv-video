@@ -313,12 +313,13 @@ export function createVideoTask(
   uploads: UploadResult[],
   options: FixedVideoTaskOptions,
   sourceUploadDurationSeconds = 0,
+  identity: { clientTaskId?: string; idempotencyKey?: string } = {},
 ) {
   return request<Task>('/api/v1/video-tasks', {
     method: 'POST',
-    headers: { 'Idempotency-Key': key() },
+    headers: { 'Idempotency-Key': identity.idempotencyKey ?? key() },
     body: JSON.stringify({
-      clientTaskId: createUuid(),
+      clientTaskId: identity.clientTaskId ?? createUuid(),
       title,
       storyboards: uploads.map((upload, index) => ({ uploadId: upload.id, order: index + 1, required: true })),
       subjectImages: (options.subjectUploads ?? []).map((upload, index) => ({
@@ -338,6 +339,28 @@ export function createVideoTask(
       sourceUploadDurationSeconds,
     }),
   })
+}
+
+export type SubmissionRecoveryResult = {
+  state: 'submitted' | 'in_progress' | 'unknown' | 'not_found'
+  source: string
+  checkedAt: string
+  auditId: string
+  resourceId: string | null
+  resourceStatus: string | null
+  stateVersion: number | null
+  retryAllowed: false
+}
+
+export function querySubmissionRecovery(identity: {
+  kind: 'video' | 'image'
+  clientId?: string
+  idempotencyKey?: string
+}): Promise<SubmissionRecoveryResult> {
+  return request('/api/v1/submission-recovery/query', {
+    method: 'POST',
+    body: JSON.stringify(identity),
+  }, { timeoutMs: DEFAULT_TIMEOUT_MS })
 }
 
 export function getPromptPresets(scope: PromptPreset['scope'] = 'video') {

@@ -18,8 +18,15 @@ from libtv_agent.domain.enums import RunnerHostStatus
 from libtv_agent.domain.models import AuditEvent, RunnerHost
 from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.runner.supervisor import RunnerSupervisor
+from libtv_agent.services.bach_config import (
+    bach_admin_config_signature,
+    load_bach_admin_config,
+)
 from libtv_agent.services.confirmation import auto_confirm_pass_tasks
-from libtv_agent.services.confirmation_recovery import recover_stale_confirmation_claims
+from libtv_agent.services.confirmation_recovery import (
+    recover_stale_batch_confirmation_claims,
+    recover_stale_confirmation_claims,
+)
 from libtv_agent.services.idempotency import release_stale_idempotency_claims
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
@@ -42,6 +49,25 @@ from libtv_agent.services.wavespeed_config import (
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+
+def _video_provider_admin_config_signatures(
+    settings: Settings,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None, tuple[int, int] | None]:
+    return (
+        kling_admin_config_signature(settings),
+        wavespeed_admin_config_signature(settings),
+        bach_admin_config_signature(settings),
+    )
+
+
+def _load_video_provider_admin_configs(
+    settings: Settings,
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None, tuple[int, int] | None]:
+    load_kling_admin_config(settings)
+    load_wavespeed_admin_config(settings)
+    load_bach_admin_config(settings)
+    return _video_provider_admin_config_signatures(settings)
 
 
 def _atomic_service_instance_id(path: Path) -> str:
@@ -111,10 +137,7 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     os.chdir(project_root)
     settings = Settings()
     settings.validate_shared_environment()
-    load_kling_admin_config(settings)
-    load_wavespeed_admin_config(settings)
-    kling_config_signature = kling_admin_config_signature(settings)
-    wavespeed_config_signature = wavespeed_admin_config_signature(settings)
+    provider_config_signatures = _load_video_provider_admin_configs(settings)
     database = Database(settings.database_url)
     adapter = create_libtv_adapter(settings)
     kling_adapter = create_kling_adapter(settings)
@@ -142,24 +165,19 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
     last_auth_check = 0.0
     last_metric_sample = 0.0
     last_metric_retention = 0.0
-    last_launch_recovery = 0.0
     last_idempotency_sweep = 0.0
+    last_launch_recovery = 0.0
     last_orphan_signature: tuple[int, ...] = ()
     try:
         while not stopping.is_set():
             try:
-                current_kling_config_signature = kling_admin_config_signature(settings)
-                current_wavespeed_config_signature = wavespeed_admin_config_signature(settings)
-                if (
-                    current_kling_config_signature != kling_config_signature
-                    or current_wavespeed_config_signature != wavespeed_config_signature
-                ):
-                    load_kling_admin_config(settings)
-                    load_wavespeed_admin_config(settings)
+                current_provider_config_signatures = _video_provider_admin_config_signatures(
+                    settings
+                )
+                if current_provider_config_signatures != provider_config_signatures:
+                    provider_config_signatures = _load_video_provider_admin_configs(settings)
                     kling_adapter = create_kling_adapter(settings)
                     supervisor.replace_kling_adapter(kling_adapter)
-                    kling_config_signature = kling_admin_config_signature(settings)
-                    wavespeed_config_signature = wavespeed_admin_config_signature(settings)
                 disk = manager.disk_status(
                     settings.runner_log_disk_warning_percent,
                     settings.runner_log_disk_stop_percent,
@@ -235,23 +253,20 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                         backlog_count = await operational_backlog_count(session)
                         await supervisor.run_ready(session)
                     if now - last_launch_recovery >= 60:
-                        # Recovery never submits; retain it even when disk policy pauses work.
-                        await supervisor.recover_stale_launch_started_commands(session)
-                        last_launch_recovery = now
-                    if now - last_idempotency_sweep >= 5 * 60:
-                        confirmation_recovery = await recover_stale_confirmation_claims(
-                            session, settings
+                        # Sits outside the STOP branch on purpose: nothing here submits new
+                        # work, it only resolves commands the previous runner abandoned at
+                        # LAUNCH_STARTED. Those keep occupying uq_attempt_active_intent, so
+                        # the affected task cannot be retried until they are settled.
+                        recovered = await supervisor.recover_stale_launch_started_commands(
+                            session
                         )
-                        released = await release_stale_idempotency_claims(session)
-                        if released or any(confirmation_recovery.values()):
+                        if recovered:
                             logger.warning(
-                                "recovered stale idempotency claims",
-                                extra={
-                                    "released": released,
-                                    "confirmation_recovery": confirmation_recovery,
-                                },
+                                "resolved commands abandoned between LAUNCH_STARTED and "
+                                "PROCESS_STARTED",
+                                extra={"count": recovered},
                             )
-                        last_idempotency_sweep = now
+                        last_launch_recovery = now
                     if now - last_metric_sample >= settings.runner_metric_sample_seconds:
                         await record_operational_sample(
                             session,
@@ -267,6 +282,33 @@ async def run_service_loop(stopping: Event, project_root: Path) -> None:
                             session, settings.runner_metric_retention_days
                         )
                         last_metric_retention = now
+                    if now - last_idempotency_sweep >= 5 * 60:
+                        # Confirmation work is handed to a background job that outlives
+                        # the HTTP request owning the idempotency claim. A request that
+                        # dies before settling leaves the key at response_status=0, and
+                        # every replay then answers 409 IDEMPOTENCY_REQUEST_IN_PROGRESS
+                        # for ever. Nothing else in the system ever looks at those rows.
+                        confirmation_recovery = await recover_stale_confirmation_claims(
+                            session, settings
+                        )
+                        batch_confirmation_recovery = (
+                            await recover_stale_batch_confirmation_claims(session, settings)
+                        )
+                        released = await release_stale_idempotency_claims(session)
+                        if (
+                            released
+                            or any(confirmation_recovery.values())
+                            or any(batch_confirmation_recovery.values())
+                        ):
+                            logger.warning(
+                                "recovered stale idempotency claims",
+                                extra={
+                                    "released": released,
+                                    "confirmation_recovery": confirmation_recovery,
+                                    "batch_confirmation_recovery": batch_confirmation_recovery,
+                                },
+                            )
+                        last_idempotency_sweep = now
                     await session.commit()
             except Exception:
                 logger.exception("runner service cycle failed")

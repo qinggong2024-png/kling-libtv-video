@@ -101,6 +101,10 @@ export function useTaskPolling(detailId: string | null) {
     const hasActiveTasks = tasks.some((task) => ACTIVE_PHASES.has(task.phase))
     const interval = detailId ? 30000 : hasActiveTasks ? 10000 : 30000
     const poll = async () => {
+      if (!navigator.onLine || document.visibilityState === 'hidden') {
+        if (active) timer = window.setTimeout(() => void poll(), interval)
+        return
+      }
       if (!active || inFlight) {
         if (active) timer = window.setTimeout(() => void poll(), interval)
         return
@@ -128,6 +132,10 @@ export function useTaskPolling(detailId: string | null) {
     const poll = async () => {
       if (!active) {
         if (active) timer = window.setTimeout(() => void poll(), 4000)
+        return
+      }
+      if (!navigator.onLine || document.visibilityState === 'hidden') {
+        timer = window.setTimeout(() => void poll(), 4000)
         return
       }
       try {
