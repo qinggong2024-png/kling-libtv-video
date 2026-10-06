@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,13 +13,22 @@ from httpx import ASGITransport, AsyncClient
 from libtv_agent.api.image_generations import ImageBatchManifest, _expand_manifest
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
-from libtv_agent.domain.models import Base, ImageGenerationBatch, ImageGenerationItem
+from libtv_agent.domain.enums import UserRole
+from libtv_agent.domain.models import (
+    Base,
+    ImageGenerationBatch,
+    ImageGenerationItem,
+    RuntimeConfigVersion,
+    User,
+)
+from libtv_agent.services.auth import PasswordService
 from libtv_agent.services.image_generations import (
     ImageBatchSubmissionError,
     _prediction_result,
     _submission_result,
     _validate_public_https_url,
 )
+from libtv_agent.services.runtime_control import get_runtime_config, update_runtime_config
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -79,6 +89,73 @@ async def _app(tmp_path: Path) -> tuple[Any, Settings]:
     settings.runner_root.mkdir(parents=True)
     app = create_app(settings)
     app.state.wavespeed_adapter = FakeWaveSpeedAdapter()
+    return app, settings
+
+
+async def _production_app(
+    tmp_path: Path,
+    *,
+    user_id: uuid.UUID,
+    pilot_user_ids: list[str],
+    pilot_budget_limit: int,
+) -> tuple[Any, Settings]:
+    database_url = f"sqlite+aiosqlite:///{(tmp_path / 'production-images.db').as_posix()}"
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+    settings = Settings(
+        app_env="production",
+        shared_authentication=False,
+        database_url=database_url,
+        object_store_mode="local",
+        artifact_root=tmp_path / "artifacts",
+        runner_root=tmp_path / "runner",
+        wavespeed_enabled=True,
+        wavespeed_api_key="test-only-key",
+        global_paused=False,
+        paid_submissions_paused=False,
+        session_secret="pilot-test-session-secret",
+        minio_secret_key="pilot-test-minio-secret",
+        object_store_prefix="pilot-test",
+        libtv_workspace_id="pilot-test-workspace",
+        libtv_project_uuid="pilot-test-project",
+        _env_file=None,
+    )
+    settings.runner_root.mkdir(parents=True)
+    app = create_app(settings)
+    app.state.wavespeed_adapter = FakeWaveSpeedAdapter()
+    async with app.router.lifespan_context(app):
+        async with app.state.database.session_factory() as session:
+            session.add(
+                User(
+                    id=user_id,
+                    username="pilot-user",
+                    password_hash=PasswordService().hash("pilot-password"),
+                    role=UserRole.USER,
+                )
+            )
+            await session.commit()
+            current = await get_runtime_config(session, settings)
+            assert current is not None
+            config = dict(current.config_json)
+            config.update(
+                {
+                    "internalPilotEnabled": True,
+                    "pilotUserIds": pilot_user_ids,
+                    "pilotBudgetLimit": pilot_budget_limit,
+                    "pilotSubmittedCount": 0,
+                }
+            )
+            await update_runtime_config(
+                session,
+                settings,
+                config=config,
+                actor_id=None,
+                reason="test pilot configuration",
+                expected_version=current.version,
+            )
+            await session.commit()
     return app, settings
 
 
@@ -371,6 +448,100 @@ async def test_batch_submission_is_idempotent_owned_and_provider_specific(tmp_pa
                 headers={"X-User-Id": settings.dev_admin_id},
             )
             assert hidden.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_production_pilot_rejects_non_allowlisted_user(tmp_path: Path) -> None:
+    user_id = uuid.uuid4()
+    app, _settings = await _production_app(
+        tmp_path,
+        user_id=user_id,
+        pilot_user_ids=[],
+        pilot_budget_limit=1,
+    )
+    adapter = FakeWaveSpeedAdapter()
+    data, files = _multipart(_manifest())
+
+    async with app.router.lifespan_context(app):
+        app.state.wavespeed_adapter = adapter
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+            logged_in = await client.post(
+                "/api/v1/auth/login",
+                json={"username": "pilot-user", "password": "pilot-password"},
+            )
+            assert logged_in.status_code == 200, logged_in.text
+            csrf = logged_in.json()["csrfToken"]
+            response = await client.post(
+                "/api/v1/image-generation-batches",
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "pilot-denied"},
+                data=data,
+                files=files,
+            )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "INTERNAL_PILOT_USER_NOT_ALLOWED"
+    assert adapter.uploads == []
+    assert adapter.submissions == []
+
+
+@pytest.mark.asyncio
+async def test_production_pilot_budget_and_replay_are_enforced(tmp_path: Path) -> None:
+    user_id = uuid.uuid4()
+    app, _settings = await _production_app(
+        tmp_path,
+        user_id=user_id,
+        pilot_user_ids=[str(user_id)],
+        pilot_budget_limit=1,
+    )
+    adapter = FakeWaveSpeedAdapter()
+    data, files = _multipart(_manifest())
+
+    async with app.router.lifespan_context(app):
+        app.state.wavespeed_adapter = adapter
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+            logged_in = await client.post(
+                "/api/v1/auth/login",
+                json={"username": "pilot-user", "password": "pilot-password"},
+            )
+            assert logged_in.status_code == 200, logged_in.text
+            csrf = logged_in.json()["csrfToken"]
+            request_headers = {"X-CSRF-Token": csrf, "Idempotency-Key": "pilot-accepted"}
+            created = await client.post(
+                "/api/v1/image-generation-batches",
+                headers=request_headers,
+                data=data,
+                files=files,
+            )
+            assert created.status_code == 201, created.text
+
+            replay_data, replay_files = _multipart(_manifest())
+            replay = await client.post(
+                "/api/v1/image-generation-batches",
+                headers=request_headers,
+                data=replay_data,
+                files=replay_files,
+            )
+            assert replay.status_code == 201, replay.text
+            assert replay.json()["id"] == created.json()["id"]
+
+            blocked_data, blocked_files = _multipart(_manifest(name="second-pilot"))
+            blocked = await client.post(
+                "/api/v1/image-generation-batches",
+                headers={"X-CSRF-Token": csrf, "Idempotency-Key": "pilot-exhausted"},
+                data=blocked_data,
+                files=blocked_files,
+            )
+            assert blocked.status_code == 403
+            assert blocked.json()["detail"]["code"] == "PILOT_BUDGET_EXCEEDED"
+
+        async with app.state.database.session_factory() as session:
+            current = await session.scalar(
+                select(RuntimeConfigVersion)
+                .order_by(RuntimeConfigVersion.version.desc())
+                .limit(1)
+            )
+            assert current is not None
+            assert current.config_json["pilotSubmittedCount"] == 1
+        assert len(adapter.submissions) == 1
 
 
 @pytest.mark.asyncio
