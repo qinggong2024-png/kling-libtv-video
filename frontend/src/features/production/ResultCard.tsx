@@ -9,7 +9,7 @@ import { StatusBadge } from '../../shared/components/Badges'
 import { AuthenticatedImage } from '../../shared/components/Media'
 import { formatTime, variantDisplayName, variantFileToken, variantLabelClass, variantShortLabel } from '../../domain/taskPresentation'
 
-export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void }) {
+export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged, canReview = false }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
   const product = [...task.assets].sort((a, b) => a.order - b.order)[0]
   const ready = Boolean(variant.downloadArtifactId)
   const [feedbackBusy, setFeedbackBusy] = useState<FeedbackValue | null>(null)
@@ -77,6 +77,10 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     setFeedbackMessage('')
   }
   const submitFinalApproval = async (decision: 'APPROVED' | 'REJECTED') => {
+    if (decision === 'REJECTED' && !reviewNotes.trim()) {
+      setFeedbackMessage('拒绝交付必须填写审核原因')
+      return
+    }
     setReviewBusy(true)
     setFeedbackMessage('')
     try {
@@ -110,7 +114,7 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
       <div className={`final-approval-status is-${variant.finalApprovalStatus?.toLowerCase() ?? 'pending'}`}>
         <ShieldCheck size={16} />
         <span>{variant.finalApprovalStatus === 'APPROVED' ? '已批准交付' : variant.finalApprovalStatus === 'REJECTED' ? '交付已拒绝' : '等待 Required Hard Gates 人工审核'}</span>
-        {variant.finalApprovalStatus !== 'APPROVED' ? <button type="button" className="compact-button" onClick={openReview}>质量审核</button> : null}
+        {canReview && variant.finalApprovalStatus !== 'APPROVED' ? <button type="button" className="compact-button" onClick={openReview}>质量审核</button> : null}
       </div>
       {reviewOpen ? <section className="final-approval-panel" aria-label="最终视频质量审核">
         <strong>最终交付审核</strong>
@@ -118,7 +122,7 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
         <label><input type="checkbox" checked={productFidelityPass} onChange={(event) => setProductFidelityPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构与源素材一致</label>
         <label><input type="checkbox" checked={editingAssemblyPass} onChange={(event) => setEditingAssemblyPass(event.target.checked)} />成片已真实完成所需镜头剪辑／组装，不是单段占位结果</label>
         <label><input type="checkbox" checked={humanCriticalPass} onChange={(event) => setHumanCriticalPass(event.target.checked)} />人物、手脸、动作、镜头与成片观感无关键缺陷</label>
-        <label><span>审核备注（可选）</span><textarea value={reviewNotes} maxLength={500} onChange={(event) => setReviewNotes(event.target.value)} /></label>
+        <label><span>审核备注{reviewNotes.trim() ? '' : '（拒绝时必填）'}</span><textarea value={reviewNotes} maxLength={500} onChange={(event) => setReviewNotes(event.target.value)} /></label>
         <div><button type="button" className="secondary-button" disabled={reviewBusy} onClick={() => void submitFinalApproval('REJECTED')}>拒绝交付</button><button type="button" className="primary-button" disabled={reviewBusy || !productFidelityPass || !editingAssemblyPass || !humanCriticalPass} onClick={() => void submitFinalApproval('APPROVED')}>{reviewBusy ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}批准交付</button></div>
       </section> : null}
       <span className="feedback-copy" aria-live="polite">{feedbackMessage || (variant.feedback ? '感谢反馈，系统会持续学习' : '这个结果怎么样？')}</span>
