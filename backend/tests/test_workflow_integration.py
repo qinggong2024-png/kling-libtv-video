@@ -733,6 +733,7 @@ async def test_complete_fake_flow_is_deliverable_and_idempotent(tmp_path: Path) 
                 "editingAssemblyPass": False,
                 "humanCriticalPass": True,
                 "humanReviewSeconds": 3,
+                "expectedStateVersion": completed["stateVersion"],
             },
         )
         assert blocked_approval.status_code == 422
@@ -746,6 +747,7 @@ async def test_complete_fake_flow_is_deliverable_and_idempotent(tmp_path: Path) 
                     "editingAssemblyPass": True,
                     "humanCriticalPass": True,
                     "humanReviewSeconds": 12,
+                    "expectedStateVersion": completed["stateVersion"],
                     "notes": "pilot ground truth",
                 },
             )
@@ -871,6 +873,7 @@ async def test_completed_task_reuse_clones_assets_and_only_selected_prompts(
                     "editingAssemblyPass": True,
                     "humanCriticalPass": True,
                     "humanReviewSeconds": 5,
+                    "expectedStateVersion": completed["stateVersion"],
                 },
             )
             assert approval.status_code == 200, approval.text

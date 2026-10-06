@@ -345,6 +345,7 @@ class FinalApprovalRequest(ApiModel):
     editing_assembly_pass: bool
     human_critical_pass: bool
     human_review_seconds: float = Field(gt=0, le=28_800)
+    expected_state_version: int = Field(ge=1)
     notes: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -355,6 +356,8 @@ class FinalApprovalRequest(ApiModel):
         if (self.decision == "APPROVED") != gates_pass:
             raise ValueError("APPROVED requires every human Required Hard Gate to pass")
         self.notes = " ".join((self.notes or "").split()).strip() or None
+        if self.decision == "REJECTED" and not self.notes:
+            raise ValueError("REJECTED requires a review reason")
         return self
 
 

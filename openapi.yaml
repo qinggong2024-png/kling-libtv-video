@@ -4585,6 +4585,142 @@
         }
       }
     },
+    "/api/v1/admin/image-reconciliations": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Image Reconciliations",
+        "operationId": "list_image_reconciliations_api_v1_admin_image_reconciliations_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Image Reconciliations Api V1 Admin Image Reconciliations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/image-reconciliations/{item_id}/classify": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Classify Image Reconciliation",
+        "operationId": "classify_image_reconciliation_api_v1_admin_image_reconciliations__item_id__classify_post",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Classify Image Reconciliation Api V1 Admin Image Reconciliations  Item Id  Classify Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/tasks/{task_id}/retry-materialization": {
       "post": {
         "tags": [
@@ -6646,6 +6782,11 @@
             "exclusiveMinimum": 0.0,
             "title": "Humanreviewseconds"
           },
+          "expectedStateVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedstateversion"
+          },
           "notes": {
             "anyOf": [
               {
@@ -6665,7 +6806,8 @@
           "productFidelityPass",
           "editingAssemblyPass",
           "humanCriticalPass",
-          "humanReviewSeconds"
+          "humanReviewSeconds",
+          "expectedStateVersion"
         ],
         "title": "FinalApprovalRequest"
       },

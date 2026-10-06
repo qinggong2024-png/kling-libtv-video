@@ -12,6 +12,8 @@ from libtv_agent.domain.enums import AttemptStatus, UserRole
 from libtv_agent.domain.models import (
     AuditEvent,
     GenerationAttempt,
+    ImageGenerationBatch,
+    ImageGenerationItem,
     ParentTask,
     RuntimeConfigVersion,
 )
@@ -32,6 +34,7 @@ from libtv_agent.services.idempotency import (
     release_idempotency_claim,
     store_idempotent_response,
 )
+from libtv_agent.services.image_generations import refresh_batch
 from libtv_agent.services.kling_config import (
     kling_admin_config_signature,
     kling_admin_config_status,
@@ -55,6 +58,7 @@ from libtv_agent.services.wavespeed_config import (
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -1380,6 +1384,88 @@ async def classify_reconciliation(
     response = {"status": result}
     await _complete_admin_action(
         session, actor_id, operation, idempotency_key, payload_json, response
+    )
+    return response
+
+
+@router.get("/image-reconciliations")
+async def list_image_reconciliations(
+    actor: Actor, session: Session
+) -> list[dict[str, object]]:
+    require_admin(actor.role)
+    items = list(
+        await session.scalars(
+            select(ImageGenerationItem)
+            .where(ImageGenerationItem.status == "WRITE_UNCERTAIN")
+            .options(selectinload(ImageGenerationItem.batch))
+            .order_by(ImageGenerationItem.updated_at)
+        )
+    )
+    return [
+        {
+            "itemId": str(item.id),
+            "batchId": str(item.batch_id),
+            "clientTaskId": item.client_task_id,
+            "provider": item.batch.provider if item.batch else None,
+            "providerTaskId": item.provider_task_id,
+            "status": item.status,
+            "errorCode": (item.error_json or {}).get("code"),
+            "updatedAt": item.updated_at.isoformat(),
+        }
+        for item in items
+    ]
+
+
+@router.post("/image-reconciliations/{item_id}/classify")
+async def classify_image_reconciliation(
+    item_id: uuid.UUID,
+    payload: ReconcileRequest,
+    actor: Actor,
+    session: Session,
+    request: Request,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> dict[str, str]:
+    require_admin(actor.role)
+    operation = f"RECONCILE_IMAGE_ITEM:{item_id}"
+    payload_json = payload.model_dump(mode="json", by_alias=True)
+    if cached := await _claim_admin_action(
+        session, actor.id, operation, idempotency_key, payload_json
+    ):
+        return cached
+    item = await session.get(ImageGenerationItem, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "image reconciliation item was not found")
+    batch = await session.get(ImageGenerationBatch, item.batch_id)
+    if batch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "image reconciliation batch was not found")
+    if item.status not in {"WRITE_UNCERTAIN", "MANUAL_REVIEW"}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "image item is not awaiting reconciliation")
+    if payload.action == "MARK_MANUAL_REVIEW":
+        item.status = "MANUAL_REVIEW"
+        error = dict(item.error_json or {})
+        error["requiresManualReview"] = True
+        item.error_json = error
+        batch.status = "MANUAL_REVIEW"
+        response = {"status": item.status}
+    else:
+        await refresh_batch(session, app=request.app, batch=batch)
+        await session.refresh(item)
+        response = {"status": item.status}
+    session.add(
+        AuditEvent(
+            actor_id=actor.id,
+            action="RECONCILE_IMAGE_ITEM",
+            entity_type="image_generation_item",
+            entity_id=str(item.id),
+            from_state="WRITE_UNCERTAIN",
+            to_state=item.status,
+            reason=payload.action,
+            correlation_id=str(uuid.uuid4()),
+            evidence_refs_json=[f"image_generation_batch:{batch.id}"],
+        )
+    )
+    await _complete_admin_action(
+        session, actor.id, operation, idempotency_key, payload_json, response
     )
     return response
 
