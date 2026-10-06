@@ -2,7 +2,7 @@
 // 代码为逐字搬运，未经逻辑改写。
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronRight, CircleAlert, Images, LoaderCircle, LockKeyhole, Settings, UploadCloud, WandSparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ApiError, createVideoTask, getKlingElements, getSiteStyleProfiles, getVideoTemplates, uploadStoryboard } from '../../api'
+import { ApiError, createVideoTask, getKlingElements, getSiteStyleProfiles, getVideoTemplates, querySubmissionRecovery, uploadStoryboard, type SubmissionRecoveryResult } from '../../api'
 import { mapWithConcurrency } from '../../concurrency'
 import { type KlingElement, type SiteStyleProfileSummary, type SystemStatus, type Task, type VideoTemplateSummary } from '../../types'
 import { CustomPromptField } from '../../CustomPromptField'
@@ -53,12 +53,19 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submittedNotice, setSubmittedNotice] = useState('')
+  const [uncertainSubmission, setUncertainSubmission] = useState<{
+    clientTaskId: string
+    idempotencyKey: string
+    result: SubmissionRecoveryResult | null
+    checking: boolean
+  } | null>(null)
   const [resetting, setResetting] = useState(false)
   const [preview, setPreview] = useState<{ file: File; label: string } | null>(null)
   const storyboardInputRef = useRef<HTMLInputElement>(null)
   const batchInputRef = useRef<HTMLInputElement>(null)
   const resetTimerRef = useRef<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
+  const submissionIdentityRef = useRef<{ clientTaskId: string; idempotencyKey: string } | null>(null)
   const videoGeneration = system?.videoGeneration ?? system?.kling
   const activeProvider = providerPresentation(videoGeneration?.provider)
   const activeModel = videoGeneration?.model || videoGeneration?.models[0] || activeProvider.displayName
@@ -206,6 +213,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
     setError('')
     setNotice('')
     setSubmittedNotice('')
+    setUncertainSubmission(null)
     const uploadController = new AbortController()
     uploadAbortRef.current?.abort()
     uploadAbortRef.current = uploadController
@@ -244,6 +252,14 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
         ])
         setStage(generationMode === 'custom' ? `正在校验第 ${groupIndex + 1}/${submissionGroups.length} 组` : `正在创建第 ${groupIndex + 1}/${submissionGroups.length} 组任务`)
         setProgress(Math.round(52 + ((groupIndex + 1) / submissionGroups.length) * 46))
+        const submissionIdentity = { clientTaskId: createUuid(), idempotencyKey: createUuid() }
+        submissionIdentityRef.current = submissionIdentity
+        window.localStorage.setItem(`libtv:submission-intent:${actorId ?? 'anonymous'}:${submissionIdentity.clientTaskId}`, JSON.stringify({
+          ...submissionIdentity,
+          kind: 'video',
+          createdAt: new Date().toISOString(),
+          requestHash: `${group.key}:${templateId}:${siteProfileId}:${normalizedDurationSeconds}:${resultCount}`,
+        }))
         const task = await createVideoTask(
           `${group.key.slice(0, 80)} · ${formatTime(new Date().toISOString())}`,
           uploads,
@@ -260,7 +276,10 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
             cutMode,
           },
           (performance.now() - uploadStartedAt) / 1000,
+          submissionIdentity,
         )
+        window.localStorage.removeItem(`libtv:submission-intent:${actorId ?? 'anonymous'}:${submissionIdentity.clientTaskId}`)
+        submissionIdentityRef.current = null
         if (!firstTask) firstTask = task
         onCreated(task)
       }
@@ -289,7 +308,18 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
       }
     } catch (cause) {
       const failure = uploadFailure ?? cause
-      setError(failure instanceof Error ? failure.message : '素材提交失败，请检查图片后重试')
+      const identity = submissionIdentityRef.current
+      const uncertain = identity && (
+        failure instanceof ApiError
+          ? failure.code === 'REQUEST_TIMEOUT' || failure.code === 'WRITE_UNCERTAIN' || failure.status >= 500
+          : true
+      )
+      if (uncertain && identity) {
+        setUncertainSubmission({ ...identity, result: null, checking: false })
+        setError('提交结果未知，可能已创建任务；请先安全核对，不要直接重新提交。')
+      } else {
+        setError(failure instanceof Error ? failure.message : '素材提交失败，请检查图片后重试')
+      }
     } finally {
       if (uploadAbortRef.current === uploadController) uploadAbortRef.current = null
       setBusy(false)
@@ -297,7 +327,42 @@ export function ProductionComposer({ seed, onCreated, system, actorId }: {
     }
   }
 
+  const checkUncertainSubmission = async () => {
+    if (!uncertainSubmission) return
+    setUncertainSubmission((current) => current ? { ...current, checking: true } : current)
+    try {
+      const result = await querySubmissionRecovery({
+        kind: 'video',
+        clientId: uncertainSubmission.clientTaskId,
+        idempotencyKey: uncertainSubmission.idempotencyKey,
+      })
+      setUncertainSubmission((current) => current ? { ...current, result, checking: false } : current)
+      setError(result.state === 'submitted'
+        ? '已找到原提交，请打开任务记录继续处理。'
+        : result.state === 'in_progress'
+          ? '原提交仍在核对中，请稍后刷新任务记录。'
+          : result.state === 'unknown'
+            ? '仍无法安全判断结果，请联系运营处理；系统不会自动重试。'
+            : '暂未找到本地提交记录，这不代表 Provider 未收到请求；请联系运营处理。')
+    } catch (cause) {
+      setUncertainSubmission((current) => current ? { ...current, checking: false } : current)
+      setError(cause instanceof Error ? cause.message : '安全核对失败，请稍后重试')
+    }
+  }
+
   return <section className={`composer${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-label="视频制作配置" aria-busy={formLocked}>
+    {uncertainSubmission ? <div className="inline-alert inline-alert--warning" role="alert">
+      <CircleAlert size={17} />
+      <span>
+        <strong>提交结果未知</strong>
+        <small>原始提交身份已保留。不要更换幂等键或直接重新生成。</small>
+        {uncertainSubmission.result ? <small>核对结果：{uncertainSubmission.result.state}</small> : null}
+      </span>
+      <button type="button" className="secondary-button" disabled={uncertainSubmission.checking} onClick={() => void checkUncertainSubmission()}>
+        {uncertainSubmission.checking ? <LoaderCircle className="spin" size={15} /> : <CheckCircle2 size={15} />}
+        安全核对
+      </button>
+    </div> : null}
     <div className="composer-inputs" inert={formLocked}>
       <div className="upload-panels upload-panels--with-subject">
         <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}`} onDragOver={(event) => {
