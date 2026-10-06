@@ -207,6 +207,7 @@ export const setVariantFinalApproval = (
     editingAssemblyPass: boolean
     humanCriticalPass: boolean
     humanReviewSeconds: number
+    expectedStateVersion: number
     notes?: string | null
   },
 ) => request<Task>(`/api/v1/tasks/${taskId}/variants/${variantId}/final-approval`, {

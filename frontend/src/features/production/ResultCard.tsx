@@ -91,6 +91,7 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
         editingAssemblyPass,
         humanCriticalPass,
         humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt) / 1000)),
+        expectedStateVersion: task.stateVersion,
         notes: reviewNotes.trim() || null,
       })
       onFeedbackChanged(changed)

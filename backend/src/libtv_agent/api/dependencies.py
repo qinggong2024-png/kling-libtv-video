@@ -82,3 +82,20 @@ async def get_actor(
 
 
 Actor = Annotated[User, Depends(get_actor)]
+
+
+def require_review_write(actor: User) -> None:
+    """Keep auditors read-only while preserving ordinary-owner review behavior."""
+
+    if actor.role is UserRole.AUDITOR:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "PERMISSION_DENIED",
+                "message": "auditor role is read-only",
+            },
+        )
+
+
+def can_review_across_owners(actor: User) -> bool:
+    return actor.role in {UserRole.OPERATOR, UserRole.ADMIN}

@@ -25,7 +25,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 ACTIVE_ITEM_STATUSES = {"CREATED", "PROCESSING"}
-TERMINAL_ITEM_STATUSES = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "WRITE_UNCERTAIN"}
+TERMINAL_ITEM_STATUSES = {
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "TIMEOUT",
+    "WRITE_UNCERTAIN",
+    "MANUAL_REVIEW",
+}
 PROVIDER_MODEL_IDS = {
     ("gpt", "edit"): "openai/gpt-image-2/edit",
     ("gpt", "text-to-image"): "openai/gpt-image-2/text-to-image",

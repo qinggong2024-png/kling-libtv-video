@@ -11,7 +11,12 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, 
 from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.libtv import LibTVError
 from libtv_agent.adapters.openai_analysis import AnalysisTimeoutError
-from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.api.dependencies import (
+    Actor,
+    Session,
+    can_review_across_owners,
+    require_review_write,
+)
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
 from libtv_agent.domain.enums import (
@@ -88,6 +93,7 @@ from libtv_agent.services.tasks import (
     tasks_to_read,
 )
 from sqlalchemy import delete, select, update
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key")]
@@ -583,13 +589,32 @@ async def put_variant_final_approval(
     session: Session,
     request: Request,
 ) -> TaskRead:
+    require_review_write(actor)
     try:
-        task = await get_task(session, actor.id, task_id)
+        if can_review_across_owners(actor):
+            task = await session.scalar(
+                select(ParentTask)
+                .where(ParentTask.id == task_id)
+                .options(selectinload(ParentTask.variants), selectinload(ParentTask.assets))
+            )
+            if task is None:
+                raise TaskNotFoundError("task was not found")
+        else:
+            task = await get_task(session, actor.id, task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     variant = next((item for item in task.variants if item.id == variant_id), None)
     if variant is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "variant was not found")
+    if task.state_version != payload.expected_state_version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "VERSION_CONFLICT",
+                "message": "task state changed; refresh before reviewing",
+                "currentStateVersion": task.state_version,
+            },
+        )
     technical_pass = (
         variant.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
         and variant.download_status == DownloadStatus.READY

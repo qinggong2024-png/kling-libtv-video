@@ -12,9 +12,19 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.api.dependencies import (
+    Actor,
+    Session,
+    can_review_across_owners,
+    require_review_write,
+)
 from libtv_agent.domain.enums import QualityDecisionStatus
-from libtv_agent.domain.models import AuditEvent
+from libtv_agent.domain.models import (
+    AuditEvent,
+    ImageGenerationBatch,
+    ImageGenerationItem,
+    ImageGenerationOutput,
+)
 from libtv_agent.services.image_generations import (
     ImageBatchConflictError,
     ImageItemSpec,
@@ -34,6 +44,7 @@ from libtv_agent.services.image_quota import (
 from libtv_agent.services.runtime_control import get_runtime_config
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(tags=["image-generations"])
@@ -91,6 +102,8 @@ class ImageQualityDecisionRequest(ManifestModel):
         if (self.decision == "QUALIFIED") != gates_pass:
             raise ValueError("QUALIFIED requires every human Required Hard Gate to pass")
         self.notes = " ".join((self.notes or "").split()).strip() or None
+        if self.decision == "REJECTED" and not self.notes:
+            raise ValueError("REJECTED requires a review reason")
         return self
 
 
@@ -338,6 +351,7 @@ def _public_status(value: str) -> str:
         "CANCELLED": "failed",
         "TIMEOUT": "failed",
         "WRITE_UNCERTAIN": "write_uncertain",
+        "MANUAL_REVIEW": "manual_review",
     }.get(value, value.lower())
 
 
@@ -366,7 +380,9 @@ def batch_response(batch: Any) -> dict[str, Any]:
     for predictions in grouped.values():
         first = predictions[0]
         statuses = {prediction.status for prediction in predictions}
-        if "WRITE_UNCERTAIN" in statuses:
+        if "MANUAL_REVIEW" in statuses:
+            aggregate_status = "MANUAL_REVIEW"
+        elif "WRITE_UNCERTAIN" in statuses:
             aggregate_status = "WRITE_UNCERTAIN"
         elif statuses <= {"COMPLETED"}:
             aggregate_status = "COMPLETED"
@@ -726,7 +742,16 @@ async def put_image_quality_decision(
     actor: Actor,
     session: Session,
 ) -> dict[str, Any]:
-    output = await owned_output(session, user_id=actor.id, output_id=output_id)
+    require_review_write(actor)
+    if can_review_across_owners(actor):
+        output = await session.scalar(
+            select(ImageGenerationOutput)
+            .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
+            .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
+            .where(ImageGenerationOutput.id == output_id)
+        )
+    else:
+        output = await owned_output(session, user_id=actor.id, output_id=output_id)
     if output is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "image output was not found")
     if not output.object_key or not output.sha256:
