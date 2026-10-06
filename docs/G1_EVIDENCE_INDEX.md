@@ -21,7 +21,7 @@ migration, live credentials or paid provider call forms part of this acceptance.
 | S04 process recovery | Image real POST acceptance then process kill; video API launch entered then process kill with recovery counts [1,0], UNKNOWN_AFTER_SUBMIT/UNCERTAIN reservation and zero resubmits; launch recovery and known-handle tests on main | Pre-submit crash and known-handle process crash for the video path; CLI-specific provider execution |
 | S05 callback | Public route rejects all requests before DB/provider access; callback-disabled-main.xml; conditional polling writes reject stale terminal/version observations | Default rejection is approved, not proof of vendor signature support; internal callbacks must not be re-enabled without a shared concurrency/authentication contract |
 | S06 query retries | retry-policy-testing-full.xml: 48 passed; download-retry-main-full.xml: 51 passed | Per-provider scheduling semantics, not just WaveSpeed/Kling API parsers |
-| S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry | Other downloaders, interruption of background download thread, workflow-level recovery |
+| S07 delivery | Truncated length, ENOSPC, expired URL injected into Kling downloader; partial never published; GET-only retry; fresh-process download and settlement interruption recovery | Other downloaders and provider-specific delivery semantics |
 | S08 cancellation | cancel-race-both.xml and cancel-race-main.xml: 4 passed each | Real Runner cancellation/confirmation ordering and settlement integration |
 | S09 quota | Image quota concurrency; video-quota-testing.xml and video-quota-main.xml: 2 passed each, SQLite/PostgreSQL final quota, user isolation and reservation replay; video quota rejection audit/metric | Full video API confirmation lifecycle remains separate from reservation-service coverage |
 | S10 Shanghai date | cross-day-testing.xml, settlement-main-final.xml; repeated unknown no duplicate ledger, old snapshot settlement serialized | Cross-day concurrent recovery with real task lifecycle |
@@ -162,6 +162,17 @@ do not increase. This proves post-completion fresh-process replay only; it does
 not prove recovery when the first process dies during confirmation preparation,
 provider dispatch, download or settlement. The in-flight process-restart matrix
 remains open.
+
+Delivery/settlement fresh-process increment: `test_g1_delivery_settlement_crash.py`
+and `scripts/g1-delivery-settlement-crash.py` passed on testing before promotion.
+The isolated worker is force-terminated while a synthetic download is in progress,
+then a fresh worker resumes the saved output URL and provider route. A second
+scenario terminates after the READY artifact commit but before settlement commit.
+Both recoveries produce exactly one READY artifact and one `CONSUME` entry; the
+reservation is settled and a second recovery is a no-op. The drill uses no provider
+credentials, network calls or production state. Main must pass the same test after
+promotion. This closes the synthetic delivery/settlement interruption boundary,
+but not confirmation/dispatch interruption or provider-specific execution semantics.
 
 poll-race-before.xml reproduced four failures: a stale running response or query
 error overwrote independently committed success on SQLite and PostgreSQL. Polling
