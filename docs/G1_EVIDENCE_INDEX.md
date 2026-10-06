@@ -5,14 +5,28 @@ approved 2026-09-25. Contract-first integration checks supersede the broad
 remaining-boundary lists below as the execution backlog. Existing evidence and
 failures remain historical facts; this scope change does not declare a pass.
 
-Updated 2026-09-25. Acceptance profile: TIERED. G1-Core remains INCOMPLETE;
-conditional isolation evidence and Release Readiness are tracked separately. This index supersedes stale
+Updated 2026-10-06. Acceptance profile: TIERED. G1-Core isolated acceptance is
+PASS; conditional isolation evidence and Release Readiness are tracked separately.
+This index supersedes stale
 "main lacks launch recovery" and "callback decision required" entries in earlier
 G1 reports; it does not erase their historical evidence.
 
 Evidence directory: E:/Codex/visualizations/2026/09/23/01a0cdb7-c7c6-7840-ab2f-0c932e004dc2/G1.
 All runs use synthetic data and isolated output/DBs. No production restart,
 migration, live credentials or paid provider call forms part of this acceptance.
+
+## Final G1-Core Review
+
+2026-10-06 final dual-worktree review: **PASS for G1-Core isolated acceptance**.
+`codex/testing` and `main` both passed the same scoped recovery, idempotency,
+claim-fence, polling-race, quota, cancellation, delivery, settlement and
+fresh-process suites. The review also synchronized the success-path settlement
+test and its validation helper that had been missing from `main`.
+
+This is not Release Readiness. Real supplier billing/task behavior, real media
+quality, browser interruption, formal production observation, deployment
+restart/rollback and provider-specific online reliability remain outside this
+isolated gate and are still **NOT RUN**.
 
 | Gate | Current evidence | Remaining boundary |
 | --- | --- | --- |
@@ -70,8 +84,9 @@ settlement and stale-observation races are fenced; public callbacks remain
 fail-closed; API/Runner crash recovery preserves the persisted state contract;
 user ownership and controlled audit data are enforced; and both `codex/testing`
 and `main` pass the same scoped evidence. Real supplier calls and production
-deployment are not prerequisites. Current status: **INCOMPLETE**, pending the
-final dual-worktree acceptance review and provider-specific execution evidence.
+deployment are not prerequisites. Current status: **PASS** for the isolated
+G1-Core scope. Provider-specific execution evidence and Release Readiness remain
+separate gates.
 
 ### G1-Conditional (isolated assurance)
 
