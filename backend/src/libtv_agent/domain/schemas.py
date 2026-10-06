@@ -9,6 +9,8 @@ from libtv_agent.domain.enums import (
     FeedbackValue,
     GenerationStatus,
     ParentTaskPhase,
+    ProductLicenseStatus,
+    ProductVersionStatus,
     QualityDecisionStatus,
     ValidationStatus,
     VariantKind,
@@ -25,6 +27,53 @@ class ApiModel(BaseModel):
         serialize_by_alias=True,
         from_attributes=True,
     )
+
+
+class ProductCreate(ApiModel):
+    internal_sku_id: str = Field(min_length=1, max_length=160)
+
+
+class ProductRead(ApiModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    internal_sku_id: str
+    current_version_id: uuid.UUID | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ProductVersionCreate(ApiModel):
+    product_id: uuid.UUID | None = None
+    product_page_url: str = Field(min_length=1, max_length=1000)
+    page_title: str | None = Field(default=None, max_length=500)
+    candidate_names: list[str] = Field(default_factory=list, max_length=30)
+    truth_fields: dict[str, Any] = Field(default_factory=dict)
+    immutable_fields: dict[str, Any] = Field(default_factory=dict)
+    allowed_variation: list[str] = Field(default_factory=list, max_length=50)
+    source_asset_references: list[str] = Field(default_factory=list, max_length=50)
+    license_status: ProductLicenseStatus = ProductLicenseStatus.UNKNOWN
+
+
+class ProductVersionRead(ApiModel):
+    id: uuid.UUID
+    product_id: uuid.UUID
+    version_number: int
+    product_page_url: str
+    page_title: str | None = None
+    candidate_names: list[str]
+    truth_fields: dict[str, Any]
+    immutable_fields: dict[str, Any]
+    allowed_variation: list[str]
+    source_asset_references: list[str]
+    license_status: ProductLicenseStatus
+    status: ProductVersionStatus
+    blocked_reason: str | None = None
+    confirmed_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class ProductVersionDecision(ApiModel):
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class MotionActionWrite(ApiModel):

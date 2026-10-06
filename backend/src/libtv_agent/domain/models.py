@@ -17,6 +17,8 @@ from libtv_agent.domain.enums import (
     OperationStatus,
     OutboxStatus,
     ParentTaskPhase,
+    ProductLicenseStatus,
+    ProductVersionStatus,
     QualityDecisionStatus,
     ReservationStatus,
     RunnerHostStatus,
@@ -79,6 +81,58 @@ class UserSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Product(Base):
+    __tablename__ = "product"
+    __table_args__ = (
+        UniqueConstraint("user_id", "internal_sku_id", name="uq_product_user_sku"),
+        Index("ix_product_user_updated", "user_id", "updated_at", "id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    internal_sku_id: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    versions: Mapped[list["ProductVersion"]] = relationship(
+        back_populates="product", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class ProductVersion(Base):
+    __tablename__ = "product_version"
+    __table_args__ = (
+        UniqueConstraint("product_id", "version_number", name="uq_product_version_number"),
+        Index("ix_product_version_product_created", "product_id", "created_at", "id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product.id", ondelete="CASCADE"), index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer)
+    product_page_url: Mapped[str] = mapped_column(String(1000))
+    page_title: Mapped[str | None] = mapped_column(String(500))
+    candidate_names: Mapped[list[str]] = mapped_column(JSON, default=list)
+    truth_fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    immutable_fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    allowed_variation: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_asset_references: Mapped[list[str]] = mapped_column(JSON, default=list)
+    license_status: Mapped[ProductLicenseStatus] = enum_column(
+        ProductLicenseStatus, default=ProductLicenseStatus.UNKNOWN, index=True
+    )
+    status: Mapped[ProductVersionStatus] = enum_column(
+        ProductVersionStatus, default=ProductVersionStatus.DRAFT, index=True
+    )
+    blocked_reason: Mapped[str | None] = mapped_column(String(500))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    product: Mapped["Product"] = relationship(back_populates="versions")
 
 
 class PromptPreset(Base):

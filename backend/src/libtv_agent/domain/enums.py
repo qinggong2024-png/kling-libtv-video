@@ -9,6 +9,19 @@ class UserRole(StrEnum):
     AUDITOR = "AUDITOR"
 
 
+class ProductLicenseStatus(StrEnum):
+    UNKNOWN = "UNKNOWN"
+    VERIFIED = "VERIFIED"
+    BLOCKED = "BLOCKED"
+
+
+class ProductVersionStatus(StrEnum):
+    DRAFT = "DRAFT"
+    READY = "READY"
+    APPROVED = "APPROVED"
+    BLOCKED = "BLOCKED"
+
+
 class ParentTaskPhase(StrEnum):
     DRAFT = "DRAFT"
     ANALYZING = "ANALYZING"
