@@ -3,7 +3,8 @@
 import { type StatusTone, type Task, type Variant, type VariantKind } from '../types'
 import { parseTaskTimestamp } from '../taskTiming'
 import { providerActionRequiredMessage } from '../providerPresentation'
-import { ANALYSIS_FAILURE_CODES, statusMeta } from './workflowStates'
+import { ANALYSIS_FAILURE_CODES } from './workflowStates'
+import { taskStatusPresentation as presentTaskStatus } from './statusPresentation'
 
 export function variantKindShortLabel(kind: VariantKind) {
   return kind === 'STABLE' ? '稳' : '动'
@@ -56,15 +57,11 @@ export function isAnalysisFailure(task: Task): boolean {
 }
 
 export function taskStatus(task: Task): { label: string; tone: StatusTone } {
-  if (!isAnalysisFailure(task)) return statusMeta[task.phase] ?? { label: task.phase, tone: 'neutral' }
-  const labels: Record<string, string> = {
-    ANALYSIS_TIMEOUT: '方案分析超时',
-    ANALYSIS_CANCELLED: '方案分析中断',
-    ANALYSIS_PROVIDER_FAILED: '分析服务异常',
-    ANALYSIS_STALE_RECOVERED: '方案分析待重试',
-    ANALYSIS_SCHEMA_INVALID: '方案数据异常',
+  const meta = presentTaskStatus(task)
+  if (!meta.label) {
+    console.warn(`[taskStatus] 缺少中文标签映射：phase=${task.phase}，请在 statusMeta 中补充`)
   }
-  return { label: labels[task.phaseReasonCode ?? ''] ?? '方案分析未完成', tone: 'danger' }
+  return { label: meta.label, tone: meta.tone }
 }
 
 export function taskFailureMessage(task: Task): string {
