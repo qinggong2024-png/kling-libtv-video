@@ -7,6 +7,7 @@ import {type MotionActionSummary, type SiteStyleProfileSummary, type VideoTempla
 import {KlingSubjectsLibrary} from '../../KlingSubjectsLibrary'
 import {CatalogEditor} from '../../CatalogEditor'
 import {copyText} from '../../shared/utils/copyText'
+import {DataFreshness} from '../../shared/components/DataFreshness'
 import {type ActionCategoryFilter, type ContentLibraryKind, type ContentLibraryScope, ACTION_CATEGORY_LABELS, styleStatus} from './libraryTypes'
 import {EmptyState} from '../../shared/components/Section'
 
@@ -27,6 +28,8 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [copiedActionId, setCopiedActionId] = useState('')
   // 复制失败单独存放：本组件的 error 会连带隐藏整个内容库列表，不适合承载这类瞬时提示。
   const [copyActionError, setCopyActionError] = useState('')
@@ -44,6 +47,8 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
         setActions(nextActions)
         setProfiles(nextProfiles)
         setTemplates(nextTemplates)
+        setLastSyncedAt(Date.now())
+        setHasLoadedOnce(true)
         setError('')
       })
       .catch((cause) => {
@@ -162,7 +167,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
 
   return <div className="page-view content-library-view">
     <div className="page-title content-library-title">
-      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p></div>
+      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p><DataFreshness timestamp={lastSyncedAt} stale={Boolean(error && hasLoadedOnce)} /></div>
       {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} />{query ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); setQuery('') }} aria-label="清除内容库搜索关键词" title="清除搜索"><span aria-hidden="true">×</span></button> : null}</label> : null}
     </div>
 
@@ -193,12 +198,12 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
 
     {tab !== 'subjects' && hasActiveLibraryFilters ? <div className="filter-notice library-filter-notice" role="status"><Search size={15} /><span>当前筛选匹配 {tab === 'actions' ? visibleActions.length : visibleProfiles.length} 条内容。</span><button type="button" className="text-button" onClick={clearLibraryFilters}>清除筛选</button></div> : null}
 
-    {tab !== 'subjects' && (loading || error) ? <div id={`${tab}-panel`} role="tabpanel" aria-labelledby={`${tab}-tab`} /> : null}
+    {tab !== 'subjects' && loading && !hasLoadedOnce ? <div id={`${tab}-panel`} role="tabpanel" aria-labelledby={`${tab}-tab`} /> : null}
     {tab !== 'subjects' && loading ? <div className="library-loading" role="status"><LoaderCircle className="spin" size={22} /><span>正在读取内容库</span></div> : null}
-    {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
+    {tab !== 'subjects' && error ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{hasLoadedOnce ? `${error}，已保留上次成功读取的内容。` : error}</span></div> : null}
     {copyActionError ? <div className="inline-alert inline-alert--danger library-error" role="alert"><AlertTriangle size={17} /><span>{copyActionError}</span></div> : null}
 
-    {!loading && !error && tab === 'actions' ? <section id="actions-panel" role="tabpanel" aria-labelledby="actions-tab" className="action-library-grid" aria-label="动作提示词列表">
+    {!loading && hasLoadedOnce && tab === 'actions' ? <section id="actions-panel" role="tabpanel" aria-labelledby="actions-tab" className="action-library-grid" aria-label="动作提示词列表">
       {visibleActions.map((action) => <article className="action-library-card" key={action.id}>
         <header>
           <div className="library-card-labels"><span className={`action-category action-category--${action.category}`}>{ACTION_CATEGORY_LABELS[action.category]}</span>{action.brandId ? <span className="library-brand-label"><LockKeyhole size={11} />{brandNames.get(action.brandId) ?? action.brandId}</span> : null}</div>
@@ -213,7 +218,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       </article>)}
     </section> : null}
 
-    {!loading && !error && tab === 'styles' ? <section id="styles-panel" role="tabpanel" aria-labelledby="styles-tab" className="style-library-grid" aria-label="站点视频风格列表">
+    {!loading && hasLoadedOnce && tab === 'styles' ? <section id="styles-panel" role="tabpanel" aria-labelledby="styles-tab" className="style-library-grid" aria-label="站点视频风格列表">
       {visibleProfiles.map((profile) => {
         const status = styleStatus(profile)
         return <article className="style-library-card" key={profile.id}>
@@ -244,7 +249,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
 
     {tab === 'subjects' ? <div id="subjects-panel" role="tabpanel" aria-labelledby="subjects-tab"><KlingSubjectsLibrary actorId={actorId} canDelete={canDeleteSubjects} /></div> : null}
 
-    {!loading && !error && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={scope === 'brand' ? <LockKeyhole size={24} /> : <Search size={24} />} title={hasActiveLibraryFilters ? '没有匹配内容' : `还没有${scope === 'brand' ? '品牌专属' : '通用'}${tab === 'actions' ? '动作' : '风格'}`} description={hasActiveLibraryFilters ? '换一个关键词或清除筛选后再试。' : canEditCatalog ? `使用右上角按钮新增第一条${tab === 'actions' ? '动作' : '风格'}。` : '当前库尚未录入内容。'} action={hasActiveLibraryFilters ? <button type="button" className="secondary-button" onClick={clearLibraryFilters}>清除筛选</button> : undefined} /> : null}
+    {!loading && hasLoadedOnce && ((tab === 'actions' && !visibleActions.length) || (tab === 'styles' && !visibleProfiles.length)) ? <EmptyState icon={scope === 'brand' ? <LockKeyhole size={24} /> : <Search size={24} />} title={hasActiveLibraryFilters ? '没有匹配内容' : `还没有${scope === 'brand' ? '品牌专属' : '通用'}${tab === 'actions' ? '动作' : '风格'}`} description={hasActiveLibraryFilters ? '换一个关键词或清除筛选后再试。' : canEditCatalog ? `使用右上角按钮新增第一条${tab === 'actions' ? '动作' : '风格'}。` : '当前库尚未录入内容。'} action={hasActiveLibraryFilters ? <button type="button" className="secondary-button" onClick={clearLibraryFilters}>清除筛选</button> : undefined} /> : null}
     {editor ? <CatalogEditor target={editor} actions={actions} profiles={profiles} templates={templates} onClose={() => setEditor(null)} onSaved={catalogSaved} /> : null}
   </div>
 }
