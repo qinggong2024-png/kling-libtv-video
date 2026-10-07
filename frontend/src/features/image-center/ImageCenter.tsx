@@ -26,6 +26,7 @@ import { createUuid } from '../../uuid'
 import { imageTaskNotificationForTransition } from '../../browserNotifications'
 import type { TaskNotification } from '../../browserNotifications'
 import { FoundationDrawer } from '../../shared/components/ui'
+import { imageStatusPresentation } from '../../domain/statusPresentation'
 import './imageReview.css'
 
 export type VideoSubjectSource = 'generated' | 'product-front' | 'product-back'
@@ -51,15 +52,6 @@ export interface ImageCenterNotificationEvent {
   notification: TaskNotification
 }
 
-const taskStatusPresentation = {
-  uploading: { label: '上传素材', tone: 'active' },
-  submitting: { label: '正在提交', tone: 'active' },
-  queued: { label: '排队中', tone: 'active' },
-  running: { label: '生成中', tone: 'active' },
-  completed: { label: '已完成', tone: 'success' },
-  failed: { label: '生成失败', tone: 'danger' },
-  write_uncertain: { label: '提交待确认', tone: 'danger' },
-} as const
 const ASSET_SLOT_DRAG_TYPE = 'application/x-image-center-slot'
 const IMAGE_OUTPUT_DRAG_TYPE = 'application/x-image-center-output'
 const TERMINAL_IMAGE_STATUSES = new Set(['completed', 'failed', 'write_uncertain'])
@@ -954,7 +946,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     </div> : <section className="image-results" aria-labelledby="image-results-title">
       <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
-        const status = taskStatusPresentation[task.status]
+        const status = imageStatusPresentation(task.status)
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
         return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => void toggleOutput(output.id)} onReject={() => void rejectOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
       })}</div>}

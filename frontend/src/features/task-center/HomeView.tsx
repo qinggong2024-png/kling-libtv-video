@@ -6,7 +6,7 @@ import { type SystemStatus, type Task, type Variant } from '../../types'
 import { providerProgress, variantExecutionMessage } from '../../providerPresentation'
 import { readJsonStorage, readStorage, writeJsonStorage, writeStorage } from '../../safeStorage'
 import { type View } from '../../app/appTypes'
-import { ACTIVE_PHASES, COMPLETED_PHASES } from '../../domain/workflowStates'
+import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, COMPLETED_PHASES } from '../../domain/workflowStates'
 import { TaskElapsed } from '../../shared/components/TaskTiming'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
 import { ProductionComposer } from '../production/ProductionComposer'
@@ -57,7 +57,7 @@ export function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen:
 export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged, canReview = false }: { active: boolean; tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
   const activeVideo = system?.videoGeneration ?? system?.kling
   const activeModel = activeVideo?.model || activeVideo?.models[0] || '当前管理端模型'
-  const actionableTasks = tasks.filter((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'AWAITING_FINAL_APPROVAL' || task.phase === 'ACTION_REQUIRED' || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
+  const actionableTasks = tasks.filter((task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
     task.phaseReasonCode ?? '',

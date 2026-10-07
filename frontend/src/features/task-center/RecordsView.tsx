@@ -4,7 +4,7 @@ import { Check, ChevronRight, Clipboard, ListVideo, LoaderCircle, Search, X } fr
 import { useState } from 'react'
 import type { RecordsFilter as AppRecordsFilter } from '../../app/appTypes'
 import { type Task, type Variant } from '../../types'
-import { ACTIVE_PHASES, COMPLETED_PHASES, FAILED_PHASES } from '../../domain/workflowStates'
+import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, COMPLETED_PHASES, FAILED_PHASES } from '../../domain/workflowStates'
 import { DataFreshness } from '../../shared/components/DataFreshness'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
 import { copyText } from '../../shared/utils/copyText'
@@ -29,7 +29,7 @@ export function RecordsView({ tasks, hasMore, loadingMore, lastSyncedAt, syncErr
   }
   const groups: Array<{ value: RecordFilter; label: string; test: (task: Task) => boolean }> = [
     { value: 'all', label: '全部', test: () => true },
-    { value: 'attention', label: '需要处理', test: (task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED' },
+    { value: 'attention', label: '需要处理', test: (task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN') },
     { value: 'active', label: '处理中', test: (task) => ACTIVE_PHASES.has(task.phase) },
     { value: 'partial', label: '部分完成', test: (task) => task.phase === 'PARTIALLY_DELIVERABLE' },
     { value: 'done', label: '已完成', test: (task) => COMPLETED_PHASES.has(task.phase) },
@@ -50,7 +50,7 @@ export function RecordsView({ tasks, hasMore, loadingMore, lastSyncedAt, syncErr
   const displayedCompletedResults = filter === 'all' ? completedResults.slice(0, 3) : completedResults
   // 计数必须与列表同口径：搜索激活时给出匹配数，否则会出现「卡片 17 条 / 列表没有记录」的矛盾。
   const countOf = (test: (task: Task) => boolean) => (searching ? tasks.filter(test).filter(matchesQuery).length : tasks.filter(test).length)
-  const attentionCount = countOf((task) => task.phase === 'AWAITING_CONFIRMATION' || task.phase === 'ACTION_REQUIRED')
+  const attentionCount = countOf((task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const activeCount = countOf((task) => ACTIVE_PHASES.has(task.phase))
   const doneCount = countOf((task) => COMPLETED_PHASES.has(task.phase))
   const allCount = countOf(() => true)

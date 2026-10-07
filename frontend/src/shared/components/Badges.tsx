@@ -2,13 +2,11 @@
 // 代码为逐字搬运，未经逻辑改写。
 import { type Task } from '../../types'
 import { providerPresentation } from '../../providerPresentation'
-import { statusMeta } from '../../domain/workflowStates'
-import { taskStatus } from '../../domain/taskPresentation'
+import { statusPresentation, taskStatusPresentation } from '../../domain/statusPresentation'
 
-export function StatusBadge({ value }: { value: string | null }) {
-  if (!value) return <span className="status status--neutral"><span />状态待确认</span>
-  const meta = statusMeta[value] ?? { label: value, tone: 'neutral' as const }
-  return <span className={`status status--${meta.tone}`}><span />{meta.label}</span>
+export function StatusBadge({ value, retryable, hasArtifact }: { value: string | null; retryable?: boolean | null; hasArtifact?: boolean }) {
+  const meta = statusPresentation({ source: 'attempt', value, retryable, hasArtifact })
+  return <span className={`status status--${meta.tone}`} title={meta.description} aria-label={`${meta.label}：${meta.description}`}><span />{meta.label}</span>
 }
 
 export function ProviderBadge({ provider }: { provider: string }) {
@@ -17,6 +15,6 @@ export function ProviderBadge({ provider }: { provider: string }) {
 }
 
 export function TaskStatusBadge({ task }: { task: Task }) {
-  const meta = taskStatus(task)
-  return <span className={`status status--${meta.tone}`}><span />{meta.label}</span>
+  const meta = taskStatusPresentation(task)
+  return <span className={`status status--${meta.tone}`} title={meta.description} aria-label={`${meta.label}：${meta.description}`}><span />{meta.label}</span>
 }
