@@ -48,7 +48,7 @@ def read_secure_payload(path: Path) -> dict[str, object]:
         if os.name != "nt" or not isinstance(payload.get("payload"), str):
             raise ValueError("DPAPI administrator credentials require Windows")
         try:
-            import win32crypt
+            from win32 import win32crypt
 
             encrypted = base64.b64decode(payload["payload"], validate=True)
             _, decrypted = win32crypt.CryptUnprotectData(
@@ -76,7 +76,7 @@ def _serialize(values: dict[str, object], *, description: str) -> str:
     if os.name != "nt":
         return plaintext.decode("utf-8")
     try:
-        import win32crypt
+        from win32 import win32crypt
 
         encrypted = win32crypt.CryptProtectData(
             plaintext,
