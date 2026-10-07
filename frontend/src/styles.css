@@ -794,6 +794,11 @@ main { min-height: 100dvh; }
 .records-load-more { display: flex; justify-content: center; margin: 24px 0; }
 .records-page-actions { display: flex; align-items: center; gap: 8px; }
 .records-page-actions .search-field { min-width: min(320px, 42vw); }
+.data-freshness { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.data-freshness svg { flex: 0 0 auto; color: var(--success); }
+.data-freshness.is-stale { color: #8c560e; }
+.data-freshness.is-stale svg { color: var(--warning); }
+.content-library-title .data-freshness { margin-top: 8px; }
 .result-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
 .result-card.has-feedback-panel { z-index: 2; }
 .result-cover { position: relative; width: 100%; aspect-ratio: 16 / 10; display: grid; place-items: center; overflow: hidden; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0; background: #e8edf2; color: var(--muted); }

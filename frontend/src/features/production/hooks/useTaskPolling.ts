@@ -16,6 +16,7 @@ export function useTaskPolling(detailId: string | null) {
   const [loading, setLoading] = useState(true)
   const [authRequired, setAuthRequired] = useState(false)
   const [error, setError] = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
   const [nextTaskCursor, setNextTaskCursor] = useState<string | null>(null)
   const [loadingMoreTasks, setLoadingMoreTasks] = useState(false)
 
@@ -27,6 +28,7 @@ export function useTaskPolling(detailId: string | null) {
         return [...page.items, ...current.filter((task) => !recentIds.has(task.id))]
       })
       setNextTaskCursor(page.nextCursor)
+      setLastSyncedAt(Date.now())
       setAuthRequired(false)
       setError('')
     } catch (cause) {
@@ -57,6 +59,7 @@ export function useTaskPolling(detailId: string | null) {
       if (pageResult.status === 'fulfilled') {
         setTasks(pageResult.value.items)
         setNextTaskCursor(pageResult.value.nextCursor)
+        setLastSyncedAt(Date.now())
       }
       if (actorResult.status === 'fulfilled') {
         setActor(actorResult.value)
@@ -161,6 +164,7 @@ export function useTaskPolling(detailId: string | null) {
     loading, setLoading,
     authRequired, setAuthRequired,
     error, setError,
+    lastSyncedAt,
     nextTaskCursor, setNextTaskCursor,
     loadingMoreTasks, setLoadingMoreTasks,
     refreshTasks, refresh,
