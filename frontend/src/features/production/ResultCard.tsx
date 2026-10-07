@@ -107,7 +107,7 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     <button className="result-cover" onClick={ready ? onPlay : onOpen} aria-label={ready ? `播放 ${task.title}` : `查看 ${task.title}`}>
       {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
-      {ready ? <span className="play-button"><Play size={21} fill="currentColor" /></span> : <span className="result-state"><StatusBadge value={variant.generationStatus} /></span>}
+      {ready ? <span className="play-button"><Play size={21} fill="currentColor" /></span> : <span className="result-state"><StatusBadge value={variant.generationStatus} retryable={variant.retryable ?? variant.providerErrorRetryable} hasArtifact={ready} /></span>}
       <span className="duration">10s</span>
     </button>
     <div className="result-body"><div><strong>{task.title}</strong><span>{variantDisplayName(variant)} · {formatTime(task.updatedAt)}</span></div>
