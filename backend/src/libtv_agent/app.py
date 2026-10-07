@@ -3,6 +3,7 @@ import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -219,10 +220,24 @@ async def _shutdown_feedback_learning_jobs(app: FastAPI) -> None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.validate_shared_environment()
-    load_admin_credentials(app_settings)
-    load_kling_admin_config(app_settings)
-    load_wavespeed_admin_config(app_settings)
-    load_bach_admin_config(app_settings)
+    # Tests must not implicitly consume the workspace's encrypted runtime
+    # state. Explicit temporary paths remain supported by configuration tests.
+    if app_settings.app_env != "test" or app_settings.admin_credentials_file != Path(
+        "var/runtime/admin-credentials.json"
+    ):
+        load_admin_credentials(app_settings)
+    if app_settings.app_env != "test" or app_settings.kling_admin_config_file != Path(
+        "var/runtime/kling-config.json"
+    ):
+        load_kling_admin_config(app_settings)
+    if app_settings.app_env != "test" or app_settings.wavespeed_admin_config_file != Path(
+        "var/runtime/wavespeed-config.json"
+    ):
+        load_wavespeed_admin_config(app_settings)
+    if app_settings.app_env != "test" or app_settings.bach_admin_config_file != Path(
+        "var/runtime/bach-config.json"
+    ):
+        load_bach_admin_config(app_settings)
     configure_logging()
 
     @asynccontextmanager

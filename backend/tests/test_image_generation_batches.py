@@ -120,6 +120,10 @@ async def _production_app(
         object_store_prefix="pilot-test",
         libtv_workspace_id="pilot-test-workspace",
         libtv_project_uuid="pilot-test-project",
+        admin_credentials_file=tmp_path / "runtime" / "admin-credentials.json",
+        kling_admin_config_file=tmp_path / "runtime" / "kling-config.json",
+        wavespeed_admin_config_file=tmp_path / "runtime" / "wavespeed-config.json",
+        bach_admin_config_file=tmp_path / "runtime" / "bach-config.json",
         _env_file=None,
     )
     settings.runner_root.mkdir(parents=True)
