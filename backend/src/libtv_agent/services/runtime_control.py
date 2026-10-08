@@ -15,7 +15,10 @@ from libtv_agent.domain.models import (
     ParentTask,
     RuntimeConfigVersion,
 )
-from libtv_agent.services.generation_safety import paid_generation_authorized
+from libtv_agent.services.generation_safety import (
+    paid_generation_authorized,
+    real_provider_submission_authorized,
+)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -444,6 +447,12 @@ async def ensure_provider_submission_allowed(
         raise RuntimeControlBlockedError(
             "PROVIDER_UNSUPPORTED", f"unsupported generation provider: {provider}"
         )
+    if not real_provider_submission_authorized(settings):
+        raise RuntimeControlBlockedError(
+            "PAID_GENERATION_BLOCKED",
+            "real provider submissions require live mode, the explicit enable switch, "
+            "and the exact confirmation phrase",
+        )
     if not settings.kling_provider_submission_enabled(provider):
         raise RuntimeControlBlockedError(
             "KLING_CAPABILITY_UNSUPPORTED",
@@ -501,6 +510,8 @@ async def provider_claims_allowed(
         provider not in settings.kling_provider_names
         or not settings.kling_provider_submission_enabled(provider)
     ):
+        return False
+    if not real_provider_submission_authorized(settings):
         return False
     risk = await assess_unknown_submission_risk(
         session,
