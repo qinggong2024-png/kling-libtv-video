@@ -24,7 +24,7 @@ not a claim that every proposed feature has been implemented.
 | S03 | Clear site data, reopen browser, or switch device | Authorized server batch state restores without relying on local cache | None identified for full workflow | Recovery API integration test and browser test |
 | S04 | Timeout, disconnected response, or malformed response after creation | Queryable reconciliation record; no inferred failure | `test_paid_acceptance_safety.py`, `test_launch_started_recovery.py` | Fault injection at every response boundary |
 | S05 | User queries unknown result; administrator classifies it | Role-checked classification, audit trail, bounded escalation | `test_action_gating.py`, `test_user_management.py` | Reconciliation endpoint permission and audit assertions |
-| S06 | Two users reserve the last available quota | At most one accepted request; no new batch or cleared draft for rejected request | `test_image_quota_concurrency.py`, `test_image_quota.py` | UI draft preservation and cost preview assertions |
+| S06 | Two requests for the same user's last available daily quota | At most one accepted request; no new server batch or cleared draft for rejected request; other users retain independent budgets | `test_image_quota_concurrency.py`, `test_image_quota.py` | UI draft/selection preservation and quota presentation assertions; shared quota is not established by these tests |
 | S07 | Retry failed output or failed download | Server identifies billable retry; download-only recovery never regenerates | `test_materialization_lifecycle.py`, `test_success_path_settlement.py` | Incremental cost confirmation and reservation settlement tests |
 | S08 | Expired session, revoked membership, direct administrator link | No privileged action; reauthorization before accessing media or shared detail | `test_shared_auth_and_logging.py`, `test_user_management.py` | Browser route and permission-change tests |
 | S09 | Logout, workspace switch, or blocked browser storage | Sensitive local state cleared or isolated; memory fallback remains usable | None identified for full workflow | Storage adapter unit tests and account-switch browser test |
@@ -38,7 +38,7 @@ not a claim that every proposed feature has been implemented.
 | I02 | Global settings, group override, reset, refresh, navigation away | Stable identity and explicit restoration; no duplicate submission |
 | I03 | Selection, approval, rejection, bulk review, and correction | Selection is independent from approval and delivery; rejection reason and actor recorded |
 | I04 | Filters, search, pagination, copied URL, detail return, back/forward | Same authorized result set; restore selection and scroll where valid; no sensitive URL fields |
-| I05 | Side-by-side and overlay review | Read-only side-by-side comparison is implemented; browser evidence must verify two panels, Escape/focus restoration, and source image remains inspectable without mandatory crop |
+| I05 | Side-by-side, overlay and linked zoom review | Read-only side-by-side comparison is implemented; verify two panels, Escape/focus restoration and inspectable uncropped images. Overlay, opacity adjustment, linked zoom/pan and reset remain implementation gaps, not accepted features |
 | I06 | Keyboard-only upload result filtering and review | Predictable Tab order; named icon controls; Escape closes preview; focus returns to opener |
 | I07 | Loading, slow network, partial/full failure, unknown, forbidden, expired session | Core pages expose every applicable state without losing drafts or concealing failure |
 | I08 | Hidden tab, offline network, expired session, then recovery | Polling backs off or pauses and resumes safely without a request burst |
@@ -74,3 +74,11 @@ states. Use synthetic fixtures rather than customer data.
    secrets, runtime state, caches, or generated artifacts.
 6. Verify both worktrees, run safe production checks, and report synchronization
    separately from application-process reload and full product acceptance.
+
+## Scope Audit: 2026-10-08
+
+See `ui-scope-audit-20261008.md` for the checked source, historical evidence
+limits, remaining implementation gaps and the zero-paid comparison follow-up.
+U08 is partially evidenced for the isolated image review page only, not complete.
+Neither this matrix nor a main-checkout fixture run certifies the live production
+URL or accepts backend-dependent recovery, quota or whole-app performance.
