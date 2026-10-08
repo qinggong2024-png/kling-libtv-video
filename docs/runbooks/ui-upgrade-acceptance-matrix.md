@@ -38,7 +38,7 @@ not a claim that every proposed feature has been implemented.
 | I02 | Global settings, group override, reset, refresh, navigation away | Stable identity and explicit restoration; no duplicate submission |
 | I03 | Selection, approval, rejection, bulk review, and correction | Selection is independent from approval and delivery; rejection reason and actor recorded |
 | I04 | Filters, search, pagination, copied URL, detail return, back/forward | Same authorized result set; restore selection and scroll where valid; no sensitive URL fields |
-| I05 | Side-by-side and overlay review | Linked zoom works; source image remains inspectable without mandatory crop |
+| I05 | Side-by-side and overlay review | Read-only side-by-side comparison is implemented; browser evidence must verify two panels, Escape/focus restoration, and source image remains inspectable without mandatory crop |
 | I06 | Keyboard-only upload result filtering and review | Predictable Tab order; named icon controls; Escape closes preview; focus returns to opener |
 | I07 | Loading, slow network, partial/full failure, unknown, forbidden, expired session | Core pages expose every applicable state without losing drafts or concealing failure |
 | I08 | Hidden tab, offline network, expired session, then recovery | Polling backs off or pauses and resumes safely without a request burst |
