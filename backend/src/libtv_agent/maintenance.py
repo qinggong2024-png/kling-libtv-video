@@ -41,7 +41,7 @@ def create_maintenance_app(settings: Settings | None = None):
         if not (request.method in {"GET", "HEAD"} and readable or session_action):
             return JSONResponse(status_code=503, content={"detail": {
                 "code": "MAINTENANCE_QUERY_ONLY",
-                "message": "Login and persisted task queries only; generation is disabled.",
+                "message": "当前仅支持登录和查询已保存任务，生成暂不可用。",
             }})
         response = await call_next(request)
         response.headers["X-LibTV-Maintenance"] = "query-only"

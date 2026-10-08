@@ -28,6 +28,7 @@ async def test_query_only_lifecycle_and_write_boundary(tmp_path, monkeypatch):
                 response = await client.request(method, path)
                 assert response.status_code == 503
                 assert response.json()["detail"]["code"] == "MAINTENANCE_QUERY_ONLY"
+                assert response.json()["detail"]["message"] == "当前仅支持登录和查询已保存任务，生成暂不可用。"
             assert (await client.get("/api/v1/auth/me")).status_code == 401
 
 
