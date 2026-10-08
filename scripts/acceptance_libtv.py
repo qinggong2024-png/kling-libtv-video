@@ -96,15 +96,19 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _settings(*, live: bool, set_id: str) -> Settings:
+def _settings(*, live: bool, set_id: str, offline: bool = False) -> Settings:
     return Settings(
         app_env="development",
         database_url=f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}",
         object_store_mode="local",
         artifact_root=STATE_ROOT / "artifacts",
-        runner_root=OUTPUT_ROOT / f"set-{set_id}",
-        libtv_adapter_mode="real",
-        libtv_execution_mode="live" if live else "prepare-only",
+        runner_root=(
+            STATE_ROOT / "offline-outputs" / f"set-{set_id}"
+            if offline
+            else OUTPUT_ROOT / f"set-{set_id}"
+        ),
+        libtv_adapter_mode="replay" if offline else "real",
+        libtv_execution_mode="dry-run" if offline else ("live" if live else "prepare-only"),
         paid_generation_enabled=live,
         paid_generation_confirmation=PAID_GENERATION_CONFIRMATION if live else "",
         paid_submissions_paused=not live,
@@ -159,7 +163,7 @@ async def prepare(args: argparse.Namespace) -> int:
     missing = [str(path) for path in input_paths if not await asyncio.to_thread(path.is_file)]
     if missing:
         raise ValueError(f"input files are missing: {missing}")
-    settings = _settings(live=False, set_id=args.set_id)
+    settings = _settings(live=False, set_id=args.set_id, offline=args.offline)
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         await _ensure_schema(app)
@@ -222,9 +226,10 @@ async def prepare(args: argparse.Namespace) -> int:
         "preparedAt": _now(),
         "phase": task["phase"],
         "previewFile": preview.json()["previewFile"],
-        "outputRoot": str(OUTPUT_ROOT / f"set-{args.set_id}"),
+        "outputRoot": str(settings.runner_root),
         "commands": commands,
         "paidExecutionStarted": False,
+        "offline": args.offline,
     }
     state["sets"][args.set_id] = record
     await _write_state(state)
@@ -354,6 +359,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--title", required=True)
     prepare_parser.add_argument("--requirement", default="")
     prepare_parser.add_argument("--image", action="append", required=True)
+    prepare_parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="use Replay/Fake and local isolated paths; never contact LibTV",
+    )
     execute_parser = subparsers.add_parser("execute")
     execute_parser.add_argument("--set-id", choices=["1", "2"], required=True)
     execute_parser.add_argument("--execute-paid", action="store_true")

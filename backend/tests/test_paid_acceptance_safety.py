@@ -115,3 +115,15 @@ def test_prepare_and_live_settings_keep_paid_boundary_explicit() -> None:
     assert live_settings.paid_generation_enabled is True
     assert live_settings.paid_generation_confirmation == module.PAID_GENERATION_CONFIRMATION
     assert live_settings.paid_submissions_paused is False
+
+
+def test_offline_prepare_settings_never_enable_remote_lib_tv_access() -> None:
+    module = _load_acceptance_module()
+
+    settings = module._settings(live=False, set_id="1", offline=True)
+
+    assert settings.libtv_adapter_mode == "replay"
+    assert settings.libtv_execution_mode == "dry-run"
+    assert settings.paid_generation_enabled is False
+    assert settings.paid_generation_confirmation == ""
+    assert settings.paid_submissions_paused is True
