@@ -560,6 +560,21 @@ describe('API request identity and CSRF contracts', () => {
     })
   })
 
+  it('localizes the maintenance-mode error for user-facing surfaces', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      detail: {
+        code: 'MAINTENANCE_QUERY_ONLY',
+        message: 'Login and persisted task queries only; generation is disabled.',
+      },
+    }, 503))
+
+    await expect(getTasks()).rejects.toMatchObject({
+      status: 503,
+      code: 'MAINTENANCE_QUERY_ONLY',
+      message: '当前处于维护模式，仅支持登录和查询已保存任务，生成暂不可用。',
+    })
+  })
+
   it('uses the shared error parser for artifact downloads', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
       detail: 'server copy has expired; use remote restore',
