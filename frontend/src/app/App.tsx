@@ -22,6 +22,7 @@ import { providerPresentation } from '../providerPresentation'
 import { writeStorage } from '../safeStorage'
 import { InPageTaskToasts } from '../shared/components/InPageTaskToasts'
 import { VideoPreview } from '../shared/components/Media'
+import { FoundationDrawer } from '../shared/components/ui'
 import { AppShell } from './AppShell'
 import type { NavItem } from './AppShell'
 import { useAppNavigation } from './useAppNavigation'
@@ -216,8 +217,8 @@ function App() {
           局域网内可忽略）。若不接受这次可见变化，把 HomeView / ProductionWorkspace
           改回顶部静态 import 并删掉本 Suspense 即可，entry 会回到约 333 kB。 */}
       <Suspense fallback={<PageLoading />}>
-        <HomeView active={view === 'make' && !selectedTask} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
-        {view === 'make' && selectedTask ? <ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /> : null}
+        <HomeView active={view === 'make'} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
+        {view === 'make' && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
       </Suspense>
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
