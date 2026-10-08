@@ -56,7 +56,7 @@ async function run(width, mode = 'success') {
   fixture.state.tasks = []
   fixture.state.writes = []
   fixture.state.unexpected = []
-  const context = await browser.newContext({ viewport: { width, height: ({ 390: 844, 768: 1024, 1024: 768 })[width] ?? 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
+  const context = await browser.newContext({ viewport: { width, height: ({ 390: 844, 768: 1024, 1024: 768, 1102: 884 })[width] ?? 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -75,6 +75,8 @@ async function run(width, mode = 'success') {
     await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
     assert(await generate.isDisabled())
     assert.equal(await page.locator('.composer .studio-canvas').count(), 0, 'No permanent empty source canvas')
+    assert(await page.locator('.composer-submit-summary').evaluate((el) => el.getBoundingClientRect().width >= 200), 'Empty-state payment summary must not collapse')
+    assert(await page.locator('.composer-submit-summary small').isVisible(), 'Payment consent stays visible')
     await page.screenshot({ path: resolve(reportDir, `empty-${width}.png`), fullPage: true })
     const bytes = await page.evaluate(() => {
       const canvas = document.createElement('canvas')
@@ -146,6 +148,7 @@ async function run(width, mode = 'success') {
         production: rect('.composer-production-lane'),
         storyboard: rect('.studio-storyboard'),
         submit: rect('.composer-submit-row > button'),
+        submissionSummary: rect('.composer-submit-summary'),
         sourceRepresentations: document.querySelectorAll('.composer .material-preview img').length,
         permanentSourceCanvas: document.querySelectorAll('.composer .studio-canvas').length,
         resultCountsFit: (() => {
@@ -160,6 +163,8 @@ async function run(width, mode = 'success') {
     assert.equal(result.configuredLayout.sourceRepresentations, 2, 'One thumbnail per source')
     assert.equal(result.configuredLayout.permanentSourceCanvas, 0)
     assert(result.configuredLayout.resultCountsFit, 'All result-count options fit and remain touchable')
+    assert(result.configuredLayout.submissionSummary.width >= 200, 'Payment summary has usable width')
+    assert(await page.locator('.composer-submit-summary small').isVisible())
     assert(result.configuredLayout.submit.y >= result.configuredLayout.storyboard.bottom, 'Submission follows storyboard')
     if (width >= 1280) {
       assert(result.configuredLayout.production.width > result.configuredLayout.assets.width * 2, 'Primary lane owns usable width')
@@ -359,7 +364,7 @@ async function runGuard(mode) {
   }
 }
 try {
-  for (const width of [1440, 1024, 768, 390]) await run(width)
+  for (const width of [1440, 1102, 1024, 768, 390]) await run(width)
   await run(390, 'unknown')
   for (const mode of ['no-template', 'catalog-failure', 'batch-invalid', 'batch-partial', 'rejected']) await runGuard(mode)
   report.passed = report.cases.every((test) => test.passed) && report.externalRequests.length === 0
