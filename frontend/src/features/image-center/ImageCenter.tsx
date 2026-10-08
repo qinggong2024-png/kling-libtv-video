@@ -55,6 +55,24 @@ export interface ImageCenterNotificationEvent {
 const ASSET_SLOT_DRAG_TYPE = 'application/x-image-center-slot'
 const IMAGE_OUTPUT_DRAG_TYPE = 'application/x-image-center-output'
 const TERMINAL_IMAGE_STATUSES = new Set(['completed', 'failed', 'write_uncertain'])
+const FORMAL_READ_ONLY_HOST = '192.168.30.126'
+
+type GenerationAvailability = 'checking' | 'available' | 'unavailable'
+
+function isFormalReadOnlyHost(): boolean {
+  return typeof window !== 'undefined' && window.location.hostname === FORMAL_READ_ONLY_HOST
+}
+
+function isGenerationUnavailableError(cause: unknown): boolean {
+  return cause instanceof ApiError
+    && (cause.code === 'MAINTENANCE_QUERY_ONLY' || cause.status === 503 || cause.status === 403)
+}
+
+function generationUnavailableMessage(cause: unknown): string {
+  if (cause instanceof ApiError && cause.code === 'MAINTENANCE_QUERY_ONLY') return '当前处于维护模式，仅支持登录和查询已保存任务，生成暂不可用。'
+  if (cause instanceof ApiError && cause.status === 403) return '当前账号暂无生图权限，生成任务暂不可用，请联系管理员。'
+  return '当前无法使用生图服务，创建任务已暂停，请稍后再试或联系管理员。'
+}
 
 function localTaskStatus(status: ImageGenerationBatchItem['status']) {
   return status
@@ -193,6 +211,12 @@ function OrderedAssetUpload({ idPrefix, title, description, headerAccessory, ass
       <span><UploadCloud size={20} /></span>
       <span><strong>{count ? '继续添加图片' : '拖拽或点击批量上传'}</strong><small>JPG、PNG、WEBP，最多 3 张</small></span>
     </button>
+    <div className="ordered-asset-slot-guide" aria-label={`${title}上传槽位说明`}>
+      {IMAGE_ASSET_SLOT_LABELS.map((label, index) => <span key={label} className={files[index] ? 'is-filled' : index === 0 ? 'is-required' : 'is-optional'}>
+        <strong>{label}</strong>
+        <small>{files[index] ? '已上传' : index === 0 ? '必填' : '可选'}</small>
+      </span>)}
+    </div>
     {files.length ? <div className="ordered-asset-list" aria-label={`${title}排序列表`}>
       {files.map((file, index) => <article
         key={`${idPrefix}-${index}-${file.name}-${file.size}-${file.lastModified}`}
@@ -631,6 +655,8 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
   const [batchReviewOpen, setBatchReviewOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>(() => isFormalReadOnlyHost() ? 'unavailable' : 'checking')
+  const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState(() => isFormalReadOnlyHost() ? '正式版当前处于查询模式，生成服务暂未开放。' : '')
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
   const loadedRef = useRef(false)
@@ -690,6 +716,33 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     saveTimerRef.current = window.setTimeout(() => { void saveImageCenterDraft(draftScope, draft).then(() => setSaveState('saved')).catch(() => setSaveState('error')) }, 450)
     return () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current) }
   }, [draft, draftScope, loaded])
+  useEffect(() => {
+    if (isFormalReadOnlyHost()) return
+    const controller = new AbortController()
+    let active = true
+    void fetch('/api/v1/system/status', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal }).then((response) => {
+      if (!active) return
+      const maintenance = response.headers.get('x-libtv-maintenance')?.toLowerCase()
+      if (maintenance === 'query-only') {
+        setGenerationAvailability('unavailable')
+        setGenerationAvailabilityReason('当前处于维护模式，仅支持登录和查询已保存任务，生成服务暂未开放。')
+      } else if (!response.ok) {
+        setGenerationAvailability('unavailable')
+        setGenerationAvailabilityReason('当前无法确认生图服务状态，创建任务已暂停，请稍后再试或联系管理员。')
+      } else {
+        setGenerationAvailability('available')
+        setGenerationAvailabilityReason('')
+      }
+    }).catch(() => {
+      if (!active) return
+      setGenerationAvailability('unavailable')
+      setGenerationAvailabilityReason('当前无法连接生图服务，创建任务已暂停，请稍后再试或联系管理员。')
+    })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [])
 
   const hasActiveTasks = draft.tasks.some((task) => !TERMINAL_IMAGE_STATUSES.has(task.status))
   useEffect(() => {
@@ -755,6 +808,10 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   }, [active, openTaskId])
   const summary = useMemo(() => calculateImageTaskSummary(draft), [draft])
   const errors = useMemo(() => validateImageCenterDraft(draft), [draft])
+  const generationBlocked = generationAvailability !== 'available'
+  const generationStatusMessage = generationAvailability === 'checking'
+    ? '正在检查生图服务状态，请稍候。'
+    : generationAvailabilityReason
   const selectedIds = useMemo(() => new Set(draft.selectedOutputIds), [draft.selectedOutputIds])
   const previewOutput = previewOutputId
     ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
@@ -810,6 +867,10 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     } catch (cause) {
       const uncertain = !(cause instanceof ApiError) || cause.code === 'REQUEST_TIMEOUT' || cause.code === 'WRITE_UNCERTAIN'
       const message = cause instanceof ApiError ? cause.message : '提交结果未知，请勿重复提交；稍后由管理员核对远端记录。'
+      if (isGenerationUnavailableError(cause)) {
+        setGenerationAvailability('unavailable')
+        setGenerationAvailabilityReason(generationUnavailableMessage(cause))
+      }
       updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? {
         ...task,
         status: uncertain ? 'write_uncertain' : 'failed',
@@ -822,6 +883,10 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     } finally { setSubmitting(false) }
   }
   const submit = () => {
+    if (generationBlocked) {
+      setNotice(generationStatusMessage)
+      return
+    }
     if (errors.length) { setNotice(errors[0]); return }
     const tasks = buildWaitingTasks(draft, createUuid)
     void submitTaskSet(tasks, summary.totalImages)
@@ -940,7 +1005,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
           <section className={draft.config.modes.includes('storyboard') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('storyboard')} onClick={() => selectMode('storyboard')}><span><Images size={17} /></span><span><strong>分镜图生成</strong><small>从一段提示词扩展有序镜头</small></span><i>{draft.config.modes.includes('storyboard') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_storyboard" label="自定义提示词" value={draft.config.storyboardPrompt} disabled={!draft.config.modes.includes('storyboard')} onChange={(storyboardPrompt) => updateConfig({ storyboardPrompt })} placeholder="用一整段文字描述镜头顺序和展示重点" /></section>
         </div>
         <label className="back-inference-toggle"><input type="checkbox" checked={draft.config.allowBackInference} onChange={(event) => updateConfig({ allowBackInference: event.target.checked })} /><span><i>{draft.config.allowBackInference ? <Check size={13} /> : null}</i><strong>允许推测缺失的背面</strong><small>只有模特或产品一方提供背面时继续生成，并给结果添加风险标签。</small></span></label>
-        <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><button type="button" className="primary-button primary-button--large" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={18} /> : <WandSparkles size={18} />}{submitting ? '正在提交' : '创建生图任务'}</button></div></div>
+        <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><p className="image-generation-submit__hint" role="status">{generationStatusMessage}</p></div></div>
         {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
       </section>
     </div> : <section className="image-results" aria-labelledby="image-results-title">
@@ -953,8 +1018,8 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     </section>}
     {active && draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
-      {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : <span className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
-      <button type="button" className="primary-button" disabled={submitting} onClick={submit}>{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : '创建生图任务'}</button>
+      {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : generationBlocked ? <span id="image-generation-availability" title={generationStatusMessage}><AlertTriangle size={15} />{generationStatusMessage}</span> : <span id="image-generation-availability" className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
+      <button type="button" className="primary-button" disabled={submitting || generationBlocked} onClick={submit} title={generationBlocked ? generationStatusMessage : undefined} aria-describedby="image-generation-availability">{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : generationBlocked ? '生成暂不可用' : '创建生图任务'}</button>
     </div>, document.body) : null}
     {active && draft.activeTab === 'results' && selectedIds.size ? createPortal(<SelectionWorkbench
       tasks={draft.tasks}
