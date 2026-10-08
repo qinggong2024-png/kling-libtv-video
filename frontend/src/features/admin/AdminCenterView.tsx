@@ -50,7 +50,7 @@ export function AdminCenterView({
   if (!canOperate) return <div className="page-view"><EmptyState icon={<ShieldCheck size={24} />} title="没有管理中心权限" description="请联系管理员为当前账号分配运营或管理员角色。" /></div>
   return <div className="page-view admin-view">
     <div className="page-title">
-      <div><span>Production Control</span><h1>管理中心</h1><p>集中管理运行状态、生成通道与生产安全边界。</p></div>
+      <div><span>生产控制台</span><h1>管理中心</h1><p>集中管理运行状态、生成通道与生产安全边界。</p></div>
       <div className={`system-health ${system ? 'is-online' : 'is-warning'}`}><span /><div><strong>{system ? '生产服务在线' : '正在读取服务状态'}</strong><small>{isAdmin ? '管理员权限' : '运营权限'}</small></div></div>
     </div>
     <nav className="subnav-tabs" aria-label="管理中心导航">

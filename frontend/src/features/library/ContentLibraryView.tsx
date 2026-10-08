@@ -167,7 +167,7 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
 
   return <div className="page-view content-library-view">
     <div className="page-title content-library-title">
-      <div><span>Production Asset Library</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p><DataFreshness timestamp={lastSyncedAt} stale={Boolean(error && hasLoadedOnce)} /></div>
+      <div><span>生产素材库</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p><DataFreshness timestamp={lastSyncedAt} stale={Boolean(error && hasLoadedOnce)} /></div>
       {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} />{query ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); setQuery('') }} aria-label="清除内容库搜索关键词" title="清除搜索"><span aria-hidden="true">×</span></button> : null}</label> : null}
     </div>
 
