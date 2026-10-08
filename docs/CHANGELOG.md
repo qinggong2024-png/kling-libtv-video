@@ -10,7 +10,8 @@
 - 增加模板读取恢复、嵌套视频 Modal、真实设置时长和来源 ID 保留。
 - testing build/lint、234 项单元测试、10 个 Studio 浏览器用例通过；既有 66 个页面回归及图片审核检查通过。
 - 新增隔离 fixture 和本地安全预览入口；不调用真实 Provider，不加载 .env，不代理请求。
-- 详见 `SPRINT_REPORT_VIDEO_STUDIO_20261008.md`；main 同步/独立验证待补记。
+- main 已同步并独立通过 build/lint、230 项单元测试、10 个 Studio 流程、66 个页面回归及图片审核检查；保留生产差异，构建产物存放在外部验证目录。
+- 源码提交 testing `70b90cd` → main `e3ae81d`；详见 `SPRINT_REPORT_VIDEO_STUDIO_20261008.md`。
 - 当前停止在 Checkpoint 1，等待人工方向确认；未扩展其余三个工作区。
 
 ### Added
