@@ -36,7 +36,12 @@
 - 截图检查涵盖已配置工作区、窄屏、结果和嵌套播放。单元组件测试为静态渲染合同，不单独作为交互验收。
 - 证据根目录：`E:/Codex/visualizations/2026/10/08/01a11aa7-388c-7c00-857f-b320ea54a013`。
 - 子目录：`video-studio-testing`、`pages-testing`、`review-testing`；报告记录源码 HEAD/hash 和 Edge 版本。
-- 生产同步与 main 的独立验证结果在同步后补记。
+- main：build、lint 通过；Vitest 34 文件、230 项通过。build 输出到外部 `main-build`，未覆盖正式目录 dist。
+- main：Video Studio 10 用例、既有页面 66 用例、图片审核检查、fixture/smoke 14 项测试分别通过；Studio 外部请求为 0。
+- main 证据子目录：`video-studio-main`、`pages-main`、`review-main`；浏览器 Edge 154.0.4258.62。
+- 源码推广：testing `70b90cd` → 实际 main `e3ae81d`；仅本轮 21 个源文件、测试、脚本和文档。
+- 比较推广前后范围以及两个分支修改文件，保留 main 主体接口/错误处理、任务真实错误信息与 Required Hard Gates 审核文案，不覆盖生产树。
+- 没有同步真实 .env、密钥、运行状态、缓存、生成媒体、构建产物或用户 ZIP。
 
 ## 发现问题
 
@@ -51,7 +56,8 @@
 
 ## 下一步
 
-- 同步本轮源代码、测试和文档到实际 main 目录，保留生产专属差异、配置和运行状态。
-- 提供只模拟生成的本地预览，不把它称为正式版。
+- 本轮源代码已同步至实际 main，相关文档随验证记录同步；不是线上发布完成声明。
+- 安全本地预览：`http://127.0.0.1:5187/studio/video`，只模拟生成，最后停在待人工审核，不伪造批准交付。
+- 正式版入口仍是 `http://192.168.30.126:5173/`；本轮未对该入口执行真实生产验收或服务重启。
 - Checkpoint 1：产品负责人确认 Video Studio 的视觉方向与操作路径。
 - 确认方向后才启动 Image Studio；真实 Provider 与发布验收另行授权。
