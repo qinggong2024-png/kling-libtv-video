@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { BatchImageOutputReview, ImageOutputReview, OutputCard } from './ImageCenter'
+import { BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputCard } from './ImageCenter'
 import type { ImageGenerationOutput } from '../../imageCenterModel'
 
 const output: ImageGenerationOutput = {
@@ -41,5 +41,13 @@ describe('image review controls', () => {
     expect(markup).toContain('审核备注')
     expect(markup).toContain('保存并继续')
     expect(markup).not.toContain('结果 output-2')
+  })
+
+  it('renders two selected outputs as a read-only side-by-side comparison', () => {
+    const markup = renderToStaticMarkup(<ImageOutputCompare outputs={[pendingOutput('left'), pendingOutput('right')]} onClose={() => {}} />)
+    expect(markup).toContain('并排比较')
+    expect(markup).toContain('只读比较')
+    expect(markup.match(/image-compare-panel__meta/g)).toHaveLength(2)
+    expect(markup).not.toContain('保存')
   })
 })
