@@ -154,7 +154,9 @@
 .composer--studio .composer-submit-row { grid-column: 2; grid-row: 2; margin-top: 16px; padding: 16px 0; gap: 12px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
 .composer--studio .composer-submit-row { position: static; box-shadow: none; backdrop-filter: none; border-radius: 0; }
 .composer--studio .composer-result-count { flex: 0 0 180px; }
-.composer--studio .composer-submit-summary small { white-space: normal; }
+.composer--studio .composer-submit-summary,
+.composer--studio .composer-submit-status { min-width: 200px; }
+.composer--studio .composer-submit-summary small { display: block; white-space: normal; }
 .composer--studio .composer-feedback { grid-column: 2; grid-row: 3; padding: 8px 0 0; min-width: 0; }
 .studio-batch-mode { display: grid; gap: 8px; padding: 8px 0; font-size: 12px; }
 .studio-batch-mode > span { overflow-wrap: anywhere; }
