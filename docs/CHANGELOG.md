@@ -25,3 +25,9 @@
 - Sprint 0：统一基础 UI 导出、状态展示映射和页面验收 fixture。
 - Sprint 1：实现并验收 Video Studio + Design System。
 - Checkpoint 1：人工确认 Video Studio 方向。
+
+### Verification
+
+- testing：build/lint 通过，31 个测试文件、209 项测试通过。
+- main：build/lint 通过，32 个测试文件、205 项测试通过；构建产物在外部验证目录。
+- 规范已从 `codex/testing` 局部推广至实际 `main` 目录，并检查文档一致性；不代表线上发布或页面完成。
