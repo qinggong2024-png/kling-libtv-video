@@ -226,8 +226,12 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
       await general.focus()
       await page.keyboard.press('ArrowRight')
       const brand = page.getByRole('tab',{name:'品牌专属',exact:false})
+      await page.waitForFunction(() => document.activeElement?.id === 'brand-tab' &&
+        document.activeElement.getAttribute('aria-selected') === 'true')
       assert(await brand.evaluate(el => el === document.activeElement && el.getAttribute('aria-selected') === 'true'))
       await page.keyboard.press('Home')
+      await page.waitForFunction(() => document.activeElement?.id === 'general-tab' &&
+        document.activeElement.getAttribute('aria-selected') === 'true')
       assert(await general.evaluate(el => el === document.activeElement && el.getAttribute('aria-selected') === 'true'))
       await page.getByRole('textbox',{name:'搜索动作库',exact:true}).fill('不存在的合成关键词')
       await page.getByText('没有匹配内容',{exact:true}).waitFor()
