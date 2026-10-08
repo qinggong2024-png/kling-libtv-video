@@ -1,0 +1,100 @@
+const at = '2026-10-08T00:00:00Z'
+const userId = '00000000-0000-0000-0000-000000000099'
+
+export function createPageResponses({ role = 'ADMIN', empty = false } = {}) {
+  const video = {
+    enabled: false, backend: 'api', provider: 'kling', model: 'synthetic-model',
+    status: 'DISABLED', available: false, authenticated: false,
+    reason: '合成验收：生成通道关闭', cliVersion: null, models: ['synthetic-model'],
+    supportsMultipleImages: true, imageInputLimit: 7,
+    videoDurations: ['5', '10'], tailImageVideoDurations: ['5'],
+    fallbackMode: 'disabled',
+  }
+  const template = {
+    id: 'synthetic-template', version: 'fixture-v1', status: 'active',
+    name: '合成服装多镜头模板', description: '合成模板，无真实媒体或付费调用',
+    minImages: 1, maxImages: 7,
+    defaultSettings: {durationSeconds: 5, ratio: '9:16', sound: false,
+      subtitles: false, smartStoryboard: false, continuityStrategy: 'explicit_cuts'},
+    actionPresets: {}, cameraPresets: {}, tempoPresets: {}, sourceNote: 'synthetic',
+  }
+  const action = {
+    id: 'synthetic-action', label: '合成正面服装展示与细节检查动作',
+    category: 'outfit', instruction: '正面站立，缓慢展示衣服轮廓与袖口。',
+    purpose: '合成验收商品形态', compatibleTemplates: [template.id],
+    requirements: ['正面合成图片'], avoid: ['遮挡商品'],
+    riskLevel: 'low', libraryScope: 'general', brandId: null, baseActionId: null,
+  }
+  const profile = {
+    id: 'synthetic-style', version: 'fixture-v1', status: 'active',
+    name: '合成长标题服装风格与商品细节展示验收专用',
+    siteUrl: '', sourceUrls: [], retrievedAt: '2026-10-08', evidenceLevel: 'restricted_site',
+    tone: '合成：克制清晰', expressionLanguage: '自然表达', audience: '测试用户',
+    palette: ['绿色', '灰色'], typography: '合成字体', cameraLanguage: '固定镜头',
+    openingRule: '展示正面', middleRule: '展示细节', endingRule: '回到全身',
+    preferredShots: ['正面'], preferredActions: [action.id], pacing: '缓慢',
+    productPriorities: ['商品颜色'], forbiddenMismatches: ['改变衣服'],
+    researchNote: '仅用于离线验收，不是研究证据', motionEnergy: 'low',
+    primaryMotionPool: [action.id], microMotionPool: [], expressionPool: [],
+    cameraPool: [], forbiddenMotion: [], preferredEnvironment: [], productRiskRules: [],
+    dedupeRecentCount: 3, dedupeComboWindow: 3, dedupeFamilyWindow: 3,
+    dedupeFamilyLimit: 1, libraryScope: 'general', brandId: null,
+  }
+  const tasks = ['ACTION_REQUIRED', 'GENERATING', 'DELIVERABLE'].map((phase, index) => ({
+    id: `synthetic-task-${index}`, userId, clientTaskId: `synthetic-client-${index}`,
+    title: `合成验收${index}：长标题服装产品系列与跨季节商品细节展示_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`,
+    assetCount: 1, userRequirement: '', analysisModel: 'synthetic',
+    generationProvider: 'kling', phase,
+    phaseReasonCode: phase === 'ACTION_REQUIRED' ? 'SYNTHETIC_LONG_ERROR_CODE_NOT_A_PROVIDER_RESPONSE_0123456789' : null,
+    consistencyLevel: null, analysisResult: null, analysisRunId: null,
+    analysisStage: null, analysisStartedAt: null, analysisHeartbeatAt: null,
+    canvasProjectUuid: null, stateVersion: 1,
+    assets: [{id: `synthetic-asset-${index}`, order: 0, required: true,
+      originalFilename: '合成服装长文件名_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.png',
+      sha256: 'synthetic', width: 240, height: 320,
+      thumbnailUrl: '/api/v1/fixture-media/product.png'}],
+    variants: [{
+      id: `synthetic-variant-${index}`, kind: 'STABLE', revision: 1,
+      promptText: '', promptHash: null,
+      generationStatus: phase === 'DELIVERABLE' ? 'SUCCEEDED' : phase === 'ACTION_REQUIRED' ? 'FAILED' : 'RUNNING',
+      downloadStatus: phase === 'DELIVERABLE' ? 'SUCCEEDED' : 'PENDING',
+      validationStatus: phase === 'DELIVERABLE' ? 'PASSED' : 'PENDING',
+      finalApprovalStatus: 'PENDING', qualityGates: {}, finalApprovedBy: null,
+      finalApprovedAt: null, humanReviewSeconds: null, reviewNotes: null,
+      downloadArtifactId: phase === 'DELIVERABLE' ? 'synthetic-artifact' : null,
+      errorCode: phase === 'ACTION_REQUIRED' ? 'SYNTHETIC_FAILURE' : null,
+      provider: 'kling', providerTaskId: null, providerStatus: null,
+      executionBackend: 'api', feedback: null, feedbackReasons: [], feedbackComment: null,
+    }],
+    pointsQuota: {dailyLimit: 5, consumed: 0, reserved: 0, uncertain: 0, remaining: 5},
+    actionCapabilities: {canEdit: false, canConfirm: false, canCancel: false,
+      canRetryAnalysis: false, canRegenerate: false, canDownload: false},
+    workflowKind: 'FIXED_TEMPLATE', templateId: template.id, templateVersion: template.version,
+    siteProfileId: profile.id, siteProfileVersion: profile.version,
+    settings: {}, compiledPlan: null, materialValidation: null,
+    createdAt: at, updatedAt: at,
+  }))
+  return new Map([
+    ['/api/v1/system/status', {
+      environment: 'test', sourceRevision: 'synthetic-fixture',
+      libtvAdapter: 'fake', aiAdapter: 'fake', openaiModel: 'synthetic',
+      openaiConfigured: false, libtvConfigured: false, outputRetentionDays: 7,
+      downloadConcurrency: 1, technicalValidationConcurrency: 1, zipEnabled: false,
+      phaseOneUserId: userId, phaseOneAdminId: userId,
+      sharedAuthentication: true, csrfCookieName: 'synthetic_csrf',
+      videoGeneration: video, kling: video,
+    }],
+    ['/api/v1/auth/me', {userId, username: '合成验收账号', role}],
+    ['/api/v1/tasks', empty ? [] : tasks],
+    ['/api/v1/video-templates', empty ? [] : [template]],
+    ['/api/v1/site-style-profiles', empty ? [] : [profile]],
+    ['/api/v1/motion-actions', empty ? [] : [action]],
+    ['/api/v1/prompt-presets', []],
+    ['/api/v1/auth/preferences/prompt-confirmation', {automatic: false}],
+    ['/api/v1/auth/preferences/video-learning', {
+      enabled: false, feedbackCount: 0, scopeCount: 0,
+      summary: '合成验收：尚无反馈', updatedAt: null,
+    }],
+    ['/api/v1/admin/kling/elements', {items: [], pageNum: 1, pageSize: 100, total: 0, official: false}],
+  ])
+}
