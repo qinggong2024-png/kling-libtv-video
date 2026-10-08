@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Clock3, Film, GripVertical,
+  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Clock3, Columns2, Film, GripVertical,
   Download, Image as ImageIcon, Images, Layers3, LoaderCircle, Package, Plus, RotateCcw, Save, Shirt,
   Sparkles, UploadCloud, UserRound, WandSparkles, X,
 } from 'lucide-react'
@@ -467,6 +467,33 @@ function OutputPreview({ output, selected, onToggle, onClose }: {
   />
 }
 
+export function ImageOutputCompare({ outputs, onClose }: {
+  outputs: ImageGenerationOutput[]
+  onClose: () => void
+}) {
+  if (outputs.length < 2) return null
+  const [left, right] = outputs
+  return <FoundationDrawer
+    open
+    title="并排比较"
+    eyebrow="只读比较"
+    onClose={onClose}
+  >
+    <div className="image-compare-grid" aria-label="图片并排比较">
+      {[left, right].map((output) => <article className="image-compare-panel" key={output.id}>
+        <div className="image-compare-panel__media">
+          <AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} />
+        </div>
+        <div className="image-compare-panel__meta">
+          <strong>{output.label}</strong>
+          <span>{output.kind === 'fusion' ? '多图融合' : '分镜图'} · {output.view === 'shot' ? '镜头' : output.view === 'front' ? '正面' : '背面'}</span>
+          <span>{output.qualificationStatus === 'QUALIFIED' ? '已合格' : output.qualificationStatus === 'REJECTED' ? '已拒绝' : '待人工审核'}</span>
+        </div>
+      </article>)}
+    </div>
+  </FoundationDrawer>
+}
+
 function SelectionWorkbench({ tasks, selectedOutputIds, expanded, preparing, onExpandedChange, onClear, onRemove, onPlaceOutput, onGenerate }: {
   tasks: ImageGenerationTask[]
   selectedOutputIds: string[]
@@ -648,6 +675,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const [previewOutputId, setPreviewOutputId] = useState<string | null>(null)
   const [previewSource, setPreviewSource] = useState<{ file: File; label: string } | null>(null)
   const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
   const [batchReviewOpen, setBatchReviewOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>('checking')
@@ -811,6 +839,9 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const previewOutput = previewOutputId
     ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === previewOutputId) ?? null
     : null
+  const selectedCompareOutputs = draft.selectedOutputIds.slice(0, 2).map((id) => (
+    draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === id)
+  )).filter((output): output is ImageGenerationOutput => Boolean(output))
   const reviewOutput = reviewOutputId ? draft.tasks.flatMap((task) => task.outputs).find((output) => output.id === reviewOutputId) : null
   const pendingReviewOutputs = useMemo(
     () => draft.tasks.flatMap((task) => task.outputs).filter((output) => output.qualificationStatus === 'PENDING'),
@@ -1044,7 +1075,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
         {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
       </section>
     </div> : <section className="image-results" aria-labelledby="image-results-title">
-      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
+      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{selectedCompareOutputs.length === 2 ? <button type="button" className="secondary-button" onClick={() => setCompareOpen(true)}><Columns2 size={16} />并排比较</button> : null}{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
       {draft.tasks.filter((task) => task.status === 'write_uncertain').map((task) => <div className="image-center-notice is-danger" key={`recovery-${task.id}`} role="status"><AlertTriangle size={16} /><span>{task.outfitName} 的提交结果未知，请先查询服务端原批次。</span><button type="button" className="secondary-button" onClick={() => void recoverUncertainTask(task)}><RotateCcw size={15} />安全查询</button></div>)}
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = imageStatusPresentation(task.status)
@@ -1091,5 +1122,6 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
       label={previewSource.label}
       onClose={() => setPreviewSource(null)}
     /> : null}
+    {active && compareOpen ? <ImageOutputCompare outputs={selectedCompareOutputs} onClose={() => setCompareOpen(false)} /> : null}
   </div>
 }
