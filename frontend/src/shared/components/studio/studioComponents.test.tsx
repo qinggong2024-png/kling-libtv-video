@@ -44,13 +44,30 @@ describe('studio shared components', () => {
     expect(markup).toContain('暂无分镜')
     expect(markup).toContain('aria-label="画布缩放"')
     expect(markup).toContain('disabled=""')
+    expect(markup).not.toContain('9:16')
   })
   it('offers keyboard reorder controls with boundary limits', () => {
     const materials = [{ id: 'a', file: { name: 'a.png' } as File }, { id: 'b', file: { name: 'b.png' } as File }]
-    const markup = renderToStaticMarkup(<Storyboard materials={materials} selectedId="a" onSelect={() => {}} onMove={() => {}} />)
+    const markup = renderToStaticMarkup(<Storyboard materials={materials} selectedId="a" onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
     expect(markup).toContain('前移分镜 1')
     expect(markup).toContain('后移分镜 2')
     expect(markup.match(/disabled=""/g)).toHaveLength(2)
+    expect(markup.match(/aria-label="查看图片 /g)).toHaveLength(2)
+    expect(markup).toContain('删除图片 1')
+    expect(markup).toContain('draggable="true"')
+  })
+  it('locks storyboard mutations but preserves read-only batch inspection', () => {
+    const materials = [{ id: 'a', file: { name: 'a.png' } as File }]
+    const markup = renderToStaticMarkup(<Storyboard materials={materials} disabled onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
+    expect(markup).toContain('draggable="false"')
+    expect(markup).toContain('tabindex="0"')
+    expect(markup.match(/disabled=""/g)).toHaveLength(3)
+  })
+  it('does not reserve a large empty source preview', () => {
+    const markup = renderToStaticMarkup(<Storyboard materials={[]} onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
+    expect(markup).toContain('暂无分镜')
+    expect(markup).not.toContain('studio-canvas')
+    expect(markup).not.toContain('material-preview')
   })
   it('renders actual task uncertainty rather than claiming completion', () => {
     const task: Task = {

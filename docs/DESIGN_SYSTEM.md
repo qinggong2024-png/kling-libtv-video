@@ -134,15 +134,16 @@ type StudioTemplate = {
 
 ```text
 VideoStudio
-├── AssetPanel
-├── CreativeCanvas
-│   └── VideoPreview
-├── CreativePanel
-├── Storyboard
+├── AssetPanel（紧凑输入侧栏）
+├── ProductionArea
+│   ├── TemplateSelector + CreativePanel
+│   ├── Storyboard（唯一源图缩略序列）
+│   └── GenerationPanel（时长 / 数量 / 付费提交）
+├── SourceInspector（按需缩放 / 大图）
 └── ResultGallery
 ```
 
-页面应优先形成“素材选择 → 画布预览 → 模板/参数 → 分镜 → 生成 → 结果”的连续工作区。
+页面形成“输入 → 模板/创意 → 分镜 → 提交 → 阶段 → 结果”的连续工作区。静态源图预览是支线，不是必经步骤；没有编辑能力时不设置永久大画布。具体依据和可测验收见 `VIDEO_STUDIO_LAYOUT_REVIEW_20261008.md`。
 
 ### Image Studio
 
@@ -219,7 +220,7 @@ Completed
 必须检查 1440、1024、768、390 四个视口。
 
 - 桌面优先呈现多栏生产工作区；
-- 平板收缩侧栏和面板，但保留主画布；
+- 平板收缩侧栏和面板，保留主生产区；
 - 移动端将面板转为纵向区块或底部 Sheet；
 - 文本不得溢出按钮、卡片或状态标签；
 - 固定格式媒体预览不得因内容变化导致布局跳动；

@@ -46,7 +46,7 @@ fixture.state.video = Buffer.from(videoBytes)
 await writeFile(resolve(reportDir, 'fixture-result.webm'), fixture.state.video)
 await mediaPage.close()
 const report = { scope: 'offline-video-studio-not-live-provider', capturedAt: new Date().toISOString(), sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), browserVersion: browser.version(), cases: [], externalRequests: [], sourceHashes: {} }
-for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
+for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/MaterialCard.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/shared/components/studio/CreativeCanvas.tsx', 'frontend/src/shared/components/studio/Storyboard.tsx', 'frontend/src/shared/components/studio/SourceInspector.tsx', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
 }
 
@@ -74,6 +74,8 @@ async function run(width, mode = 'success') {
     const generate = page.getByRole('button', { name: '开始生成', exact: true })
     await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
     assert(await generate.isDisabled())
+    assert.equal(await page.locator('.composer .studio-canvas').count(), 0, 'No permanent empty source canvas')
+    await page.screenshot({ path: resolve(reportDir, `empty-${width}.png`), fullPage: true })
     const bytes = await page.evaluate(() => {
       const canvas = document.createElement('canvas')
       canvas.width = 240; canvas.height = 320
@@ -89,27 +91,80 @@ async function run(width, mode = 'success') {
     await writeFile(resolve(reportDir, 'fixture-product.png'), png)
     const files = [{ name: 'first.png', mimeType: 'image/png', buffer: png }, { name: 'second.png', mimeType: 'image/png', buffer: png }]
     await page.locator('.upload-panel input[type=file]').first().setInputFiles(files)
-    await page.waitForFunction(() => document.querySelector('.studio-canvas__frame img')?.naturalWidth > 0)
-    await page.getByRole('button', { name: '选择分镜 2', exact: true }).click()
+    await page.locator('.studio-storyboard .material-preview img').first().evaluate((img) => img.decode())
     await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
-    await page.waitForFunction(() => document.querySelector('.studio-canvas footer > span')?.textContent === 'second.png')
+    assert.equal(await page.locator('.studio-shot__name').first().innerText(), 'second.png')
+    // Reordering remains available by both pointer drag and keyboard controls.
+    await page.locator('.studio-shot .material-card').first().dragTo(page.locator('.studio-shot .material-card').nth(1))
+    assert.equal(await page.locator('.studio-shot__name').first().innerText(), 'first.png')
+    await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
+    const inspect = page.getByRole('button', { name: '查看图片 1 大图', exact: true })
+    await inspect.focus()
+    await page.keyboard.press('Enter')
+    await page.getByRole('dialog').waitFor()
+    await page.waitForFunction(() => document.querySelector('.studio-canvas__frame img')?.naturalWidth > 0)
+    assert.equal(await page.locator('.studio-canvas header > div > span').count(), 0, 'Source inspection must not invent an output ratio')
     const zoom = page.getByRole('slider', { name: '画布缩放' })
     await zoom.fill('150')
     assert.equal(await page.locator('.studio-canvas output').innerText(), '150%')
     await page.getByRole('button', { name: '重置缩放', exact: true }).click()
+    await page.screenshot({ path: resolve(reportDir, `source-inspector-${width}.png`) })
     await page.getByRole('button', { name: '打开大图', exact: true }).click()
-    await page.getByRole('dialog').waitFor()
+    assert.equal(await page.getByRole('dialog').count(), 2)
+    await page.screenshot({ path: resolve(reportDir, `source-inspection-${width}.png`) })
+    await page.keyboard.press('Escape')
+    assert.equal(await page.getByRole('dialog').count(), 1)
+    assert(await page.getByRole('button', { name: '打开大图', exact: true }).evaluate((el) => el === document.activeElement))
     await page.keyboard.press('Escape')
     assert.equal(await page.getByRole('dialog').count(), 0)
-    assert(await page.getByRole('button', { name: '打开大图', exact: true }).evaluate((el) => el === document.activeElement))
+    assert(await inspect.evaluate((el) => el === document.activeElement))
+    result.onDemandInspectionAndFocus = true
+    await page.locator('.upload-panel input[type=file]').first().setInputFiles({ name: 'delete-me.png', mimeType: 'image/png', buffer: png })
+    await page.getByRole('button', { name: '删除图片 3', exact: true }).click()
+    assert.equal(await page.locator('.studio-shot').count(), 2)
     await page.getByRole('combobox', { name: '视频模板', exact: true }).selectOption('second-template')
     await page.getByRole('button', { name: '查看配方', exact: true }).click()
     await page.getByRole('dialog').getByText('保持完整服装轮廓可见', { exact: true }).waitFor()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: '历史主体', exact: true }).click()
     await page.getByRole('button', { name: '人物参考', exact: true }).click()
+    await page.getByRole('radio', { name: '自定义提示词', exact: true }).click()
+    await page.getByPlaceholder('输入画面动作、镜头和节奏要求').fill('保持服装轮廓，缓慢转身，镜头稳定。')
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.screenshot({ path: resolve(reportDir, `custom-config-${width}.png`), fullPage: true })
+    await page.getByRole('radio', { name: '自动化生成', exact: true }).click()
     await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
     await page.evaluate(() => scrollTo(0, 0))
+    result.configuredLayout = await page.evaluate(() => {
+      const rect = (selector) => {
+        const { x, y, width, height, bottom } = document.querySelector(selector).getBoundingClientRect()
+        return { x, y, width, height, bottom }
+      }
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        assets: rect('.composer-asset-lane'),
+        production: rect('.composer-production-lane'),
+        storyboard: rect('.studio-storyboard'),
+        submit: rect('.composer-submit-row > button'),
+        sourceRepresentations: document.querySelectorAll('.composer .material-preview img').length,
+        permanentSourceCanvas: document.querySelectorAll('.composer .studio-canvas').length,
+        resultCountsFit: (() => {
+          const parent = document.querySelector('.composer-result-count .segmented-control').getBoundingClientRect()
+          return [...document.querySelectorAll('.composer-result-count label')].every((label) => {
+            const rect = label.getBoundingClientRect()
+            return rect.left >= parent.left && rect.right <= parent.right && rect.width >= 44
+          })
+        })(),
+      }
+    })
+    assert.equal(result.configuredLayout.sourceRepresentations, 2, 'One thumbnail per source')
+    assert.equal(result.configuredLayout.permanentSourceCanvas, 0)
+    assert(result.configuredLayout.resultCountsFit, 'All result-count options fit and remain touchable')
+    assert(result.configuredLayout.submit.y >= result.configuredLayout.storyboard.bottom, 'Submission follows storyboard')
+    if (width >= 1280) {
+      assert(result.configuredLayout.production.width > result.configuredLayout.assets.width * 2, 'Primary lane owns usable width')
+      assert(result.configuredLayout.submit.bottom <= result.configuredLayout.viewport.height, 'Desktop submit visible without scrolling')
+    }
     await page.screenshot({ path: resolve(reportDir, `configured-${mode}-${width}.png`), fullPage: true })
     await page.evaluate(() => {
       const button = document.querySelector('.composer-submit-row > button')
@@ -133,7 +188,7 @@ async function run(width, mode = 'success') {
       await row.click()
       const drawer = page.getByRole('dialog')
       await drawer.waitFor()
-      assert(await page.locator('.studio-canvas').isVisible())
+      assert.equal(await page.locator('.composer .studio-canvas').count(), 0)
       assert.equal(new URL(page.url()).searchParams.get('task'), 'fixture-video-1')
       await page.reload()
       await drawer.waitFor()
@@ -179,10 +234,10 @@ async function run(width, mode = 'success') {
     const geometry = await page.evaluate(() => ({
       documentWidth: document.documentElement.scrollWidth,
       viewport: innerWidth,
-      canvas: (() => { const rect = document.querySelector('.studio-canvas').getBoundingClientRect(); return { width: rect.width, height: rect.height } })(),
+      storyboard: (() => { const rect = document.querySelector('.studio-storyboard').getBoundingClientRect(); return { width: rect.width, height: rect.height } })(),
     }))
     assert(geometry.documentWidth <= geometry.viewport, 'Page horizontal overflow')
-    assert(geometry.canvas.width > 200 && geometry.canvas.height > 250, 'Canvas collapsed')
+    assert(geometry.storyboard.width > 200, 'Storyboard collapsed')
     assert.deepEqual(errors, [])
     assert.deepEqual(fixture.state.unexpected, [])
     result.geometry = geometry
@@ -229,6 +284,13 @@ async function runGuard(mode) {
       if (mode !== 'batch-invalid') names.push('beta_front.png')
       await page.locator('.upload-panel input[type=file]').nth(1).setInputFiles(names.map(file))
       await page.getByText('批量识别', { exact: true }).waitFor()
+      const inspect = page.getByRole('button', { name: '查看图片 1 大图', exact: true })
+      await inspect.click()
+      await page.getByRole('dialog').waitFor()
+      await page.keyboard.press('Escape')
+      assert(await page.getByRole('button', { name: '删除图片 1', exact: true }).isDisabled())
+      assert.equal(await page.locator('.studio-shot .material-card').first().getAttribute('draggable'), 'false')
+      result.batchInspectionWithoutMutation = true
       if (mode === 'batch-invalid') {
         assert(await generate.isDisabled())
         assert.equal(creates().length, 0)

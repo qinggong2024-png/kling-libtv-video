@@ -7,10 +7,11 @@ import { LocalImage } from '../../shared/components/Media'
 
 export const MATERIAL_DRAG_TYPE = 'application/x-kling-api-material'
 
-export function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPreview }: {
+export function MaterialCard({ material, bucket, index, readOnly = false, onRemove, onDropAt, onPreview }: {
   material: Material
   bucket: UploadBucket
   index: number
+  readOnly?: boolean
   onRemove: () => void
   onDropAt: (event: React.DragEvent, target: number) => void
   onPreview: () => void
@@ -19,8 +20,9 @@ export function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPr
   return <article
     className="material-card"
     title={material.file.name}
-    draggable
+    draggable={!readOnly}
     onDragStart={(event) => {
+      if (readOnly) { event.preventDefault(); return }
       dragStartedRef.current = true
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setData(MATERIAL_DRAG_TYPE, material.id)
@@ -32,10 +34,11 @@ export function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPr
       window.setTimeout(() => { dragStartedRef.current = false }, 0)
     }}
     onDragOver={(event) => {
+      if (readOnly) return
       event.preventDefault()
       event.dataTransfer.dropEffect = event.dataTransfer.types.includes(MATERIAL_DRAG_TYPE) ? 'move' : 'copy'
     }}
-    onDrop={(event) => onDropAt(event, index)}
+    onDrop={(event) => { if (!readOnly) onDropAt(event, index) }}
   >
     <div className="material-preview">
       <div
@@ -59,6 +62,7 @@ export function MaterialCard({ material, bucket, index, onRemove, onDropAt, onPr
       <button
         type="button"
         className="material-remove"
+        disabled={readOnly}
         onClick={(event) => {
           event.stopPropagation()
           onRemove()

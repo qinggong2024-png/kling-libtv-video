@@ -17,7 +17,7 @@ import { type Material, type RemixSeed, type UploadBucket, UPLOAD_CONCURRENCY } 
 import { MATERIAL_DRAG_TYPE, MaterialCard } from './MaterialCard'
 import { formatTime } from '../../domain/taskPresentation'
 import { ImagePreview } from '../../shared/components/Media'
-import { CreativeCanvas } from '../../shared/components/studio/CreativeCanvas'
+import { SourceInspector } from '../../shared/components/studio/SourceInspector'
 import { Storyboard } from '../../shared/components/studio/Storyboard'
 import { TemplateSelector } from '../../shared/components/studio/TemplateSelector'
 import { Button } from '../../shared/components/ui/Button'
@@ -404,8 +404,10 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
         安全核对
       </button>
     </div> : null}
+    <div className="composer-workspace">
     <div className="composer-inputs" inert={formLocked}>
       <div className="upload-panels upload-panels--with-subject">
+        <div className="composer-asset-lane">
         <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}`} onDragOver={(event) => {
           if (formLocked || batchMode) return
           event.preventDefault()
@@ -418,7 +420,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
           <button type="button" className="text-button upload-batch-button" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />按命名批量导入产品图与分镜</button>
           {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.productFront ? '正面已识别' : '缺正面'} · {group.productBack ? '背面已识别' : '无背面'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
           {batchMode ? <div className="studio-batch-mode"><span>当前预览：{batchGroups[0]?.key} · 批量 {batchGroups.length} 组</span><Button variant="ghost" onClick={() => setBatchGroups([])}>退出批量，编辑当前组</Button></div> : null}
-          {storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表" inert={batchMode}>{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => { setSelectedMaterialId(material.id); setPreview({ file: material.file, label: `分镜图 ${index + 1}` }) }} />)}</div> : null}
+          {!studio && storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表" inert={batchMode}>{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => { setSelectedMaterialId(material.id); setPreview({ file: material.file, label: `分镜图 ${index + 1}` }) }} />)}</div> : null}
         </section>
         <div className={studio ? 'studio-asset-panel' : 'composer-subject-panel'} inert={batchMode}>
           <SubjectInputPanel
@@ -437,10 +439,8 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
           onReloadElements={() => { setElementsLoading(true); setElementCatalogReloadKey((current) => current + 1) }}
           />
         </div>
-        {studio ? <div className="studio-creative-workspace">
-          <CreativeCanvas file={selectedMaterial?.file} name={selectedMaterial?.file.name} aspectRatio={selectedTemplate?.defaultSettings.ratio} onPreview={() => { if (selectedMaterial) setPreview({ file: selectedMaterial.file, label: '画布素材' }) }} />
-          <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} />
-        </div> : null}
+        </div>
+        <div className="composer-production-lane">
         <section className="generation-workflow" aria-labelledby="generation-workflow-title">
           <TemplateSelector templates={templates} value={templateId} onChange={setTemplateId} disabled={formLocked} loading={catalogLoading} />
           <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">创意配置</h2></div></div>
@@ -471,6 +471,8 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
             </article>
           </div>
         </section>
+        {studio ? <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} onRemove={remove} onDropAt={handleDrop} onPreview={(material, index) => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} /> : null}
+        </div>
       </div>
       </div>
     <div className="composer-submit-row" aria-live="polite">
@@ -497,6 +499,9 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
                     : !customPromptReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>请输入自定义提示词，或切换到自动化生成。</span></div>
                   : null}
     </div>
-    {preview ? <ImagePreview file={preview.file} label={preview.label} onClose={() => setPreview(null)} /> : null}
+    </div>
+    {preview ? studio
+      ? <SourceInspector file={preview.file} label={preview.label} onClose={() => setPreview(null)} />
+      : <ImagePreview file={preview.file} label={preview.label} onClose={() => setPreview(null)} /> : null}
   </section>
 }
