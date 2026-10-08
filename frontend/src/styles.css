@@ -890,6 +890,7 @@ main { min-height: 100dvh; }
 .task-table-row:hover { background: #f9fbfd; }
 .task-table-row > span { min-width: 0; color: var(--text-secondary); font-size: 13px; }
 .task-table-row > span:nth-child(2) { display: grid; gap: 5px; }
+.task-table-row > span:nth-child(2) > small { min-width: 0; overflow-wrap: anywhere; }
 .task-name-cell { display: flex; align-items: center; gap: 11px; }
 .task-name-cell > span:last-child { min-width: 0; display: grid; gap: 4px; }
 .task-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 14px; }
@@ -1838,7 +1839,8 @@ body.modal-open { overflow: hidden; }
   .confirmation-card { grid-template-columns: 1fr; }.plan-summary { padding: 10px 0 0; border-top: 1px solid var(--line); border-left: 0; }.confirmation-card > .primary-button { grid-column: auto; width: 100%; }
   .results-grid, .results-grid--library { grid-template-columns: repeat(2, 1fr); }
   .records-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .task-table { border: 0; background: transparent; }.task-table-head { display: none; }.task-table-row { grid-template-columns: 1fr auto; min-height: 84px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: var(--radius); }.task-table-row > span:nth-child(2) { align-items: end; }.task-table-row > span:nth-child(3), .task-table-row > span:nth-child(4) { display: none; }
+  .task-table { border: 0; background: transparent; }.task-table-head { display: none; }.task-table-row { grid-template-columns: minmax(0, 1fr) auto; min-height: 84px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: var(--radius); }.task-table-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; justify-items: start; }.task-table-row > span:nth-child(3), .task-table-row > span:nth-child(4) { display: none; }
+  .task-table-row > span:nth-child(5) { grid-column: 2; grid-row: 1; }
   .detail-drawer { width: 100vw; }.source-summary { grid-template-columns: 1fr; }.plans-grid { grid-template-columns: 1fr; }.workspace-stages { padding: 0 8px; }.workspace-stages > div { min-height: 60px; flex-direction: column; gap: 4px; }.workspace-stages span { width: 28px; height: 28px; font-size: 12px; }
   .analysis-recovery { grid-template-columns: auto minmax(0, 1fr); }.analysis-recovery .primary-button { grid-column: 1 / -1; width: 100%; }
   .confirmation-lock { min-height: 44px; }

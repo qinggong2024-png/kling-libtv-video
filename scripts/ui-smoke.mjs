@@ -7,17 +7,72 @@ import { fileURLToPath } from 'node:url'
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const ROUTES = [
-  { name: 'images', query: '?view=images', selector: '.image-center.page-view:not([hidden])' },
-  { name: 'make', query: '', selector: '.home-view' },
-  { name: 'records', query: '?view=records', selector: '.page-view' },
-  { name: 'library', query: '?view=library', selector: '.content-library-view' },
-  { name: 'admin-overview', query: '?view=admin', selector: '.admin-view .admin-section-content > *', requiresAdmin: true },
-  { name: 'admin-accounts', query: '?view=admin&section=accounts', selector: '.admin-view .admin-section-content > *', requiresAdmin: true },
-  { name: 'admin-providers', query: '?view=admin&section=providers', selector: '.admin-view .admin-section-content > *', requiresAdmin: true },
-  { name: 'admin-security', query: '?view=admin&section=security', selector: '.admin-view .admin-section-content > *', requiresAdmin: true },
-  { name: 'settings', query: '?view=settings', selector: '.settings-view' },
+export const ROUTES = [
+  { name: 'images', query: '?view=images', selector: '.image-center.page-view', heading: '\u56fe\u7247\u4e2d\u5fc3' },
+  { name: 'make', query: '', selector: '.home-view', heading: '\u89c6\u9891\u5236\u4f5c' },
+  { name: 'records', query: '?view=records', selector: '.page-view > .records-overview', heading: '\u4efb\u52a1' },
+  { name: 'library', query: '?view=library', selector: '.content-library-view', heading: '\u5185\u5bb9\u4e0e\u4e3b\u4f53\u5e93' },
+  { name: 'admin-overview', query: '?view=admin', selector: '.admin-view .admin-section-content > .admin-summary-grid', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u8fd0\u884c\u603b\u89c8', requiresAdmin: true },
+  { name: 'admin-accounts', query: '?view=admin&section=accounts', selector: '.admin-view .admin-section-content > .account-management-section', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u6210\u5458\u8d26\u53f7', requiresAdmin: true },
+  { name: 'admin-providers', query: '?view=admin&section=providers', selector: '.admin-view .admin-section-content > .provider-section', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u751f\u6210\u63d0\u4f9b\u5546', requiresAdmin: true },
+  { name: 'admin-security', query: '?view=admin&section=security', selector: '.admin-view .admin-section-content > .prompt-confirmation-section', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u6d41\u7a0b\u4e0e\u5206\u6790', requiresAdmin: true },
+  { name: 'settings', query: '?view=settings', selector: '.settings-view', heading: '\u504f\u597d\u8bbe\u7f6e' },
 ]
+
+export function isPageReady(route, snapshot) {
+  return Boolean(
+    snapshot
+    && snapshot.readyState === 'complete'
+    && snapshot.rootChildren > 0
+    && snapshot.bodyTextLength > 20
+    && snapshot.targetFound
+    && snapshot.targetVisible
+    && snapshot.pageHeading === route.heading
+    && !snapshot.loginRequired
+    && !snapshot.permissionDenied
+    && (!route.requiresAdmin || (
+      snapshot.adminRole === '\u7ba1\u7406\u5458\u6743\u9650'
+      && snapshot.activeSection === route.sectionLabel
+    )),
+  )
+}
+
+// Self-contained so CDP can run exactly the same collector tested with DOM fixtures.
+export function collectPageSnapshot(route) {
+  const visible = (element) => {
+    if (!element) return false
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node)
+      if (node.hidden || node.getAttribute('aria-hidden') === 'true'
+        || style.display === 'none' || style.visibility === 'hidden'
+        || style.visibility === 'collapse' || style.contentVisibility === 'hidden'
+        || Number(style.opacity) === 0) return false
+    }
+    return Array.from(element.getClientRects()).some((rect) => rect.width > 0 && rect.height > 0)
+  }
+  const candidates = Array.from(document.querySelectorAll(route.selector))
+  const target = candidates.find(visible)
+  const page = target?.closest('.page-view, .home-view')
+  const visibleText = (selector) => {
+    const element = Array.from(page?.querySelectorAll(selector) ?? []).find(visible)
+    return element?.textContent.trim() ?? ''
+  }
+  const denialTitles = ['\u6ca1\u6709\u7ba1\u7406\u4e2d\u5fc3\u6743\u9650', '\u9700\u8981\u7ba1\u7406\u5458\u6743\u9650', '\u51ed\u636e\u7531\u7ba1\u7406\u5458\u7ef4\u62a4']
+  return {
+    readyState: document.readyState,
+    rootChildren: document.getElementById('root')?.childElementCount ?? 0,
+    bodyTextLength: document.body?.innerText.trim().length ?? 0,
+    targetFound: candidates.length > 0,
+    targetVisible: Boolean(target),
+    pageHeading: visibleText('h1'),
+    activeSection: visibleText('.subnav-tabs button[aria-current="page"] strong'),
+    adminRole: visibleText('.system-health small'),
+    permissionDenied: Boolean(route.requiresAdmin && Array.from(document.querySelectorAll('.page-view .empty-state > strong'))
+      .some((element) => visible(element) && denialTitles.includes(element.textContent.trim()))),
+    loginRequired: Array.from(document.querySelectorAll('.login-view')).some(visible),
+    title: document.title,
+  }
+}
 
 function parseArguments(argv) {
   const options = {
@@ -121,23 +176,16 @@ async function evaluate(cdp, sessionId, expression, awaitPromise = false) {
   return result.result.value
 }
 
-async function waitForPage(cdp, sessionId, selector, timeoutMs) {
+async function readPageSnapshot(cdp, sessionId, route) {
+  return evaluate(cdp, sessionId, `(${collectPageSnapshot.toString()})(${JSON.stringify(route)})`)
+}
+
+async function waitForPage(cdp, sessionId, route, timeoutMs) {
   const started = Date.now()
   let snapshot = null
   while (Date.now() - started < timeoutMs) {
-    snapshot = await evaluate(cdp, sessionId, `(() => {
-      const root = document.getElementById('root')
-      const target = document.querySelector(${JSON.stringify(selector)})
-      return {
-        readyState: document.readyState,
-        rootChildren: root?.childElementCount ?? 0,
-        bodyTextLength: document.body?.innerText.trim().length ?? 0,
-        targetFound: Boolean(target),
-        loginRequired: Boolean(document.querySelector('.login-view')),
-        title: document.title,
-      }
-    })()`)
-    if (snapshot.loginRequired || (snapshot.readyState === 'complete' && snapshot.rootChildren > 0 && snapshot.bodyTextLength > 20 && snapshot.targetFound)) return snapshot
+    snapshot = await readPageSnapshot(cdp, sessionId, route)
+    if (snapshot.loginRequired || isPageReady(route, snapshot)) return snapshot
     await sleep(200)
   }
   return snapshot
@@ -210,17 +258,18 @@ async function run() {
           await evaluate(cdp, sessionId, "localStorage.setItem('development-actor-role', 'admin')")
         }
         await cdp.send('Page.navigate', { url }, sessionId)
-        let snapshot = await waitForPage(cdp, sessionId, route.selector, options.timeoutMs)
+        let snapshot = await waitForPage(cdp, sessionId, route, options.timeoutMs)
         if (await loginIfRequired(cdp, sessionId, options, snapshot)) {
           activeErrors = []
           await cdp.send('Page.navigate', { url }, sessionId)
-          snapshot = await waitForPage(cdp, sessionId, route.selector, options.timeoutMs)
+          snapshot = await waitForPage(cdp, sessionId, route, options.timeoutMs)
         }
         await sleep(400)
-        if (!snapshot?.targetFound || snapshot.rootChildren < 1 || snapshot.bodyTextLength <= 20) {
-          throw new Error(`Expected rendered content ${route.selector}; snapshot=${JSON.stringify(snapshot)}`)
-        }
+        snapshot = await readPageSnapshot(cdp, sessionId, route)
         if (snapshot.loginRequired) throw new Error('Route remained at the login screen')
+        if (!isPageReady(route, snapshot)) {
+          throw new Error(`Expected visible content ${route.selector}, heading ${route.heading}${route.sectionLabel ? `, section ${route.sectionLabel} with administrator permissions` : ''}; snapshot=${JSON.stringify(snapshot)}`)
+        }
         if (activeErrors.length) throw new Error(activeErrors.join(' | '))
         results.push({ name: route.name, url, status: 'PASS', durationMs: Date.now() - routeStarted, ...snapshot })
         console.log(`PASS ${route.name} (${Date.now() - routeStarted} ms)`)
@@ -247,7 +296,9 @@ async function run() {
   if (status !== 'PASS') process.exitCode = 1
 }
 
-run().catch((error) => {
-  console.error(`UI smoke setup failed: ${error.message}`)
-  process.exitCode = 1
-})
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  run().catch((error) => {
+    console.error(`UI smoke setup failed: ${error.message}`)
+    process.exitCode = 1
+  })
+}

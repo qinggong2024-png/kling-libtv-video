@@ -82,3 +82,10 @@ limits, remaining implementation gaps and the zero-paid comparison follow-up.
 U08 is partially evidenced for the isolated image review page only, not complete.
 Neither this matrix nor a main-checkout fixture run certifies the live production
 URL or accepts backend-dependent recovery, quota or whole-app performance.
+
+The next offline page batch is recorded in `ui-pages-acceptance-20261008.md`:
+eight populated views at four widths, four applicable empty views, narrow-screen
+feature loading/errors and USER admin denial. The final per-checkout reports
+define the accepted scope. It also reproduces/fixes records long-error clipping
+and strengthens route smoke against hidden-page false positives. U08 remains
+partial; performance, complete accessibility and fixed-toolbar gates stay open.
