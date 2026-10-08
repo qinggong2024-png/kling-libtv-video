@@ -55,13 +55,7 @@ export interface ImageCenterNotificationEvent {
 const ASSET_SLOT_DRAG_TYPE = 'application/x-image-center-slot'
 const IMAGE_OUTPUT_DRAG_TYPE = 'application/x-image-center-output'
 const TERMINAL_IMAGE_STATUSES = new Set(['completed', 'failed', 'write_uncertain'])
-const FORMAL_READ_ONLY_HOST = '192.168.30.126'
-
 type GenerationAvailability = 'checking' | 'available' | 'unavailable'
-
-function isFormalReadOnlyHost(): boolean {
-  return typeof window !== 'undefined' && window.location.hostname === FORMAL_READ_ONLY_HOST
-}
 
 function isGenerationUnavailableError(cause: unknown): boolean {
   return cause instanceof ApiError
@@ -655,8 +649,8 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
   const [batchReviewOpen, setBatchReviewOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>(() => isFormalReadOnlyHost() ? 'unavailable' : 'checking')
-  const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState(() => isFormalReadOnlyHost() ? '正式版当前处于查询模式，生成服务暂未开放。' : '')
+  const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>('checking')
+  const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState('')
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
   const loadedRef = useRef(false)
@@ -717,7 +711,6 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     return () => { if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current) }
   }, [draft, draftScope, loaded])
   useEffect(() => {
-    if (isFormalReadOnlyHost()) return
     const controller = new AbortController()
     let active = true
     void fetch('/api/v1/system/status', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal }).then((response) => {

@@ -93,6 +93,11 @@ function validationDetailMessage(detail: unknown[]): string {
   return messages.join('；')
 }
 
+function localizedApiMessage(code: string, message: string): string {
+  if (code === 'MAINTENANCE_QUERY_ONLY') return '当前处于维护模式，仅支持登录和查询已保存任务，生成暂不可用。'
+  return message
+}
+
 function apiErrorFromBody(status: number, statusText: string, body: unknown): ApiError {
   const envelope = body && typeof body === 'object' && !Array.isArray(body)
     ? body as Record<string, unknown>
@@ -113,10 +118,12 @@ function apiErrorFromBody(status: number, statusText: string, body: unknown): Ap
   const detail = rawDetail && typeof rawDetail === 'object'
     ? rawDetail as ErrorPayload
     : {}
+  const code = typeof detail.code === 'string' ? detail.code : 'REQUEST_FAILED'
+  const message = typeof detail.message === 'string' ? detail.message : `${status} ${statusText}`
   return new ApiError(
     status,
-    typeof detail.code === 'string' ? detail.code : 'REQUEST_FAILED',
-    typeof detail.message === 'string' ? detail.message : `${status} ${statusText}`,
+    code,
+    localizedApiMessage(code, message),
     detail.details ?? null,
     typeof detail.retryable === 'boolean' ? detail.retryable : null,
     detail.mayHaveBeenAccepted === true,
