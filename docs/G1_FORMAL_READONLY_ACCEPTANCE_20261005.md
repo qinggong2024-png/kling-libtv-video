@@ -105,7 +105,7 @@ Kling 状态为 `KLING_API_CONFIGURED_UNVERIFIED`，`available=false`。这表�
 迁移后正式版只读复核：
 
 - `GET /api/v1/health/live`：200；
-- `GET /api/v1/health/ready`：200，PostgreSQL 和 schema 均 `ok`；
+- `GET /api/v1/health/ready`：200，数据库和 schema 均 `ok`（响应中的 `postgresql` 为既有检查字段名，正式数据库实际为 SQLite）；
 - 未认证 `GET /api/v1/auth/me`：401；
 - 未认证 `GET /api/v1/tasks`：401；
 - 响应仍带有 `x-libtv-maintenance: query-only`。
