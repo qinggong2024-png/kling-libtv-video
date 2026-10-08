@@ -91,6 +91,27 @@ Kling 状态为 `KLING_API_CONFIGURED_UNVERIFIED`，`available=false`。这表�
 
 因此，前述 `sourceRevision=unknown` 是正式 API 重启前的观测结论，已被重启后的结果修正。正式 API 当前部署身份已确认与 `main` 指纹一致；本确认仍不改变正式版 query-only、Runner 未启动、未调用付费 API 的边界。
 
+### 5.2 2026-10-08 生产迁移后只读确认
+
+在取得明确授权后，使用 `main` 当前迁移链执行生产 SQLite 数据库升级：
+
+- 迁移前 revision：`b7d9e1f3a502`；
+- 迁移后 revision：`c9f0a1b2c304`；
+- SQLite `PRAGMA integrity_check`：`ok`；
+- 新增表确认：`product`、`product_version`、`image_quota_reservation`；
+- 迁移前数据库副本已保存并通过完整性检查；
+- 未重启正式 API，未启动 Runner，未调用付费 API。
+
+迁移后正式版只读复核：
+
+- `GET /api/v1/health/live`：200；
+- `GET /api/v1/health/ready`：200，PostgreSQL 和 schema 均 `ok`；
+- 未认证 `GET /api/v1/auth/me`：401；
+- 未认证 `GET /api/v1/tasks`：401；
+- 响应仍带有 `x-libtv-maintenance: query-only`。
+
+因此，生产 schema readiness 阻塞已解除；正式版仍保持查询模式，不代表已授权或执行真实 Pilot。
+
 ## 6. 后续边界
 
 若要让正式 API 暴露可靠的 `sourceRevision`，需要在 testing 先实现、测试并同步到 main；使该改动在正式版生效还需要用户明确授权正式 API 服务更新/重启。本轮不执行该操作，也不通过修改前端隐藏 `environment=development`。
