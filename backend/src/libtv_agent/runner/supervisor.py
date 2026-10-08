@@ -42,6 +42,7 @@ from libtv_agent.runner.command_host_manager import CommandHostManager
 from libtv_agent.services.capacity import acquire_capacity, release_capacity, renew_capacity
 from libtv_agent.services.generation_safety import (
     PaidGenerationBlockedError,
+    real_provider_submission_authorized,
     require_paid_generation_authorized,
 )
 from libtv_agent.services.media import (
@@ -521,6 +522,18 @@ class RunnerSupervisor:
         command: GenerationCommand,
         attempt: GenerationAttempt,
     ) -> bool:
+        if not real_provider_submission_authorized(self.settings):
+            await self._handle_error(
+                session,
+                command,
+                attempt,
+                KlingCliError(
+                    "PAID_GENERATION_BLOCKED",
+                    "real provider submissions require live mode, the explicit enable "
+                    "switch, and the exact confirmation phrase",
+                ),
+            )
+            return True
         if not self.settings.kling_provider_submission_enabled(attempt.provider):
             await self._handle_error(
                 session,

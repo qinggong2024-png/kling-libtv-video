@@ -229,6 +229,79 @@ async def test_real_paid_submission_is_closed_by_default(tmp_path: Path) -> None
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_real_kling_provider_requires_explicit_paid_authorization(tmp_path: Path) -> None:
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{(tmp_path / 'provider-gate.db').as_posix()}"
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        app_env="development",
+        libtv_adapter_mode="real",
+        kling_api_enabled=True,
+        kling_api_key="synthetic-configured-key",
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    async with factory() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_provider_submission_allowed(
+                session,
+                settings,
+                settings.kling_api_provider_name,
+                user_id=USER_ID,
+            )
+        assert captured.value.code == "PAID_GENERATION_BLOCKED"
+        assert not await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_api_provider_name,
+            user_id=USER_ID,
+        )
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_real_kling_provider_opens_only_with_exact_paid_authorization(tmp_path: Path) -> None:
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{(tmp_path / 'provider-open.db').as_posix()}"
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(
+        app_env="development",
+        libtv_adapter_mode="real",
+        libtv_execution_mode="live",
+        paid_generation_enabled=True,
+        paid_generation_confirmation="I_ACCEPT_LIBTV_POINT_CHARGES",
+        kling_api_enabled=True,
+        kling_api_key="synthetic-configured-key",
+        paid_submissions_paused=False,
+        object_store_mode="local",
+        _env_file=None,
+    )
+    async with factory() as session:
+        await ensure_provider_submission_allowed(
+            session,
+            settings,
+            settings.kling_api_provider_name,
+            user_id=USER_ID,
+        )
+        assert await provider_claims_allowed(
+            session,
+            settings,
+            settings.kling_api_provider_name,
+            user_id=USER_ID,
+        )
+
+    await engine.dispose()
+
+
 def _risk_attempt(
     index: int,
     *,
