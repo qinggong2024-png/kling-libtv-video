@@ -9,7 +9,7 @@ an isolated Vite server with `configFile: false` and `envFile: false`.
 
 Evidence root:
 `C:/Users/Reel/Documents/libtv-ui-review-evidence-20261008/pages-followup`.
-Final reports/screenshots are under `testing-final` and `main-final`.
+Final reports/screenshots are under `testing-final-2` and `main-final-2`.
 Use each `result.json` for its actual pass status, case list, base HEAD, source
 hashes, browser version and capture time. Testing used Edge 154.0.4258.62.
 Source hashes identify uncommitted tested increments as well as committed files.
@@ -55,6 +55,10 @@ Earlier `testing` and `testing-verified` directories are retained diagnostics,
 not final acceptance. Initial failures included invalid synthetic parent phases,
 hidden-page error lookup and a label mismatch. The pre-layout-fix run lacked the
 new internal geometry gate; its pass does not override the final regression.
+The first `main-final` run had one premature Home-key focus assertion. The
+component restores tab focus on the next animation frame; the harness now waits
+for the same required selected/focused DOM state instead of sampling immediately.
+The failure is retained, not recategorized as a pass.
 
 ## Safety And Reproduction
 
