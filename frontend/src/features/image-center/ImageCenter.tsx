@@ -8,7 +8,7 @@ import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../imageFiles'
-import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, saveAsset, setImageOutputQualityDecision } from '../../api'
+import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, querySubmissionRecovery, saveAsset, setImageOutputQualityDecision } from '../../api'
 import { CustomPromptField } from '../../CustomPromptField'
 import {
   IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
@@ -81,6 +81,7 @@ function mergeBatchIntoTasks(tasks: ImageGenerationTask[], batch: ImageGeneratio
     return {
       ...task,
       batchId: batch.id,
+      clientBatchId: batch.clientBatchId ?? task.clientBatchId ?? null,
       providerTaskId: item.providerTaskId,
       providerTaskIds: item.providerTaskIds ?? (item.providerTaskId ? [item.providerTaskId] : []),
       modelId: item.modelId || task.modelId,
@@ -687,6 +688,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
           ...task,
           status: (task.status as string) === 'waiting_api' ? 'failed' : task.status,
           batchId: task.batchId ?? null,
+          clientBatchId: task.clientBatchId ?? null,
           providerTaskId: task.providerTaskId ?? null,
           providerTaskIds: task.providerTaskIds ?? (task.providerTaskId ? [task.providerTaskId] : []),
           modelId: task.modelId ?? (task.provider === 'gpt' ? 'openai/gpt-image-2/edit' : 'google/nano-banana-2/edit'),
@@ -842,20 +844,22 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const selectMode = (mode: ImageGenerationMode) => updateConfig({ modes: [mode] })
   const submitTaskSet = async (tasks: ImageGenerationTask[], expectedGenerationCount: number) => {
     if (!tasks.length) return
+    const clientBatchId = createUuid()
+    const identifiedTasks = tasks.map((task) => ({ ...task, clientBatchId }))
     const { manifest, files } = buildImageGenerationBatchRequest({
-      clientBatchId: createUuid(),
+      clientBatchId,
       name: draft.name,
       expectedGenerationCount,
-      tasks,
+      tasks: identifiedTasks,
     })
 
     setSubmitting(true)
-    updateDraft((current) => ({ ...current, activeTab: 'results', tasks: [...tasks, ...current.tasks], selectedOutputIds: [] }))
+    updateDraft((current) => ({ ...current, activeTab: 'results', tasks: [...identifiedTasks, ...current.tasks], selectedOutputIds: [] }))
     await new Promise((resolve) => window.setTimeout(resolve, 0))
-    updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? { ...task, status: 'submitting' } : task) }))
+    updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => identifiedTasks.some((item) => item.id === task.id) ? { ...task, status: 'submitting' } : task) }))
     try {
       const batch = await createImageGenerationBatch(manifest, files)
-      updateDraft((current) => ({ ...current, tasks: mergeBatchIntoTasks(current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? { ...task, batchId: batch.id } : task), batch) }))
+      updateDraft((current) => ({ ...current, tasks: mergeBatchIntoTasks(current.tasks.map((task) => identifiedTasks.some((item) => item.id === task.id) ? { ...task, batchId: batch.id, clientBatchId } : task), batch) }))
       setNotice(`批次已提交，正在处理 ${expectedGenerationCount} 张图片。`)
     } catch (cause) {
       const uncertain = !(cause instanceof ApiError) || cause.code === 'REQUEST_TIMEOUT' || cause.code === 'WRITE_UNCERTAIN'
@@ -864,8 +868,9 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
         setGenerationAvailability('unavailable')
         setGenerationAvailabilityReason(generationUnavailableMessage(cause))
       }
-      updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => tasks.some((item) => item.id === task.id) ? {
+      updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => identifiedTasks.some((item) => item.id === task.id) ? {
         ...task,
+        clientBatchId,
         status: uncertain ? 'write_uncertain' : 'failed',
         error: message,
         errorCode: cause instanceof ApiError ? cause.code : 'WRITE_UNCERTAIN',
@@ -885,11 +890,48 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
     void submitTaskSet(tasks, summary.totalImages)
   }
   const prepareRegeneration = (source: ImageGenerationTask) => {
+    if (source.status === 'write_uncertain') {
+      setNotice('该批次提交结果未知，请先执行安全查询或联系管理员；不能直接重新生成。')
+      return
+    }
     const outfitId = createUuid()
     setActiveOutfitId(outfitId)
     updateDraft((current) => createImageCenterRegenerationDraft(current, source, outfitId))
     setNotice(`已载入「${source.outfitName}」的素材与生成配置。`)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+  }
+  const recoverUncertainTask = async (task: ImageGenerationTask) => {
+    if (task.status !== 'write_uncertain') return
+    if (!task.clientBatchId) {
+      setNotice('该批次缺少安全查询身份，请联系管理员核对；请勿重新生成。')
+      return
+    }
+    try {
+      const recovery = await querySubmissionRecovery({
+        kind: 'image',
+        clientId: task.clientBatchId,
+        idempotencyKey: task.clientBatchId,
+      })
+      if (recovery.state === 'submitted' && recovery.resourceId) {
+        const batch = await getImageGenerationBatch(recovery.resourceId)
+        updateDraft((current) => ({
+          ...current,
+          tasks: mergeBatchIntoTasks(current.tasks, batch),
+          updatedAt: new Date().toISOString(),
+        }))
+        setNotice('已恢复服务端批次记录，正在继续读取原任务状态；未创建新任务。')
+        return
+      }
+      if (recovery.state === 'in_progress') {
+        setNotice('服务端仍在处理原提交，请稍后再次查询；未创建新任务。')
+        return
+      }
+      setNotice(recovery.state === 'unknown'
+        ? '服务端记录存在歧义，已标记为需要管理员核对；请勿重新生成。'
+        : '暂未找到原批次记录，不能据此判断未扣费；请联系管理员核对。')
+    } catch (cause) {
+      setNotice(cause instanceof ApiError ? cause.message : '安全查询失败，请稍后重试；请勿重新生成。')
+    }
   }
   const updateOutputQuality = (id: string, values: Partial<ImageGenerationOutput>) => {
     updateDraft((current) => ({
@@ -1003,6 +1045,7 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
       </section>
     </div> : <section className="image-results" aria-labelledby="image-results-title">
       <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
+      {draft.tasks.filter((task) => task.status === 'write_uncertain').map((task) => <div className="image-center-notice is-danger" key={`recovery-${task.id}`} role="status"><AlertTriangle size={16} /><span>{task.outfitName} 的提交结果未知，请先查询服务端原批次。</span><button type="button" className="secondary-button" onClick={() => void recoverUncertainTask(task)}><RotateCcw size={15} />安全查询</button></div>)}
       {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = imageStatusPresentation(task.status)
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)

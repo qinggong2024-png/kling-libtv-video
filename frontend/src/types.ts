@@ -534,6 +534,7 @@ export interface ImageGenerationBatchItem {
 
 export interface ImageGenerationBatch {
   id: string
+  clientBatchId?: string
   status: ImageGenerationBatchStatus
   items: ImageGenerationBatchItem[]
   createdAt?: string

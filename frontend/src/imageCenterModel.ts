@@ -65,6 +65,7 @@ export interface ImageGenerationTask {
   storyboardShots: StoryboardShot[]
   status: ImageTaskStatus
   batchId: string | null
+  clientBatchId?: string | null
   providerTaskId: string | null
   providerTaskIds: string[]
   modelId: string
@@ -344,6 +345,7 @@ export function buildWaitingTasks(
     storyboardShots: parseStoryboardPrompt(draft.config.storyboardPrompt),
     status: 'uploading',
     batchId: null,
+    clientBatchId: null,
     providerTaskId: null,
     providerTaskIds: [],
     modelId: draft.config.provider === 'gpt' ? 'openai/gpt-image-2/edit' : 'google/nano-banana-2/edit',
