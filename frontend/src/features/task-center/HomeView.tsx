@@ -6,7 +6,7 @@ import { type SystemStatus, type Task, type Variant } from '../../types'
 import { providerProgress, variantExecutionMessage } from '../../providerPresentation'
 import { readJsonStorage, readStorage, writeJsonStorage, writeStorage } from '../../safeStorage'
 import { type View } from '../../app/appTypes'
-import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, COMPLETED_PHASES } from '../../domain/workflowStates'
+import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, RESULT_PHASES } from '../../domain/workflowStates'
 import { TaskElapsed } from '../../shared/components/TaskTiming'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
 import { ProductionComposer } from '../production/ProductionComposer'
@@ -15,6 +15,7 @@ import { isAnalysisFailure, taskFailureMessage, taskStatus, variantDisplayName }
 import { ProviderBadge, TaskStatusBadge } from '../../shared/components/Badges'
 import { TaskThumb } from '../../shared/components/Media'
 import { type RemixSeed } from '../production/productionTypes'
+import { TaskCard } from '../../shared/components/tasks/TaskCard'
 
 export const DISMISSED_ATTENTION_STORAGE_KEY = 'dismissed-home-attention'
 export const DISMISSED_ATTENTION_ITEMS_STORAGE_KEY = 'dismissed-home-attention-items'
@@ -55,8 +56,6 @@ export function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen:
 }
 
 export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged, canReview = false }: { active: boolean; tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
-  const activeVideo = system?.videoGeneration ?? system?.kling
-  const activeModel = activeVideo?.model || activeVideo?.models[0] || '当前管理端模型'
   const actionableTasks = tasks.filter((task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
@@ -70,9 +69,7 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
     .filter((task) => dismissedAttentionItems[task.id] !== attentionSignatureFor(task))
     .slice(0, 3)
   const background = tasks.filter((task) => ACTIVE_PHASES.has(task.phase) && !needsAction.some((item) => item.id === task.id)).slice(0, Math.max(0, 5 - needsAction.length))
-  const results = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).flatMap((task) => task.variants.map((variant) => ({ task, variant }))).filter(({ variant }) => variant.downloadArtifactId).slice(0, 6)
-  const activeCount = tasks.filter((task) => ACTIVE_PHASES.has(task.phase)).length
-  const completedCount = tasks.filter((task) => COMPLETED_PHASES.has(task.phase)).length
+  const results = tasks.filter((task) => RESULT_PHASES.has(task.phase)).flatMap((task) => task.variants.map((variant) => ({ task, variant }))).filter(({ variant }) => variant.downloadArtifactId && variant.generationStatus === 'SUCCEEDED').slice(0, 6)
   const attentionSignature = needsAction.map((task) => `${task.id}:${task.phase}:${task.variants.some((variant) => variant.generationStatus === 'UNKNOWN')}`).sort().join('|')
   const [dismissedAttention, setDismissedAttention] = useState(() => readStorage('session', DISMISSED_ATTENTION_STORAGE_KEY) ?? '')
   const showAttention = Boolean(needsAction.length && attentionSignature !== dismissedAttention)
@@ -87,17 +84,17 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
       return next
     })
   }
-  return <div className="home-view" hidden={!active}>
-    <div className="home-title"><div><h1>视频制作</h1><p>上传分镜与主体素材，使用 {activeModel} 生成视频。</p></div><div className="home-title-actions"><span className="quick-stat"><strong>{activeCount}</strong><small>处理中</small></span><span className="quick-stat"><strong>{completedCount}</strong><small>已完成</small></span><button className="text-button" onClick={() => onView('records')}>查看任务<ChevronRight size={15} /></button></div></div>
+  return <div className="home-view video-studio" hidden={!active}>
+    <div className="home-title"><div><span className="studio-kicker">Video Studio</span><h1>视频制作</h1></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
-      <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} />
+      <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} layout="studio" />
     </div>
     {showAttention ? <section className="attention-panel" aria-label="待处理任务">
       <SectionHeading title="需要你操作" count={needsAction.length} action={<div className="attention-panel-actions"><button className="text-button" onClick={() => onView('records')}>查看全部<ChevronRight size={15} /></button><button className="icon-button attention-dismiss" onClick={dismissAttention} aria-label="暂时收起待处理任务" title="暂时收起"><X size={18} /></button></div>} />
       <p>这些是之前创建、目前暂停等待处理的任务，不影响你继续制作新视频。</p>
       <div className="attention-list">{needsAction.map((task) => <AttentionItem key={task.id} task={task} onOpen={() => onOpen(task)} onDismiss={() => dismissAttentionItem(task)} />)}</div>
     </section> : null}
-    {background.length ? <section className="home-section background-work"><SectionHeading title="后台处理中" count={background.length} action={<button className="text-button" onClick={() => onView('records')}>查看全部<ChevronRight size={15} /></button>} /><div className="processing-list" aria-live="polite">{background.map((task) => <ProcessingRow key={task.id} task={task} onOpen={() => onOpen(task)} />)}</div></section> : null}
-    <section className="home-section"><SectionHeading title="最近完成" action={<button className="text-button" onClick={() => onView('records')}>查看全部记录<ChevronRight size={15} /></button>} />{results.length ? <div className="results-grid">{results.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} canReview={canReview} />)}</div> : <EmptyState icon={<Film size={24} />} title="还没有生成结果" description="完成第一条服装广告视频后，结果会出现在这里。" />}</section>
+    {background.length ? <section className="home-section background-work"><SectionHeading title="生成队列" count={background.length} action={<button className="text-button" onClick={() => onView('records')}>查看全部<ChevronRight size={15} /></button>} /><div className="studio-task-list" aria-live="polite">{background.map((task) => <TaskCard key={task.id} task={task} onOpen={() => onOpen(task)} />)}</div></section> : null}
+    <section className="home-section studio-result-gallery" aria-label="生成结果"><SectionHeading title="生成结果" action={<button className="text-button" onClick={() => onView('records')}>查看全部记录<ChevronRight size={15} /></button>} />{results.length ? <div className="results-grid">{results.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} canReview={canReview} />)}</div> : <EmptyState icon={<Film size={24} />} title="还没有生成结果" description="" />}</section>
   </div>
 }

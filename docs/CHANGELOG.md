@@ -2,6 +2,17 @@
 
 ## 2026-10-08
 
+### Sprint 1：Video Studio
+
+- 实现 Canvas 优先的 Video Studio、模板选择/配方、分镜排序、队列、结果和任务抽屉。
+- 新增可复用 UI/素材/模板/分镜/任务组件与六态展示适配，不替换后端状态和交付语义。
+- 修复重复提交、未知提交禁用、批量约束和部分失败后成功组重复创建的风险。
+- 增加模板读取恢复、嵌套视频 Modal、真实设置时长和来源 ID 保留。
+- testing build/lint、234 项单元测试、10 个 Studio 浏览器用例通过；既有 66 个页面回归及图片审核检查通过。
+- 新增隔离 fixture 和本地安全预览入口；不调用真实 Provider，不加载 .env，不代理请求。
+- 详见 `SPRINT_REPORT_VIDEO_STUDIO_20261008.md`；main 同步/独立验证待补记。
+- 当前停止在 Checkpoint 1，等待人工方向确认；未扩展其余三个工作区。
+
 ### Added
 
 - 固化《衣影工坊 AI Creative Studio》V1 产品范围与产品原则。

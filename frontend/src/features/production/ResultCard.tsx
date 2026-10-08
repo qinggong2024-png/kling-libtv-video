@@ -1,5 +1,4 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
-// 代码为逐字搬运，未经逻辑改写。
 import { CheckCircle2, Download, Eye, Film, LoaderCircle, Play, RotateCcw, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { saveArtifact, setVariantFeedback, setVariantFinalApproval } from '../../api'
@@ -108,7 +107,7 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
       {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
       {ready ? <span className="play-button"><Play size={21} fill="currentColor" /></span> : <span className="result-state"><StatusBadge value={variant.generationStatus} retryable={variant.retryable ?? variant.providerErrorRetryable} hasArtifact={ready} /></span>}
-      <span className="duration">10s</span>
+      {typeof task.settings?.durationSeconds === 'number' ? <span className="duration">{task.settings.durationSeconds}s</span> : null}
     </button>
     <div className="result-body"><div><strong>{task.title}</strong><span>{variantDisplayName(variant)} · {formatTime(task.updatedAt)}</span></div>
     {ready ? <div ref={feedbackAnchorRef} className="result-feedback">
