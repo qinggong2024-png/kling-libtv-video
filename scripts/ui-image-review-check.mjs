@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -45,9 +47,17 @@ try {
   const page = await browser.newPage()
   const writes = []
   const errors = []
+  const blockedExternalRequests = []
+  const origin = `http://127.0.0.1:${port}`
   page.on('pageerror', error => errors.push(error.message))
-  await page.route('**/api/**', async route => {
-    if (route.request().url().includes('/quality-decision')) {
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url())
+    if (url.origin !== origin) {
+      blockedExternalRequests.push(url.origin)
+      await route.abort()
+    } else if (!url.pathname.startsWith('/api/')) {
+      await route.continue()
+    } else if (url.pathname.includes('/quality-decision')) {
       writes.push(route.request().postDataJSON())
       const id = route.request().url().split('/').at(-2)
       await route.fulfill({json:{id,qualificationStatus:writes.at(-1).decision,qualityGates:{},reviewedAt:new Date().toISOString(),humanReviewSeconds:1}})
@@ -66,10 +76,45 @@ try {
   assert.equal(await page.getByText('只读比较',{exact:true}).count(),1)
   await page.keyboard.press('Escape')
   assert(await compareButton.evaluate(el=>el===document.activeElement),'Compare focus was not restored')
+  const comparisonViewports = []
   for (const width of [1440,1024,768,390]) {
     await page.setViewportSize({width,height:900})
     await page.screenshot({path:resolve(reportDir,`image-review-${width}.png`),fullPage:true})
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Overflow at ${width}`)
+    await compareButton.click()
+    const grid = page.locator('.image-compare-grid')
+    await grid.waitFor()
+    await grid.evaluate(async el => {
+      await Promise.all(el.closest('dialog').getAnimations({subtree:true}).map(animation => animation.finished))
+    })
+    const images = grid.locator('img')
+    assert.equal(await images.count(),2)
+    for (const image of await images.all()) {
+      await image.evaluate(img => img.decode())
+      assert(await image.evaluate(img => img.naturalWidth > 0 && img.naturalHeight > 0 &&
+        getComputedStyle(img).objectFit === 'contain'), `Uninspectable comparison image at ${width}`)
+    }
+    const geometry = await grid.evaluate(el => {
+      const dialog = el.closest('dialog')
+      const rect = dialog.getBoundingClientRect()
+      return {dialogScrollWidth:dialog.scrollWidth,dialogClientWidth:dialog.clientWidth,
+        gridScrollWidth:el.scrollWidth,gridClientWidth:el.clientWidth,left:rect.left,right:rect.right}
+    })
+    await page.screenshot({path:resolve(reportDir,`image-compare-${width}.png`),fullPage:true})
+    assert(geometry.dialogScrollWidth <= geometry.dialogClientWidth + 1 &&
+      geometry.gridScrollWidth <= geometry.gridClientWidth + 1 &&
+      geometry.left >= -1 && geometry.right <= width + 1,
+    `Comparison overflow at ${width}: ${JSON.stringify(geometry)}`)
+    assert.equal(writes.length,0,'Comparison must remain read-only')
+    await grid.locator('.image-compare-panel__meta').last().scrollIntoViewIfNeeded()
+    assert(await grid.locator('.image-compare-panel__meta').last().evaluate(el => {
+      const rect = el.getBoundingClientRect()
+      return rect.top >= 0 && rect.bottom <= innerHeight + 1
+    }), `Second comparison metadata unreachable at ${width}`)
+    if (width === 390) await page.screenshot({path:resolve(reportDir,'image-compare-scrolled-390.png')})
+    await page.keyboard.press('Escape')
+    assert(await compareButton.evaluate(el=>el===document.activeElement),`Compare focus at ${width}`)
+    comparisonViewports.push({width,panels:2,imagesLoaded:true,objectFit:'contain',horizontalOverflow:false,reviewWrites:0,escapeFocusRestored:true})
   }
   await page.getByRole('button',{name:'审核合成结果 1',exact:true}).click()
   await page.getByRole('radio',{name:'退回',exact:true}).check()
@@ -85,7 +130,10 @@ try {
   await page.keyboard.press('Escape')
   assert(await page.getByRole('button',{name:'审核合成结果 2',exact:true}).evaluate(el=>el===document.activeElement))
   assert.deepEqual(errors,[])
-  await writeFile(resolve(reportDir,'result.json'),JSON.stringify({selectionWrites:0,explicitReviewWrites:writes.length,rejectionReason:true,comparePanels:2,compareReadonly:true,compareEscapeFocusRestored:true,reviewEscapeFocusRestored:true,viewports:[1440,1024,768,390],pageErrors:errors},null,2))
+  assert.deepEqual(blockedExternalRequests,[])
+  const sourceHead = execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim()
+  const scriptSha256 = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex')
+  await writeFile(resolve(reportDir,'result.json'),JSON.stringify({scope:'isolated-image-review-only',sourceHead,scriptSha256,browserVersion:browser.version(),capturedAt:new Date().toISOString(),selectionWrites:0,explicitReviewWrites:writes.length,rejectionReason:true,comparePanels:2,compareReadonly:true,compareEscapeFocusRestored:true,reviewEscapeFocusRestored:true,viewports:[1440,1024,768,390],comparisonViewports,blockedExternalRequests,pageErrors:errors},null,2))
   console.log('Selection isolation, read-only comparison, and four viewport checks passed')
 } finally {
   await browser?.close()
