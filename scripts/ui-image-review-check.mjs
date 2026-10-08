@@ -18,7 +18,7 @@ await mkdir(reportDir, { recursive: true })
 const html = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module">
 import React from 'react';
 import {createRoot} from 'react-dom/client';
-import {ImageCenter} from '/src/ImageCenter.tsx';
+import {ImageCenter} from '/src/features/image-center/ImageCenter.tsx';
 import {createImageCenterDraft} from '/src/imageCenterModel.ts';
 import {saveImageCenterDraft} from '/src/imageCenterStore.ts';
 import '/src/styles.css';
@@ -28,10 +28,10 @@ const blob = await new Promise(resolve=>canvas.toBlob(resolve));
 const file = new File([blob], 'synthetic-product.png', {type:'image/png'});
 const draft=createImageCenterDraft('fixture-draft','fixture-outfit'); draft.activeTab='results';
 draft.tasks=[{id:'fixture-task',outfitId:'fixture-outfit',outfitName:'合成测试服装',sku:'TEST',provider:'gpt',modes:['fusion'],resultCount:2,aspectRatio:'3:4',resolution:'1k',quality:'medium',outputFormat:'png',allowBackInference:false,storyboardShots:[],status:'completed',batchId:null,providerTaskId:null,providerTaskIds:[],modelId:'fixture',createdAt:new Date().toISOString(),prompt:{fusion:'',storyboard:''},model:{front:file,back:null,side:null},product:{front:file,back:null,side:null},outputs:[1,2].map(n=>({id:'output-'+n,kind:'fusion',view:'front',label:'合成结果 '+n,file,url:'',qualificationStatus:'PENDING'})),error:'',errorCode:null,retryable:null}];
-await saveImageCenterDraft(draft);
-createRoot(document.getElementById('root')).render(React.createElement(ImageCenter,{active:true,openTaskId:null,onPrepareVideos:()=>{},onNotifications:()=>{},onActiveTasksChange:()=>{}}));
+await saveImageCenterDraft('fixture-account',draft);
+createRoot(document.getElementById('root')).render(React.createElement(ImageCenter,{active:true,draftScope:'fixture-account',openTaskId:null,onPrepareVideos:()=>{},onNotifications:()=>{},onActiveTasksChange:()=>{}}));
 </script></body></html>`
-const server = await createServer({ root: resolve(root, 'frontend'), server: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error', plugins: [{name:'review-fixture',configureServer(vite) {
+const server = await createServer({ configFile: false, envFile: false, cacheDir: resolve(reportDir, 'vite-cache'), root: resolve(root, 'frontend'), server: { host: '127.0.0.1', port: 0, strictPort: false }, logLevel: 'error', plugins: [{name:'review-fixture',configureServer(vite) {
   vite.middlewares.use('/__review_fixture', async (_req, res, next) => {
     try { res.setHeader('Content-Type','text/html'); res.end(await vite.transformIndexHtml('/__review_fixture', html)) }
     catch (error) { next(error) }
