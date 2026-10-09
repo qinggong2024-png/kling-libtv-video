@@ -8,6 +8,7 @@ import { TaskCard } from '../tasks/TaskCard'
 import { TemplateCard, TemplateSelector, RecipePreview } from './TemplateSelector'
 import { CreativeCanvas } from './CreativeCanvas'
 import { Storyboard } from './Storyboard'
+import { SubjectDisclosure } from './SubjectDisclosure'
 
 const template: VideoTemplateSummary = {
   id: 'real-template-id', version: '1', name: '服装展示', description: '登记配方',
@@ -18,6 +19,18 @@ const template: VideoTemplateSummary = {
 }
 
 describe('studio shared components', () => {
+  it('keeps optional subject inputs collapsed without removing their stateful panel', () => {
+    const markup = renderToStaticMarkup(<SubjectDisclosure status="未设置 · 可选"><input value="preserved" readOnly /></SubjectDisclosure>)
+    expect(markup).toContain('<details class="studio-subject-disclosure">')
+    expect(markup).toContain('<summary>')
+    expect(markup).toContain('未设置 · 可选')
+    expect(markup).toContain('value="preserved"')
+  })
+  it('opens seeded subject inputs and presents their actual summary', () => {
+    const markup = renderToStaticMarkup(<SubjectDisclosure status="2 张参考图" initiallyOpen><div>主体输入</div></SubjectDisclosure>)
+    expect(markup).toContain('open=""')
+    expect(markup).toContain('2 张参考图')
+  })
   it('disables a busy button and names icon controls', () => {
     expect(renderToStaticMarkup(<Button busy>准备素材</Button>)).toContain('disabled=""')
     const markup = renderToStaticMarkup(<IconButton label="重置缩放">R</IconButton>)

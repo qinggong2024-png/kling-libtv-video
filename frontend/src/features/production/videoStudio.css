@@ -36,35 +36,48 @@
 .studio-task-detail .drawer-content { padding: 12px; }
 .studio-task-detail .drawer-footer { position: static; flex-wrap: wrap; }
 .studio-icon-button { width: 40px; height: 40px; flex: 0 0 40px; padding: 0; }
-.home-view.video-studio { width: min(1600px, calc(100% - 40px)); color: var(--studio-text); }
+.app-shell:has(.video-studio:not([hidden])) { background: var(--background, #f7f8fc); }
+.home-view.video-studio { width: min(1440px, calc(100% - 48px)); color: var(--studio-text); }
 .video-studio .home-title { min-height: 72px; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .studio-kicker { display: block; margin-bottom: 4px; color: var(--studio-muted); font-size: 12px; font-weight: 600; letter-spacing: 0; }
 .video-studio .home-title h1 { margin: 0; font-size: 24px; }
 .video-studio .home-title-actions { padding: 0; }
 .composer.composer--studio { overflow: visible; margin-inline: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.composer--studio .composer-workspace { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; column-gap: 32px; }
+.composer--studio .composer-workspace { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
 .composer--studio .composer-inputs,
 .composer--studio .upload-panels { display: contents; }
-.composer--studio .composer-asset-lane { display: grid; gap: 16px; grid-column: 1; grid-row: 1; min-width: 0; padding-right: 32px; border-right: 1px solid var(--border); }
-.composer--studio .composer-production-lane { display: grid; grid-column: 2; grid-row: 1; min-width: 0; }
-.composer--studio .upload-panel--storyboard { grid-column: 1; grid-row: 1; min-width: 0; border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; }
+.composer--studio .composer-asset-lane { display: grid; gap: 16px; grid-column: 1; grid-row: 1; min-width: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.composer--studio .composer-production-lane { display: grid; grid-column: 1; grid-row: 2; min-width: 0; padding-top: 24px; }
+.composer--studio .upload-panel--storyboard { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: center; gap: 12px 24px; grid-column: 1; grid-row: 1; min-width: 0; border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; }
 .composer--studio .upload-panel--storyboard:hover { box-shadow: none; }
-.composer--studio .upload-panel-head { padding: 0; min-height: 48px; align-items: start; gap: 8px; }
+.composer--studio .upload-panel-head { padding: 0; min-height: 32px; align-items: center; gap: 8px; margin: 0; }
+.composer--studio .upload-panel-head > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+.composer--studio .upload-panel-head h2 { margin: 0; }
 .composer--studio .upload-panel-head h2 { font-size: 15px; }
 .composer--studio .upload-panel-head small { display: block; font-size: 12px; color: var(--studio-muted); }
-.composer--studio .studio-upload-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.composer--studio .upload-zone { width: 100%; margin: 0; min-height: 88px; padding: 12px; gap: 8px; border-radius: 8px; background: var(--surface); }
-.composer--studio .upload-panel--has-items .upload-zone { flex: 1 1 200px; min-height: 44px; margin: 0; }
+.composer--studio .studio-upload-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px 16px; }
+.composer--studio .upload-panel--storyboard .upload-zone { width: auto; flex: 0 0 auto; margin: 0; min-height: 56px; padding: 8px 12px; gap: 8px; border-radius: 8px; background: var(--surface); justify-content: flex-start; }
+.composer--studio .upload-panel--has-items .upload-zone { flex: 0 1 240px; min-height: 44px; margin: 0; }
 .composer--studio .upload-zone strong { font-size: 13px; }
 .composer--studio .upload-icon { width: 32px; height: 32px; background: transparent; }
-.composer--studio .upload-batch-button { min-height: 44px; font-size: 12px; text-align: left; }
+.composer--studio .upload-batch-button { min-height: 44px; font-size: 12px; text-align: left; white-space: nowrap; flex-shrink: 0; }
+.composer--studio .upload-panel--storyboard > .studio-storyboard { grid-column: 1 / -1; margin: 0; }
+.composer--studio .upload-panel--storyboard > .batch-groups,
+.composer--studio .upload-panel--storyboard > .studio-batch-mode { grid-column: 1 / -1; }
 .composer--studio .materials-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 0; }
 .composer--studio .material-preview { aspect-ratio: 3 / 4; height: auto; background: var(--surface); }
 .composer--studio .material-preview img { object-fit: contain; }
 .composer--studio .material-remove { opacity: 1; }
 .composer--studio .studio-asset-panel { min-width: 0; }
-.composer--studio .subject-input-panel { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
-.composer--studio .subject-input-panel__header { height: auto; min-height: 64px; padding: 16px 0 8px; gap: 8px; }
+.studio-subject-disclosure { min-width: 0; }
+.studio-subject-disclosure > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 650; }
+.studio-subject-disclosure > summary::-webkit-details-marker { display: none; }
+.studio-subject-disclosure > summary small { color: var(--studio-muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.studio-subject-disclosure > summary > svg:last-child { margin-left: auto; flex-shrink: 0; transition: transform .15s ease; }
+.studio-subject-disclosure[open] > summary > svg:last-child { transform: rotate(180deg); }
+.studio-subject-disclosure > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.composer--studio .subject-input-panel { border: 0; border-radius: 0; background: transparent; }
+.composer--studio .subject-input-panel__header { height: auto; min-height: 48px; padding: 8px 0; gap: 8px; }
 .composer--studio .subject-input-panel__header h2 { font-size: 15px; }
 .composer--studio .subject-input-panel__eyebrow { color: var(--studio-muted); letter-spacing: 0; }
 .composer--studio .subject-input-panel__header-actions { padding-top: 0; }
@@ -77,7 +90,7 @@
 .composer--studio .subject-upload-tile.is-required { border-color: var(--line-strong); background: var(--surface); }
 .composer--studio .subject-upload-tile:focus-within { outline-color: var(--primary); }
 .composer--studio .subject-input-panel__header-actions .is-selected { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
-.composer--studio .subject-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.composer--studio .subject-history-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 128px)); }
 .studio-canvas { display: grid; grid-template-rows: auto minmax(280px, 360px) auto; min-width: 0; overflow: hidden; border-radius: 20px; background: var(--canvas); color: var(--studio-canvas-text); }
 .studio-canvas header,
 .studio-canvas footer { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; }
@@ -103,7 +116,7 @@
 .studio-source-inspector .studio-canvas { border-radius: 0; grid-template-rows: auto minmax(120px, min(360px, 45dvh)) auto; }
 .studio-source-inspector .studio-canvas footer { flex-wrap: wrap; }
 .studio-storyboard { min-width: 0; margin-top: 16px; }
-.studio-storyboard__track { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 12px; }
+.studio-storyboard__track { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 128px)); gap: 12px; }
 .studio-shot { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .studio-shot.is-selected { border-color: var(--primary); }
 .composer--studio .studio-shot .material-card { border: 0; border-radius: 0; box-shadow: none; }
@@ -117,7 +130,9 @@
 .studio-asset-card strong { display: block; margin: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .studio-shot-actions { display: flex; justify-content: center; gap: 8px; border-top: 1px solid var(--border); }
 .studio-shot-actions .studio-icon-button { width: 40px; min-height: 36px; height: 36px; }
-.composer--studio .generation-workflow { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 24px; padding: 0; min-width: 0; }
+.composer--studio .generation-workflow { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); align-items: start; gap: 16px 32px; padding: 0; min-width: 0; }
+.composer--studio .generation-workflow-heading { grid-column: 1 / -1; }
+.composer--studio .studio-template-selector { grid-column: 1; }
 .studio-template-selector { display: grid; gap: 8px; min-width: 0; }
 .studio-template-selector > label { font-size: 14px; font-weight: 700; }
 .studio-template-controls { display: flex; min-width: 0; align-items: center; gap: 8px; }
@@ -139,7 +154,7 @@
 .studio-recipe p { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 14px; }
 .studio-recipe__source { margin: 0; font-size: 12px; }
 .composer--studio .generation-workflow-heading { min-height: 32px; padding: 0; align-items: flex-start; }
-.composer--studio .generation-routes { display: flex; flex-wrap: wrap; gap: 8px; }
+.composer--studio .generation-routes { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 2; }
 .composer--studio .generation-route { display: contents; }
 .composer--studio .generation-route-selector { flex: 1 1 120px; order: 0; }
 .composer--studio .generation-route-body { flex: 1 0 100%; order: 1; min-width: 0; }
@@ -150,15 +165,17 @@
 .composer--studio .generation-route.is-inactive .generation-route-body { display: none; }
 .composer--studio .catalog-field select { min-width: 0; width: 100%; font-size: 13px; text-overflow: ellipsis; }
 .composer--studio .custom-prompt-field { min-width: 0; }
-.composer--studio .custom-prompt-field textarea { min-height: 140px; }
+.composer--studio .custom-prompt-field textarea { min-height: 112px; }
 .composer--studio .advanced-settings { border-top: 1px solid var(--border); margin-top: 12px; }
-.composer--studio .composer-submit-row { grid-column: 1 / -1; grid-row: 2; margin-top: 24px; padding: 16px 0; gap: 16px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
+.composer--studio .composer-submit-row { grid-column: 1; grid-row: 3; margin-top: 24px; padding: 16px 0; gap: 16px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
 .composer--studio .composer-submit-row { position: static; box-shadow: none; backdrop-filter: none; border-radius: 0; }
 .composer--studio .composer-result-count { flex: 0 0 180px; }
 .composer--studio .composer-submit-summary,
 .composer--studio .composer-submit-status { min-width: 200px; }
 .composer--studio .composer-submit-summary small { display: block; white-space: normal; }
-.composer--studio .composer-feedback { grid-column: 1 / -1; grid-row: 3; padding: 8px 0 0; min-width: 0; }
+.composer--studio .composer-feedback { grid-column: 1; grid-row: 4; padding: 8px 0 0; min-width: 0; }
+.composer--studio .primary-button { background: var(--primary); box-shadow: none; }
+.composer--studio .primary-button:hover:not(:disabled) { background: var(--primary-hover); box-shadow: none; }
 .studio-batch-mode { display: grid; gap: 8px; padding: 8px 0; font-size: 12px; }
 .studio-batch-mode > span { overflow-wrap: anywhere; }
 .video-studio .home-section { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
@@ -177,9 +194,8 @@
 .video-studio .empty-state { min-height: 120px; border: 0; background: transparent; }
 
 @media (max-width: 1279px) {
-  .composer--studio .composer-workspace { column-gap: 24px; }
-  .composer--studio .composer-asset-lane { padding-right: 24px; }
-  .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .composer--studio .generation-workflow { grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); column-gap: 24px; }
+  .composer--studio .upload-panel-head > div { display: grid; gap: 4px; }
   .studio-canvas footer { flex-wrap: wrap; }
 }
 @media (max-width: 799px) {
@@ -188,9 +204,15 @@
   .video-studio .home-title { flex-direction: row; align-items: center; min-height: 64px; margin-bottom: 16px; text-align: left; }
   .video-studio .home-title h1 { font-size: 20px; }
   .video-studio .home-title-actions { width: auto; }
-  .composer--studio .composer-workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .composer--studio .composer-asset-lane { grid-column: 1; grid-row: 1; padding: 0; border: 0; }
-  .composer--studio .composer-production-lane { grid-column: 1; grid-row: 2; }
+  .composer--studio .composer-workspace { grid-template-columns: minmax(0, 1fr); }
+  .composer--studio .upload-panel--storyboard { grid-template-columns: minmax(0, 1fr); }
+  .composer--studio .upload-panel-head > div { display: flex; gap: 8px; }
+  .composer--studio .studio-upload-actions { flex-wrap: wrap; gap: 8px; }
+  .composer--studio .upload-panel--storyboard .upload-zone { flex: 1 1 200px; }
+  .composer--studio .composer-asset-lane { padding-bottom: 16px; }
+  .composer--studio .generation-workflow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .composer--studio .studio-template-selector,
+  .composer--studio .generation-routes { grid-column: 1; }
   .composer--studio .composer-feedback { grid-column: 1; grid-row: 4; padding: 0; }
   .composer--studio .materials-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 128px)); }
@@ -217,5 +239,6 @@
   .composer--studio .generation-workflow { gap: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .studio-button { transition: none; }
+  .studio-button,
+  .studio-subject-disclosure > summary > svg:last-child { transition: none; }
 }

@@ -46,7 +46,7 @@ fixture.state.video = Buffer.from(videoBytes)
 await writeFile(resolve(reportDir, 'fixture-result.webm'), fixture.state.video)
 await mediaPage.close()
 const report = { scope: 'offline-video-studio-not-live-provider', capturedAt: new Date().toISOString(), sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), browserVersion: browser.version(), cases: [], externalRequests: [], sourceHashes: {} }
-for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/MaterialCard.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/shared/components/studio/CreativeCanvas.tsx', 'frontend/src/shared/components/studio/TemplateSelector.tsx', 'frontend/src/shared/components/studio/Storyboard.tsx', 'frontend/src/shared/components/studio/SourceInspector.tsx', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
+for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/MaterialCard.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/shared/components/studio/CreativeCanvas.tsx', 'frontend/src/shared/components/studio/TemplateSelector.tsx', 'frontend/src/shared/components/studio/SubjectDisclosure.tsx', 'frontend/src/shared/components/studio/Storyboard.tsx', 'frontend/src/shared/components/studio/SourceInspector.tsx', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
 }
 
@@ -77,6 +77,11 @@ async function run(width, mode = 'success') {
     assert.equal(await page.locator('.composer .studio-canvas').count(), 0, 'No permanent empty source canvas')
     assert.equal(await page.locator('.composer .studio-storyboard').count(), 0, 'Empty uploader reserves no sequence area')
     assert.equal(await page.getByRole('heading', { name: '分镜序列', exact: true }).count(), 0)
+    const subjectDisclosure = page.locator('.studio-subject-disclosure')
+    const subjectSummary = subjectDisclosure.locator('summary')
+    assert.equal(await subjectDisclosure.getAttribute('open'), null, 'Optional subject inputs start collapsed')
+    assert(!(await page.getByRole('button', { name: '历史主体', exact: true }).isVisible()))
+    await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '服装多镜头展示', exact: true }).waitFor({ state: 'attached' })
     assert(await page.locator('.composer-submit-summary').evaluate((el) => el.getBoundingClientRect().width >= 200), 'Empty-state payment summary must not collapse')
     assert(await page.locator('.composer-submit-summary small').isVisible(), 'Payment consent stays visible')
     await page.screenshot({ path: resolve(reportDir, `empty-${width}.png`), fullPage: true })
@@ -132,8 +137,18 @@ async function run(width, mode = 'success') {
     await page.getByRole('button', { name: '查看配方', exact: true }).click()
     await page.getByRole('dialog').getByText('保持完整服装轮廓可见', { exact: true }).waitFor()
     await page.keyboard.press('Escape')
+    await subjectSummary.focus()
+    await page.keyboard.press('Enter')
+    assert(await page.getByRole('button', { name: '历史主体', exact: true }).isVisible())
     await page.getByRole('button', { name: '历史主体', exact: true }).click()
     await page.getByRole('button', { name: '人物参考', exact: true }).click()
+    await subjectSummary.click()
+    assert.equal(await subjectDisclosure.getAttribute('open'), null)
+    assert((await subjectSummary.innerText()).includes('人物参考'), 'Collapsed disclosure presents selected subject')
+    await subjectSummary.click()
+    assert.equal(await page.getByRole('button', { name: '人物参考', exact: true }).getAttribute('aria-pressed'), 'true', 'Collapsing preserves selected subject')
+    await subjectSummary.click()
+    result.subjectDisclosureKeepsSelection = true
     await page.getByRole('radio', { name: '自定义提示词', exact: true }).click()
     await page.getByPlaceholder('输入画面动作、镜头和节奏要求').fill('保持服装轮廓，缓慢转身，镜头稳定。')
     await page.evaluate(() => scrollTo(0, 0))
@@ -151,6 +166,8 @@ async function run(width, mode = 'success') {
         assets: rect('.composer-asset-lane'),
         production: rect('.composer-production-lane'),
         storyboard: rect('.studio-storyboard'),
+        subject: rect('.studio-subject-disclosure'),
+        results: rect('.studio-result-gallery'),
         submit: rect('.composer-submit-row > button'),
         submissionSummary: rect('.composer-submit-summary'),
         sourceRepresentations: document.querySelectorAll('.composer .material-preview img').length,
@@ -170,9 +187,13 @@ async function run(width, mode = 'success') {
     assert(result.configuredLayout.submissionSummary.width >= 200, 'Payment summary has usable width')
     assert(await page.locator('.composer-submit-summary small').isVisible())
     assert(result.configuredLayout.submit.y >= Math.max(result.configuredLayout.assets.bottom, result.configuredLayout.production.bottom), 'Submission follows both preparation areas')
+    assert(result.configuredLayout.production.y >= result.configuredLayout.assets.bottom, 'Creative configuration follows the material band, not a parallel form column')
+    assert(Math.abs(result.configuredLayout.assets.width - result.configuredLayout.production.width) < 1, 'Material and creative bands span the same work area')
+    assert(result.configuredLayout.subject.height <= 48, 'Collapsed subject does not reserve empty image slots')
+    assert(result.configuredLayout.storyboard.height <= 190, 'Two-shot upload area remains compact')
     if (width >= 1280) {
-      assert(result.configuredLayout.assets.width >= result.configuredLayout.production.width, 'Uploaded assets have usable sorting width')
       assert(result.configuredLayout.submit.bottom <= result.configuredLayout.viewport.height, 'Desktop submit visible without scrolling')
+      assert(result.configuredLayout.results.y < result.configuredLayout.viewport.height, 'Result workspace begins in the desktop viewport')
     }
     await page.screenshot({ path: resolve(reportDir, `configured-${mode}-${width}.png`), fullPage: true })
     await page.evaluate(() => {
@@ -298,7 +319,7 @@ async function runGuard(mode, width = 390) {
         rows: new Set([...el.children].map((child) => child.getBoundingClientRect().top)).size,
       }))
       assert(grid.scrollWidth <= grid.clientWidth, 'Seven shots must wrap without a scrolling strip')
-      assert(grid.rows > 1, 'Seven shots use multiple rows')
+      if (width < 800) assert(grid.rows > 1, 'Seven shots wrap on narrow screens')
       await page.getByRole('button', { name: '前移分镜 7', exact: true }).click()
       assert.equal(await page.locator('.studio-shot__name').nth(5).innerText(), 'shot-7.png')
       await page.evaluate(() => scrollTo(0, 0))
@@ -324,7 +345,7 @@ async function runGuard(mode, width = 390) {
         assert(await generate.isDisabled())
         assert.equal(creates().length, 0)
         await page.getByRole('button', { name: '退出批量，编辑当前组', exact: true }).click()
-        await generate.waitFor({ state: 'visible' })
+        await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
         assert(await generate.isEnabled())
       } else {
         await generate.click()
