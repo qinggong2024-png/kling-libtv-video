@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Film } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import type { Material } from '../../../features/production/productionTypes'
 import { MaterialCard } from '../../../features/production/MaterialCard'
 import { IconButton } from '../ui/Button'
@@ -31,9 +31,8 @@ export function Storyboard({ materials, selectedId, disabled = false, onSelect, 
   onDropAt: (event: React.DragEvent, target: number) => void
   onPreview: (material: Material, index: number) => void
 }) {
-  return <section className="studio-storyboard" aria-label="分镜序列">
-    <header><h2><Film size={16} aria-hidden="true" />分镜序列</h2><span>{materials.length} 张</span></header>
-    {materials.length ? <div className="studio-storyboard__track" aria-label="分镜图排序列表">{materials.map((material, index) => <ShotCard key={material.id} material={material} index={index} selected={material.id === selectedId} disabled={disabled} canMoveForward={index < materials.length - 1} onPreview={() => { onSelect(material.id); onPreview(material, index) }} onRemove={() => onRemove(material.id)} onDropAt={onDropAt} onMove={(offset) => onMove(material.id, offset)} />)}</div>
-      : <div className="studio-storyboard__empty">暂无分镜</div>}
-  </section>
+  if (!materials.length) return null
+  return <div className="studio-storyboard" role="group" aria-label="分镜图排序列表">
+    <div className="studio-storyboard__track">{materials.map((material, index) => <ShotCard key={material.id} material={material} index={index} selected={material.id === selectedId} disabled={disabled} canMoveForward={index < materials.length - 1} onPreview={() => { onSelect(material.id); onPreview(material, index) }} onRemove={() => onRemove(material.id)} onDropAt={onDropAt} onMove={(offset) => onMove(material.id, offset)} />)}</div>
+  </div>
 }

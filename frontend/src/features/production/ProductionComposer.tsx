@@ -415,9 +415,12 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
         }} onDrop={(event) => { if (!formLocked && !batchMode) handleDrop(event, storyboards.length) }}>
           <input ref={storyboardInputRef} hidden type="file" multiple disabled={formLocked || batchMode} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
           <input ref={batchInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addBatchFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
-          <div className="upload-panel-head"><div><h2>{studio ? '源素材' : '有序分镜'}</h2><small>至少 1 张，最多 {storyboardLimit} 张</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
+          <div className="upload-panel-head"><div><h2>{studio ? '分镜素材' : '有序分镜'}</h2><small>至少 1 张，最多 {storyboardLimit} 张</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
+          <div className={studio ? 'studio-upload-actions' : undefined}>
           <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
           <button type="button" className="text-button upload-batch-button" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />按命名批量导入产品图与分镜</button>
+          </div>
+          {studio ? <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} onRemove={remove} onDropAt={handleDrop} onPreview={(material, index) => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} /> : null}
           {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.productFront ? '正面已识别' : '缺正面'} · {group.productBack ? '背面已识别' : '无背面'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
           {batchMode ? <div className="studio-batch-mode"><span>当前预览：{batchGroups[0]?.key} · 批量 {batchGroups.length} 组</span><Button variant="ghost" onClick={() => setBatchGroups([])}>退出批量，编辑当前组</Button></div> : null}
           {!studio && storyboards.length ? <div className="materials-grid" aria-label="分镜图排序列表" inert={batchMode}>{storyboards.map((material, index) => <MaterialCard key={material.id} material={material} bucket="storyboard" index={index} onRemove={() => remove(material.id)} onDropAt={(event, target) => handleDrop(event, target)} onPreview={() => { setSelectedMaterialId(material.id); setPreview({ file: material.file, label: `分镜图 ${index + 1}` }) }} />)}</div> : null}
@@ -442,8 +445,9 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
         </div>
         <div className="composer-production-lane">
         <section className="generation-workflow" aria-labelledby="generation-workflow-title">
-          <TemplateSelector templates={templates} value={templateId} onChange={setTemplateId} disabled={formLocked} loading={catalogLoading} />
-          <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">创意配置</h2></div></div>
+          {studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">生成配置</h2></div></div> : null}
+          <TemplateSelector templates={templates} value={templateId} onChange={setTemplateId} disabled={formLocked} loading={catalogLoading} compact={studio} />
+          {!studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">创意配置</h2></div></div> : null}
           <div className="generation-routes" role="radiogroup" aria-label="生成方式">
             <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
               <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
@@ -471,7 +475,6 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
             </article>
           </div>
         </section>
-        {studio ? <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} onRemove={remove} onDropAt={handleDrop} onPreview={(material, index) => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} /> : null}
         </div>
       </div>
       </div>

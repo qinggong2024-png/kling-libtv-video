@@ -65,9 +65,21 @@ describe('studio shared components', () => {
   })
   it('does not reserve a large empty source preview', () => {
     const markup = renderToStaticMarkup(<Storyboard materials={[]} onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
-    expect(markup).toContain('暂无分镜')
-    expect(markup).not.toContain('studio-canvas')
-    expect(markup).not.toContain('material-preview')
+    expect(markup).toBe('')
+  })
+  it('groups uploaded shots without a separate sequence heading', () => {
+    const markup = renderToStaticMarkup(<Storyboard materials={[{ id: 'a', file: { name: 'a.png' } as File }]} onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
+    expect(markup).toContain('aria-label="分镜图排序列表"')
+    expect(markup).not.toContain('<h2')
+    expect(markup).not.toContain('分镜序列')
+  })
+  it('keeps a compact template summary without repeating the selected name', () => {
+    const markup = renderToStaticMarkup(<TemplateSelector templates={[template]} value={template.id} compact onChange={() => {}} />)
+    expect(markup).toContain('查看配方')
+    expect(markup).toContain('9:16')
+    expect(markup).toContain('1–7 张分镜')
+    expect(markup).toContain('可用')
+    expect(markup).not.toContain('studio-template-card')
   })
   it('renders actual task uncertainty rather than claiming completion', () => {
     const task: Task = {

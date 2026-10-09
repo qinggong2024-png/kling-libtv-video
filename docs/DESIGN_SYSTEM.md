@@ -134,16 +134,21 @@ type StudioTemplate = {
 
 ```text
 VideoStudio
-├── AssetPanel（紧凑输入侧栏）
-├── ProductionArea
-│   ├── TemplateSelector + CreativePanel
-│   ├── Storyboard（唯一源图缩略序列）
-│   └── GenerationPanel（时长 / 数量 / 付费提交）
+├── PreparationWorkspace
+│   ├── AssetPanel
+│   │   ├── Upload + Storyboard（上传区内排序 / 删除 / 检查）
+│   │   └── SubjectInput（可选一致性主体）
+│   └── GenerationConfiguration
+│       ├── TemplateSelector（紧凑摘要 / 按需配方）
+│       └── CreativePanel（生成方式 / 意图 / 高级折叠）
+├── GenerationPanel（两区之后：时长 / 数量 / 付费提交）
 ├── SourceInspector（按需缩放 / 大图）
 └── ResultGallery
 ```
 
-页面形成“输入 → 模板/创意 → 分镜 → 提交 → 阶段 → 结果”的连续工作区。静态源图预览是支线，不是必经步骤；没有编辑能力时不设置永久大画布。具体依据和可测验收见 `VIDEO_STUDIO_LAYOUT_REVIEW_20261008.md`。
+页面形成“上传并整理素材 → 生成配置 → 提交 → 阶段 → 结果”的连续工作区。桌面两区并列，移动端按 DOM 纵向排列。分镜与上传同处一地，每张源图仅出现一次；空状态不设置独立序列占位，七张图使用换行网格。两区用留白和分隔线组织，不套浮动面板卡片；提交横跨两区之后，不插在其中一栏。
+
+模板名称不再在选择器下方重复展示，默认仅保留真实状态、画幅及素材数量限制，完整配方使用 Drawer。静态源图预览是支线，不是必经步骤；没有编辑能力时不设置永久大画布。当前依据和可测验收见 `VIDEO_STUDIO_LAYOUT_REVIEW_20261009.md`；20261008 方案已被本轮修订替代，但保留历史证据。
 
 ### Image Studio
 

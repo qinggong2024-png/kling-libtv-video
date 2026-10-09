@@ -42,16 +42,19 @@
 .video-studio .home-title h1 { margin: 0; font-size: 24px; }
 .video-studio .home-title-actions { padding: 0; }
 .composer.composer--studio { overflow: visible; margin-inline: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.composer--studio .composer-workspace { display: grid; grid-template-columns: 288px minmax(0, 1fr); align-items: start; column-gap: 32px; }
+.composer--studio .composer-workspace { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; column-gap: 32px; }
 .composer--studio .composer-inputs,
 .composer--studio .upload-panels { display: contents; }
-.composer--studio .composer-asset-lane { display: grid; gap: 16px; grid-column: 1; grid-row: 1 / 4; min-width: 0; padding-right: 24px; border-right: 1px solid var(--border); }
-.composer--studio .composer-production-lane { display: grid; gap: 24px; grid-column: 2; grid-row: 1; min-width: 0; }
-.composer--studio .upload-panel--storyboard { grid-column: 1; grid-row: 1; min-width: 0; border: 0; border-radius: 0; padding: 0; background: transparent; }
+.composer--studio .composer-asset-lane { display: grid; gap: 16px; grid-column: 1; grid-row: 1; min-width: 0; padding-right: 32px; border-right: 1px solid var(--border); }
+.composer--studio .composer-production-lane { display: grid; grid-column: 2; grid-row: 1; min-width: 0; }
+.composer--studio .upload-panel--storyboard { grid-column: 1; grid-row: 1; min-width: 0; border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; }
+.composer--studio .upload-panel--storyboard:hover { box-shadow: none; }
 .composer--studio .upload-panel-head { padding: 0; min-height: 48px; align-items: start; gap: 8px; }
 .composer--studio .upload-panel-head h2 { font-size: 15px; }
 .composer--studio .upload-panel-head small { display: block; font-size: 12px; color: var(--studio-muted); }
-.composer--studio .upload-zone { margin: 8px 0 0; min-height: 72px; padding: 12px; gap: 8px; border-radius: 8px; background: var(--surface); }
+.composer--studio .studio-upload-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.composer--studio .upload-zone { width: 100%; margin: 0; min-height: 88px; padding: 12px; gap: 8px; border-radius: 8px; background: var(--surface); }
+.composer--studio .upload-panel--has-items .upload-zone { flex: 1 1 200px; min-height: 44px; margin: 0; }
 .composer--studio .upload-zone strong { font-size: 13px; }
 .composer--studio .upload-icon { width: 32px; height: 32px; background: transparent; }
 .composer--studio .upload-batch-button { min-height: 44px; font-size: 12px; text-align: left; }
@@ -68,13 +71,13 @@
 .composer--studio .subject-input-panel__header-actions button { padding: 0 8px; min-height: 36px; }
 .composer--studio .subject-input-panel__upload,
 .composer--studio .subject-input-panel__history { padding: 8px 0; }
-.composer--studio .subject-upload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.composer--studio .subject-upload-tile--details { grid-column: 1 / -1; }
-.composer--studio .subject-upload-tile.subject-upload-tile--details { aspect-ratio: 3 / 1; min-height: 88px; }
+.composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 128px)); gap: 8px; }
+.composer--studio .subject-upload-tile--details { grid-column: auto; }
+.composer--studio .subject-upload-tile.subject-upload-tile--details { aspect-ratio: 1; min-height: 0; }
 .composer--studio .subject-upload-tile.is-required { border-color: var(--line-strong); background: var(--surface); }
 .composer--studio .subject-upload-tile:focus-within { outline-color: var(--primary); }
 .composer--studio .subject-input-panel__header-actions .is-selected { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
-.composer--studio .subject-history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.composer--studio .subject-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .studio-canvas { display: grid; grid-template-rows: auto minmax(280px, 360px) auto; min-width: 0; overflow: hidden; border-radius: 20px; background: var(--canvas); color: var(--studio-canvas-text); }
 .studio-canvas header,
 .studio-canvas footer { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 12px; }
@@ -99,12 +102,8 @@
 .studio-source-inspector h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: 15px; }
 .studio-source-inspector .studio-canvas { border-radius: 0; grid-template-rows: auto minmax(120px, min(360px, 45dvh)) auto; }
 .studio-source-inspector .studio-canvas footer { flex-wrap: wrap; }
-.studio-storyboard { min-width: 0; border-top: 1px solid var(--border); padding-top: 16px; }
-.studio-storyboard header { display: flex; align-items: center; justify-content: space-between; min-height: 36px; margin-bottom: 8px; }
-.studio-storyboard h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; }
-.studio-storyboard header > span { color: var(--studio-muted); font-size: 12px; }
-.studio-storyboard__track { display: grid; grid-auto-flow: column; grid-auto-columns: 120px; overflow-x: auto; gap: 12px; padding: 4px; scrollbar-width: thin; }
-.studio-storyboard__empty { min-height: 48px; display: flex; align-items: center; color: var(--studio-muted); font-size: 13px; }
+.studio-storyboard { min-width: 0; margin-top: 16px; }
+.studio-storyboard__track { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 12px; }
 .studio-shot { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .studio-shot.is-selected { border-color: var(--primary); }
 .composer--studio .studio-shot .material-card { border: 0; border-radius: 0; box-shadow: none; }
@@ -118,11 +117,13 @@
 .studio-asset-card strong { display: block; margin: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .studio-shot-actions { display: flex; justify-content: center; gap: 8px; border-top: 1px solid var(--border); }
 .studio-shot-actions .studio-icon-button { width: 40px; min-height: 36px; height: 36px; }
-.composer--studio .generation-workflow { display: grid; grid-template-columns: minmax(200px, .9fr) minmax(240px, 1.1fr); grid-template-rows: auto 1fr; align-items: start; gap: 8px 24px; padding: 0; min-width: 0; }
-.composer--studio .studio-template-selector { grid-column: 1; grid-row: 1 / 3; }
+.composer--studio .generation-workflow { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 24px; padding: 0; min-width: 0; }
 .studio-template-selector { display: grid; gap: 8px; min-width: 0; }
 .studio-template-selector > label { font-size: 14px; font-weight: 700; }
-.studio-template-selector > select { min-height: 40px; min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.studio-template-controls { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.studio-template-controls > select { flex: 1; min-height: 40px; min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.studio-template-controls > button { flex: 0 0 auto; }
+.studio-template-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 28px; color: var(--studio-muted); font-size: 12px; }
 .studio-template-card { border-bottom: 1px solid var(--border); padding: 12px 0; }
 .studio-template-card__title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .studio-template-card__title > strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -137,8 +138,8 @@
 .studio-recipe h3 { font-size: 16px; }
 .studio-recipe p { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 14px; }
 .studio-recipe__source { margin: 0; font-size: 12px; }
-.composer--studio .generation-workflow-heading { grid-column: 2; grid-row: 1; min-height: 0; padding: 0; }
-.composer--studio .generation-routes { grid-column: 2; grid-row: 2; display: flex; flex-wrap: wrap; gap: 8px; }
+.composer--studio .generation-workflow-heading { min-height: 32px; padding: 0; align-items: flex-start; }
+.composer--studio .generation-routes { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer--studio .generation-route { display: contents; }
 .composer--studio .generation-route-selector { flex: 1 1 120px; order: 0; }
 .composer--studio .generation-route-body { flex: 1 0 100%; order: 1; min-width: 0; }
@@ -151,13 +152,13 @@
 .composer--studio .custom-prompt-field { min-width: 0; }
 .composer--studio .custom-prompt-field textarea { min-height: 140px; }
 .composer--studio .advanced-settings { border-top: 1px solid var(--border); margin-top: 12px; }
-.composer--studio .composer-submit-row { grid-column: 2; grid-row: 2; margin-top: 16px; padding: 16px 0; gap: 12px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
+.composer--studio .composer-submit-row { grid-column: 1 / -1; grid-row: 2; margin-top: 24px; padding: 16px 0; gap: 16px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
 .composer--studio .composer-submit-row { position: static; box-shadow: none; backdrop-filter: none; border-radius: 0; }
 .composer--studio .composer-result-count { flex: 0 0 180px; }
 .composer--studio .composer-submit-summary,
 .composer--studio .composer-submit-status { min-width: 200px; }
 .composer--studio .composer-submit-summary small { display: block; white-space: normal; }
-.composer--studio .composer-feedback { grid-column: 2; grid-row: 3; padding: 8px 0 0; min-width: 0; }
+.composer--studio .composer-feedback { grid-column: 1 / -1; grid-row: 3; padding: 8px 0 0; min-width: 0; }
 .studio-batch-mode { display: grid; gap: 8px; padding: 8px 0; font-size: 12px; }
 .studio-batch-mode > span { overflow-wrap: anywhere; }
 .video-studio .home-section { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
@@ -176,9 +177,9 @@
 .video-studio .empty-state { min-height: 120px; border: 0; background: transparent; }
 
 @media (max-width: 1279px) {
-  .composer--studio .composer-workspace { grid-template-columns: 248px minmax(0, 1fr); column-gap: 24px; }
-  .composer--studio .composer-asset-lane { padding-right: 16px; }
-  .composer--studio .generation-workflow { grid-template-columns: minmax(160px, .9fr) minmax(200px, 1.1fr); gap: 8px 16px; }
+  .composer--studio .composer-workspace { column-gap: 24px; }
+  .composer--studio .composer-asset-lane { padding-right: 24px; }
+  .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .studio-canvas footer { flex-wrap: wrap; }
 }
 @media (max-width: 799px) {
@@ -190,10 +191,9 @@
   .composer--studio .composer-workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .composer--studio .composer-asset-lane { grid-column: 1; grid-row: 1; padding: 0; border: 0; }
   .composer--studio .composer-production-lane { grid-column: 1; grid-row: 2; }
-  .composer--studio .generation-workflow { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 8px 16px; }
   .composer--studio .composer-feedback { grid-column: 1; grid-row: 4; padding: 0; }
   .composer--studio .materials-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 128px)); }
   .composer--studio .subject-upload-tile--details { grid-column: auto; }
   .composer--studio .composer-submit-row { grid-column: 1; grid-row: 3; margin: 0; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr); align-items: end; gap: 12px; padding: 16px 0; }
   .composer--studio .composer-submit-row > button { grid-column: 1 / -1; min-height: 48px; width: 100%; }
@@ -213,12 +213,8 @@
 }
 @media (max-width: 479px) {
   .video-studio .results-grid { grid-template-columns: minmax(0, 1fr); }
-  .composer--studio .subject-upload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .composer--studio .subject-upload-tile--details { grid-column: 1 / -1; }
-  .composer--studio .generation-workflow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .composer--studio .studio-template-selector,
-  .composer--studio .generation-workflow-heading,
-  .composer--studio .generation-routes { grid-column: 1; grid-row: auto; }
+  .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .composer--studio .generation-workflow { gap: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .studio-button { transition: none; }
