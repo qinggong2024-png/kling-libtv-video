@@ -2,6 +2,14 @@
 
 ## 2026-10-09
 
+### Sprint 1：纵向操作区
+
+- 将 Video Studio 改为纵向素材整理、创意配置、统一提交和结果；排序、删除和大图检查仍在上传处。
+- 可选主体默认收成一行，保留选择与摘要；标准表单保持原布局。修复桌面工具栏换行及局部按钮样式。
+- testing/main build、lint 和 240/236 项单元测试通过；各 13 项 Studio 流程通过。testing 最终追加 10 项 make 回归，main 最终 66 项全页面回归通过。
+- testing `2d462c6` → main `83a9729` scoped promotion 成功，保留生产接口差异。安全预览恢复，实际标签刷新核查；没有正式部署。
+- 依据与限制见 `VIDEO_STUDIO_BANDS_REVIEW_20261009.md`，验证见 `SPRINT_REPORT_VIDEO_STUDIO_BANDS_20261009.md`；停在 Checkpoint 1，效率与方向仍需人工验收。
+
 ### Sprint 1：上传区整理
 
 - 根据用户再次反馈合并上传、排序、删除和大图检查，不再单列分镜序列区。
