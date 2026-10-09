@@ -16,10 +16,19 @@
 
 ## 测试
 
-- testing 最终 build、lint 与 240 项单元测试通过；Studio 13 项、受影响 make 页面 10 项和 fixture/smoke 14 项通过。main 结果随后记录。
+- testing 最终 build、lint 与 240 项单元测试通过；Studio 13 项、受影响 make 页面 10 项和 fixture/smoke 14 项通过。
+- main 独立 build、lint 与 236 项单元测试通过；Studio 13 项、全页面离线回归 66 项通过。构建输出在项目外，未覆盖正式目录 dist。
 - 前轮 66 项离线页面通过，本轮修复后复测受影响 make 页面 10 项。
 - Studio 13 项，包含五宽度主流程、未知提交、模板恢复、批量和七图；证据在项目外 `E:/Codex/visualizations/2026/10/08/01a11aa7-388c-7c00-857f-b320ea54a013`。
 - 最终 testing 证据为 `bands-testing-delivery` 和 `bands-make-testing-delivery`。1440×900 两图+收起历史主体：提交按钮底部 826.25px，结果区起点 875.50px；1024px 结果起点 873.50px、390px 为 1218.50px，不声称所有宽度结果都在首屏。截图与源码 hash 保存在报告目录。
+- main 证据为 `bands-main-delivery`、`bands-pages-main` 与 `bands-main-build`。本地合成预览 5187 恢复，HTTP 200；实际用户标签刷新后已核查纵向布局和收起的主体，没有执行真实生成。
+
+## 同步与工作区
+
+- testing 源码提交 `2d462c6` 已局部推广为 main `83a9729`。
+- 主体组件合并冲突按生产接口解决；未把 testing 的 `onReloadElements`、目录重载状态或错误去重行为引入 main。生产 HomeView/ResultCard 原有差异保留。
+- 两工作区本轮源码均已提交；其他任务的视觉探索、报告及 Changelog 段落，以及用户 ZIP 保留在原处，不纳入本轮提交。
+- 文档补充同步完成后再次检查两工作区；源码同步不代表正式服务部署，不修改生产数据、环境变量或运行时产物。
 
 ## 发现问题
 
@@ -29,5 +38,5 @@
 
 ## 下一步
 
-- 完成保留生产差异的源码推广及独立验证；恢复本地合成预览。
+- 源码推广、独立验证和本地合成预览已完成；等待用户对布局方向作出判断。
 - 停在 Checkpoint 1，正式入口仍是 `http://192.168.30.126:5173/`。源码同步不代表部署。
