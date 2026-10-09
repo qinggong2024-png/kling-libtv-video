@@ -46,7 +46,7 @@ fixture.state.video = Buffer.from(videoBytes)
 await writeFile(resolve(reportDir, 'fixture-result.webm'), fixture.state.video)
 await mediaPage.close()
 const report = { scope: 'offline-video-studio-not-live-provider', capturedAt: new Date().toISOString(), sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), browserVersion: browser.version(), cases: [], externalRequests: [], sourceHashes: {} }
-for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/MaterialCard.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/shared/components/studio/CreativeCanvas.tsx', 'frontend/src/shared/components/studio/Storyboard.tsx', 'frontend/src/shared/components/studio/SourceInspector.tsx', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
+for (const file of ['frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/features/production/MaterialCard.tsx', 'frontend/src/features/production/videoStudio.css', 'frontend/src/shared/components/studio/CreativeCanvas.tsx', 'frontend/src/shared/components/studio/TemplateSelector.tsx', 'frontend/src/shared/components/studio/Storyboard.tsx', 'frontend/src/shared/components/studio/SourceInspector.tsx', 'frontend/src/features/task-center/HomeView.tsx', 'frontend/src/shared/components/Media.tsx', 'frontend/src/app/App.tsx', 'scripts/ui-video-studio-check.mjs', 'scripts/fixtures/video-studio-server.mjs']) {
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
 }
 
@@ -75,6 +75,8 @@ async function run(width, mode = 'success') {
     await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
     assert(await generate.isDisabled())
     assert.equal(await page.locator('.composer .studio-canvas').count(), 0, 'No permanent empty source canvas')
+    assert.equal(await page.locator('.composer .studio-storyboard').count(), 0, 'Empty uploader reserves no sequence area')
+    assert.equal(await page.getByRole('heading', { name: '分镜序列', exact: true }).count(), 0)
     assert(await page.locator('.composer-submit-summary').evaluate((el) => el.getBoundingClientRect().width >= 200), 'Empty-state payment summary must not collapse')
     assert(await page.locator('.composer-submit-summary small').isVisible(), 'Payment consent stays visible')
     await page.screenshot({ path: resolve(reportDir, `empty-${width}.png`), fullPage: true })
@@ -94,6 +96,8 @@ async function run(width, mode = 'success') {
     const files = [{ name: 'first.png', mimeType: 'image/png', buffer: png }, { name: 'second.png', mimeType: 'image/png', buffer: png }]
     await page.locator('.upload-panel input[type=file]').first().setInputFiles(files)
     await page.locator('.studio-storyboard .material-preview img').first().evaluate((img) => img.decode())
+    assert.equal(await page.locator('.upload-panel--storyboard .studio-shot').count(), 2, 'Sorting belongs to the uploader')
+    assert.equal(await page.locator('.composer-production-lane .studio-storyboard').count(), 0)
     await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
     assert.equal(await page.locator('.studio-shot__name').first().innerText(), 'second.png')
     // Reordering remains available by both pointer drag and keyboard controls.
@@ -165,9 +169,9 @@ async function run(width, mode = 'success') {
     assert(result.configuredLayout.resultCountsFit, 'All result-count options fit and remain touchable')
     assert(result.configuredLayout.submissionSummary.width >= 200, 'Payment summary has usable width')
     assert(await page.locator('.composer-submit-summary small').isVisible())
-    assert(result.configuredLayout.submit.y >= result.configuredLayout.storyboard.bottom, 'Submission follows storyboard')
+    assert(result.configuredLayout.submit.y >= Math.max(result.configuredLayout.assets.bottom, result.configuredLayout.production.bottom), 'Submission follows both preparation areas')
     if (width >= 1280) {
-      assert(result.configuredLayout.production.width > result.configuredLayout.assets.width * 2, 'Primary lane owns usable width')
+      assert(result.configuredLayout.assets.width >= result.configuredLayout.production.width, 'Uploaded assets have usable sorting width')
       assert(result.configuredLayout.submit.bottom <= result.configuredLayout.viewport.height, 'Desktop submit visible without scrolling')
     }
     await page.screenshot({ path: resolve(reportDir, `configured-${mode}-${width}.png`), fullPage: true })
@@ -239,10 +243,10 @@ async function run(width, mode = 'success') {
     const geometry = await page.evaluate(() => ({
       documentWidth: document.documentElement.scrollWidth,
       viewport: innerWidth,
-      storyboard: (() => { const rect = document.querySelector('.studio-storyboard').getBoundingClientRect(); return { width: rect.width, height: rect.height } })(),
+      uploader: (() => { const rect = document.querySelector('.upload-panel--storyboard').getBoundingClientRect(); return { width: rect.width, height: rect.height } })(),
     }))
     assert(geometry.documentWidth <= geometry.viewport, 'Page horizontal overflow')
-    assert(geometry.storyboard.width > 200, 'Storyboard collapsed')
+    assert(geometry.uploader.width > 200, 'Uploader collapsed')
     assert.deepEqual(errors, [])
     assert.deepEqual(fixture.state.unexpected, [])
     result.geometry = geometry
@@ -260,18 +264,18 @@ async function run(width, mode = 'success') {
   }
 }
 
-async function runGuard(mode) {
+async function runGuard(mode, width = 390) {
   fixture.state.mode = mode
   fixture.state.phase = 'QUEUED'
   fixture.state.tasks = []
   fixture.state.writes = []
   fixture.state.unexpected = []
   fixture.state.failAt = mode === 'batch-partial' ? 2 : null
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
+  const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
-  const result = { width: 390, mode, passed: false }
+  const result = { width, mode, passed: false }
   await context.route('**/*', (route) => {
     const url = new URL(route.request().url())
     if (url.origin === fixture.origin || ['blob:', 'data:'].includes(url.protocol)) return route.continue()
@@ -284,7 +288,27 @@ async function runGuard(mode) {
     await page.goto(`${fixture.origin}/studio/video`)
     await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
     const generate = page.getByRole('button', { name: '开始生成', exact: true })
-    if (mode.startsWith('batch')) {
+    if (mode === 'seven-shots') {
+      await page.locator('.upload-panel input[type=file]').first().setInputFiles(Array.from({ length: 7 }, (_, index) => file(`shot-${index + 1}.png`)))
+      const shots = page.locator('.upload-panel--storyboard .studio-shot')
+      assert.equal(await shots.count(), 7)
+      await shots.last().locator('img').evaluate((img) => img.decode())
+      const grid = await page.locator('.studio-storyboard__track').evaluate((el) => ({
+        scrollWidth: el.scrollWidth, clientWidth: el.clientWidth,
+        rows: new Set([...el.children].map((child) => child.getBoundingClientRect().top)).size,
+      }))
+      assert(grid.scrollWidth <= grid.clientWidth, 'Seven shots must wrap without a scrolling strip')
+      assert(grid.rows > 1, 'Seven shots use multiple rows')
+      await page.getByRole('button', { name: '前移分镜 7', exact: true }).click()
+      assert.equal(await page.locator('.studio-shot__name').nth(5).innerText(), 'shot-7.png')
+      await page.evaluate(() => scrollTo(0, 0))
+      await page.screenshot({ path: resolve(reportDir, `seven-uploaded-${width}.png`), fullPage: true })
+      await page.getByRole('button', { name: '删除图片 6', exact: true }).click()
+      assert.equal(await shots.count(), 6)
+      assert(!(await page.locator('.studio-shot__name').allTextContents()).includes('shot-7.png'))
+      assert.equal(creates().length, 0)
+      result.uploadGrid = grid
+    } else if (mode.startsWith('batch')) {
       const names = ['alpha_front.png', 'alpha_shot_1.png', 'beta_shot_1.png']
       if (mode !== 'batch-invalid') names.push('beta_front.png')
       await page.locator('.upload-panel input[type=file]').nth(1).setInputFiles(names.map(file))
@@ -352,21 +376,22 @@ async function runGuard(mode) {
     assert.deepEqual(fixture.state.unexpected, [])
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
     await page.evaluate(() => scrollTo(0, 0))
-    await page.screenshot({ path: resolve(reportDir, `${mode}-390.png`), fullPage: true })
+    await page.screenshot({ path: resolve(reportDir, `${mode}-${width}.png`), fullPage: true })
     result.passed = true
   } catch (error) {
     result.failure = error.message
-    await page.screenshot({ path: resolve(reportDir, `${mode}-390-failure.png`), fullPage: true }).catch(() => {})
+    await page.screenshot({ path: resolve(reportDir, `${mode}-${width}-failure.png`), fullPage: true }).catch(() => {})
   } finally {
     report.cases.push(result)
     await context.close()
-    console.log(`${result.passed ? 'PASS' : 'FAIL'} ${mode}-390${result.failure ? `: ${result.failure}` : ''}`)
+    console.log(`${result.passed ? 'PASS' : 'FAIL'} ${mode}-${width}${result.failure ? `: ${result.failure}` : ''}`)
   }
 }
 try {
   for (const width of [1440, 1102, 1024, 768, 390]) await run(width)
   await run(390, 'unknown')
   for (const mode of ['no-template', 'catalog-failure', 'batch-invalid', 'batch-partial', 'rejected']) await runGuard(mode)
+  for (const width of [1440, 390]) await runGuard('seven-shots', width)
   report.passed = report.cases.every((test) => test.passed) && report.externalRequests.length === 0
   await writeFile(resolve(reportDir, 'result.json'), JSON.stringify(report, null, 2))
   assert(report.passed, 'Video Studio fixture acceptance failed')
