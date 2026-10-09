@@ -24,9 +24,13 @@
 - 初轮全页面离线回归 66 项、图片审核检查、fixture/smoke 14 项通过。
 - 截图发现旧上传阴影后已修复；最终 build/lint/238 项单元测试、Studio 13 项及受影响 make 页面 10 项重新通过。
 - 最终 testing 两图 + 历史主体 + 自动化配置的提交按钮纵向坐标：1440px 为 694.11–742.11px，1102px 为 708.78–756.78px，1024px 为 697.91–745.91px；768px 为 1358.62–1406.62px，390px 为 1352.11–1400.11px。移动端需滚动，不声称全视口首屏提交。
-- main 推广与独立验证待完成，不将测试分支结果冒充生产分支结果。
+- main：独立 build、lint、234 项单元测试、Studio 13 项、全页面回归 66 项、图片审核检查及 fixture/smoke 14 项通过；构建输出在外部 `upload-main-build`，正式目录 dist 未覆盖。
 - 外部证据根目录：`E:/Codex/visualizations/2026/10/08/01a11aa7-388c-7c00-857f-b320ea54a013`。
 - testing 最终 Studio：`upload-layout-testing-final`；全页面：`upload-pages-testing`；最终受影响页：`upload-make-testing-final`；图片审核：`upload-review-testing`。Studio 报告绑定实际文件 hash，历史初轮截图保留。
+- main 证据：`upload-layout-main`、`upload-pages-main`、`upload-review-main`。源码推广 testing `f3a36a6` → main `d31bcde`，仅 13 个安全源码、测试和文档文件。
+- 推广后 12 个文件 Git blob 一致；ProductionComposer 仅保留既有主体重新读取接口与错误去重差异。main 的任务错误展示和 Required Hard Gates 文案未改动。
+- testing 工作区仅保留用户未跟踪 ZIP；main 工作区干净。未同步 .env、缓存、运行时状态、构建产物、媒体或 ZIP。
+- 安全预览进程已恢复在 5187，HTTP 返回 200，使用 main 源码和外部合成媒体，不连接真实后端。Codex 浏览器打开请求返回 queued；浏览器连接报告 auth token 不可用，未宣称已核查用户当前标签。隔离 Playwright 截图与流程已验证。
 
 ## 发现问题
 
@@ -37,6 +41,6 @@
 
 ## 下一步
 
-- 完成最终测试和保留生产差异的 scoped promotion，记录两分支验证结果。
-- 恢复本地安全预览供人工确认；源码推广不是正式服务部署。
+- 本轮源码已同步实际 main 并独立验证；记录更新随后作同范围文档推广。
+- 本地安全预览：`http://127.0.0.1:5187/studio/video`；只模拟生成。正式入口仍为 `http://192.168.30.126:5173/`，本轮没有部署或重启正式服务。
 - 继续停在 Checkpoint 1，未经方向确认不扩展其余三页。
