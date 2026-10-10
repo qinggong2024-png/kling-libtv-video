@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputCard } from './ImageCenter'
 import type { ImageGenerationOutput } from '../../imageCenterModel'
+import { ImageStudio } from '../image-studio'
 
 const output: ImageGenerationOutput = {
   id: 'output-1', kind: 'fusion', view: 'front', label: '正面结果',
@@ -9,6 +10,10 @@ const output: ImageGenerationOutput = {
 }
 
 describe('image review controls', () => {
+  it('keeps ImageCenter as a compatibility export for the extracted ImageStudio', () => {
+    expect(ImageStudio).toBeTypeOf('function')
+  })
+
   const pendingOutput = (id: string): ImageGenerationOutput => ({
     ...output,
     id,
