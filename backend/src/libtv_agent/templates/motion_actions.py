@@ -745,8 +745,12 @@ ACTION_FAMILIES: dict[str, str] = {
     "controlled_walk": "walking",
     "one_step_settle": "walking",
     "controlled_side_step": "walking",
+    "walk_in_stop": "walking",
     "walk_past_glance": "walking",
+    "diagonal_step_turn": "turning",
     "back_reveal": "back_reveal",
+    "back_walk_settle": "back_reveal",
+    "over_shoulder_back": "back_reveal",
     "front_back_quarter_return": "back_reveal",
     "controlled_gaze": "gaze_reaction",
     "graphic_glance_return": "gaze_reaction",
@@ -774,7 +778,13 @@ def action_family(action_id: str, *, library: Mapping[str, MotionAction] | None 
     explicit = ACTION_FAMILIES.get(canonical_id)
     if explicit:
         return explicit
-    action = (ACTION_LIBRARY if library is None else library).get(canonical_id)
+    actions = ACTION_LIBRARY if library is None else library
+    action = actions.get(canonical_id)
+    if action is not None and action.base_action_id is not None:
+        base_id = canonical_action_id(action.base_action_id)
+        base = actions.get(base_id)
+        if base is not None:
+            return ACTION_FAMILIES.get(base_id, base.category)
     return action.category if action is not None else "other"
 
 
