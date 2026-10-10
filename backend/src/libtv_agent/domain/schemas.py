@@ -41,6 +41,7 @@ class MotionActionWrite(ApiModel):
     library_scope: Literal["general", "brand"] = "general"
     brand_id: str | None = Field(default=None, min_length=2, max_length=80)
     base_action_id: str | None = Field(default=None, min_length=2, max_length=80)
+    product_focus: Literal["upper_garment", "lower_garment", "footwear"] | None = None
 
 
 class SiteStyleProfileWrite(ApiModel):

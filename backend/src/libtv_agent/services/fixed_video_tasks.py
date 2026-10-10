@@ -45,7 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_VIDEO_TEMPLATE_ID = "ootd_walk"
-AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v3"
+AUTOMATIC_PROMPT_COMPILER_VERSION = "fixed-template-v4-upper-garment"
 CUSTOM_PROMPT_COMPILER_VERSION = "custom-direct-v1"
 MAX_KLING_PROMPT_CHARS = 3072
 

@@ -321,7 +321,7 @@ def test_prompt_compiler_is_deterministic_and_describes_change_not_image_facts()
     assert "场景、陈设和光线" in compiled.master_prompt
     assert "按输入分镜顺序执行" in compiled.master_prompt
     assert "真实皮肤与布料" in compiled.master_prompt
-    assert "不过度磨皮" in compiled.master_prompt
+    assert "保留自然细节" in compiled.master_prompt
     assert "精修广告感" in compiled.master_prompt
     assert "发型" not in compiled.master_prompt
     assert "五官" not in compiled.master_prompt
@@ -509,7 +509,9 @@ def test_prompt_budget_compresses_optional_sections_before_core_constraints() ->
     )
 
     assert len(compiled.master_prompt) <= 800
-    assert compiled.variant_seed["promptCompressionLevel"] == "compact-style"
+    assert compiled.variant_seed["promptCompressionLevel"] in {"trimmed-learning", "compact-style"}
+    assert "逐镜执行：" in compiled.master_prompt
+    assert "退出：" in compiled.master_prompt
     assert "人物身份、面部特征和体型一致" in compiled.master_prompt
     assert "服装款式、颜色、面料、版型、印花、Logo和文字不变" in compiled.master_prompt
     assert "人物身份漂移" in compiled.master_prompt
