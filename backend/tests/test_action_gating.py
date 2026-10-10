@@ -56,6 +56,30 @@ def test_unknown_context_keeps_only_unconditional_low_risk_actions() -> None:
     assert selected == ("stance_shift",)
 
 
+def test_face_and_body_pose_actions_require_explicit_visual_evidence() -> None:
+    assert compatible_action_ids(
+        "mood_model",
+        ("controlled_gaze", "head_shoulder_tilt", "asymmetric_pause"),
+        context=ActionContext(),
+    ) == ()
+
+    supported = ActionContext(
+        confirmed=frozenset(
+            {
+                ActionCapability.FACE_VISIBLE,
+                ActionCapability.FACE_GAZE_ADJUSTABLE,
+                ActionCapability.LOWER_GARMENT_VISIBLE,
+                ActionCapability.STANDING_SPACE,
+            }
+        )
+    )
+    assert compatible_action_ids(
+        "mood_model",
+        ("controlled_gaze", "head_shoulder_tilt", "asymmetric_pause"),
+        context=supported,
+    ) == ("controlled_gaze", "head_shoulder_tilt", "asymmetric_pause")
+
+
 @pytest.mark.parametrize(
     ("action_id", "confirmed"),
     [

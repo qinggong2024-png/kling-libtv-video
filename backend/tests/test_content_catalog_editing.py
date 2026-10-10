@@ -131,6 +131,26 @@ async def test_admin_creates_motion_action_and_get_refresh_keeps_it(
 
 
 @pytest.mark.asyncio
+async def test_conditional_motion_action_requires_capability_prerequisites(
+    catalog_client: tuple[AsyncClient, Settings],
+) -> None:
+    client, settings = catalog_client
+    admin_headers = {"X-User-Id": settings.dev_admin_id}
+    payload = motion_action_payload()
+    payload["id"] = "catalog_conditional_without_caps"
+    payload["riskLevel"] = "conditional"
+
+    response = await client.post(
+        "/api/v1/motion-actions",
+        headers=admin_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert "capability prerequisites" in response.json()["detail"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_admin_edits_style_with_version_increment_and_cannot_activate_restricted_evidence(
     catalog_client: tuple[AsyncClient, Settings],
 ) -> None:

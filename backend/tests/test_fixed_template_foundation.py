@@ -254,6 +254,11 @@ def test_motion_action_library_has_structured_execution_and_risk_metadata() -> N
         "hair_tuck_release",
         "seated_prop_sip_return",
     }.issubset({action.id for action in actions})
+    assert all(
+        action.required_capabilities
+        for action in actions
+        if action.risk_level == "conditional"
+    )
 
 
 def test_prompt_compiler_rejects_draft_template_for_production() -> None:
@@ -335,6 +340,7 @@ def test_prompt_compiler_injects_site_style_without_rewriting_image_facts() -> N
             cut_mode="explicit_cuts",
             variant_index=1,
             site_profile=profile,
+            action_context=ActionContext(confirmed=frozenset(ActionCapability)),
         ),
         allow_draft=True,
     )
