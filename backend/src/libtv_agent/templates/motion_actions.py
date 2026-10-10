@@ -467,7 +467,13 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "从画面外的自然视线开始，缓慢将视线移回镜头并短暂停留；身体保持稳定，随后自然移开视线。",
         "在不增加肢体风险的情况下建立人镜交流。",
         ("ootd_walk", "mood_model"),
+        requirements=("输入人物面部清晰且允许小幅视线变化",),
+        required_capabilities=(
+            ActionCapability.FACE_VISIBLE,
+            ActionCapability.FACE_GAZE_ADJUSTABLE,
+        ),
         avoid=("突然甩头", "冻结表情", "改变面部身份"),
+        risk_level="conditional",
     ),
     "eye_contact_soft_smile": MotionAction(
         "eye_contact_soft_smile",
@@ -491,7 +497,13 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "从稳定站姿做一次轻微肩胯错位停格，形成不对称构图后停留；随后回到自然站姿，不扭曲身体或衣物。",
         "用构图与节奏制造怪诞或编辑感，而不是依赖特效。",
         ("mood_model", "ootd_walk"),
+        requirements=("输入中人物从头肩到下装轮廓清晰，且站立空间稳定",),
+        required_capabilities=(
+            ActionCapability.LOWER_GARMENT_VISIBLE,
+            ActionCapability.STANDING_SPACE,
+        ),
         avoid=("大幅折叠身体", "身体变形", "连续摇摆"),
+        risk_level="conditional",
     ),
     "head_shoulder_tilt": MotionAction(
         "head_shoulder_tilt",
@@ -500,7 +512,10 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "从头肩回正姿态开始，头部与肩部做小幅同向倾斜并短暂停留；随后自然回正。",
         "用低风险姿态变化增加人物表现力。",
         ("mood_model", "ootd_walk"),
+        requirements=("输入中头部、面部和肩部轮廓清晰可见",),
+        required_capabilities=(ActionCapability.FACE_VISIBLE,),
         avoid=("颈部过度弯折", "头肩反向剧烈摆动"),
+        risk_level="conditional",
     ),
     "hair_tuck_release": MotionAction(
         "hair_tuck_release",

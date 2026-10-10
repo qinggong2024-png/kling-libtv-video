@@ -76,6 +76,17 @@ async def _save(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"unknown compatible template ids: {', '.join(unknown_templates)}",
         )
+    if payload.risk_level == "conditional" and payload.required_capabilities is None:
+        inherited_capabilities = (
+            base_action.required_capabilities
+            if payload.library_scope == "brand" and base_action is not None
+            else existing.required_capabilities if existing is not None else ()
+        )
+        if not inherited_capabilities:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "conditional motion actions require capability prerequisites",
+            )
     value = payload.model_dump(by_alias=True, mode="json")
     value["id"] = canonical_id
     if payload.required_capabilities is None:
