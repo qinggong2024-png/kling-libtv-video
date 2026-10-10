@@ -49,6 +49,7 @@ class ActionCapability(StrEnum):
     LOWER_BODY_PATH_VISIBLE = "lower_body_path_visible"
     STANDING_SPACE = "standing_space"
     SUPPORT_SURFACE = "support_surface"
+    LOWER_GARMENT_VISIBLE = "lower_garment_visible"
     HANDHELD_UNWORN_PRODUCT = "handheld_unworn_product"
     PACKAGING_OR_PRODUCT_SURFACE = "packaging_or_product_surface"
     EXISTING_PROP = "existing_prop"
