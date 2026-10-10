@@ -7,3 +7,7 @@ export function useCreativeProject(): CreativeProjectContextValue {
   if (!context) throw new Error('useCreativeProject must be used within CreativeProjectProvider')
   return context
 }
+
+export function useOptionalCreativeProject(): CreativeProjectContextValue | null {
+  return useContext(CreativeProjectContext)
+}

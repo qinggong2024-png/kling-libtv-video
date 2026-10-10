@@ -1,0 +1,63 @@
+.director-studio { max-width: 1120px; margin: 0 auto; padding: 32px 24px 72px; color: var(--text); }
+.director-studio__header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+.director-studio__eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-size: 12px; font-weight: 700; letter-spacing: 0; }
+.director-studio h1 { margin: 8px 0 4px; font-size: 30px; line-height: 1.15; }
+.director-studio__header p, .director-panel__heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.director-studio__contract, .director-state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.director-state.is-ready { color: var(--success); }
+.director-studio__steps { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; }
+.director-studio__steps span { padding: 8px 12px; border-bottom: 2px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.director-studio__steps .is-active { border-color: var(--primary); color: var(--primary); }
+.director-studio__steps .is-done { border-color: var(--success); color: var(--success); }
+.director-studio__grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(420px, 1.35fr); gap: 16px; }
+.director-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.director-panel--package { grid-column: 1 / -1; }
+.director-panel__heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+.director-panel__heading > div:first-child { display: flex; gap: 12px; }
+.director-panel__index { color: var(--primary); font-size: 12px; font-weight: 800; padding-top: 3px; }
+.director-panel h2 { margin: 0 0 4px; font-size: 16px; }
+.director-upload { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--muted); cursor: pointer; text-align: center; }
+.director-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.director-upload img { width: 100%; height: 180px; object-fit: contain; border-radius: 8px; }
+.director-upload strong { color: var(--text); font-size: 14px; }
+.director-upload small, .director-field small { color: var(--muted); font-weight: 400; }
+.director-file-name { margin: 8px 0 0; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.director-field { display: grid; gap: 6px; margin-top: 14px; color: var(--text); font-size: 12px; font-weight: 700; }
+.director-field input, .director-field textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: var(--surface-soft); color: var(--text); font: inherit; font-weight: 400; resize: vertical; }
+.director-choice { display: flex; gap: 16px; margin: 14px 0 0; padding: 0; border: 0; color: var(--muted); font-size: 12px; }
+.director-choice legend { margin-bottom: 8px; color: var(--text); font-weight: 700; }
+.director-choice label { display: inline-flex; gap: 6px; align-items: center; }
+.director-action { width: 100%; justify-content: center; margin-top: 18px; }
+.director-direction-list { display: grid; gap: 8px; }
+.director-direction { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.director-direction:hover, .director-direction:focus-visible { border-color: var(--primary); }
+.director-direction.is-selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface)); }
+.director-direction__marker { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--surface-soft); color: var(--primary); font-size: 12px; font-weight: 800; }
+.director-direction__body { display: grid; gap: 4px; min-width: 0; }
+.director-direction__body strong { font-size: 14px; }
+.director-direction__body small { color: var(--muted); line-height: 1.4; }
+.director-direction__facts { display: flex; gap: 6px; flex-wrap: wrap; }
+.director-direction__facts em { padding: 3px 6px; border-radius: 4px; background: var(--surface-soft); color: var(--muted); font-size: 11px; font-style: normal; }
+.director-direction__check { color: var(--primary); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.director-summary { margin-top: 16px; padding: 14px; border-left: 3px solid var(--ai); background: var(--surface-soft); }
+.director-summary div { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.director-summary div span, .director-summary p, .director-summary small { color: var(--muted); }
+.director-summary p { margin: 8px 0; font-size: 13px; line-height: 1.5; }
+.director-summary small { font-size: 11px; }
+.director-package-state { display: flex; gap: 10px; align-items: flex-start; padding: 16px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--muted); }
+.director-package-state strong, .director-package-state span { display: block; }
+.director-package-state strong { margin-bottom: 4px; color: var(--text); font-size: 13px; }
+.director-package-state span { font-size: 12px; line-height: 1.5; }
+.director-package-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 0; }
+.director-package-list div { padding: 10px 12px; background: var(--surface-soft); }
+.director-package-list dt { color: var(--muted); font-size: 11px; }
+.director-package-list dd { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
+.director-notice { position: fixed; right: 24px; bottom: 24px; max-width: 360px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px rgb(15 23 42 / 12%); font-size: 12px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .director-studio { padding: 24px 16px 56px; }
+  .director-studio__header { display: block; }
+  .director-studio__contract { margin-top: 14px; }
+  .director-studio__grid { grid-template-columns: 1fr; }
+  .director-panel--package { grid-column: auto; }
+  .director-package-list { grid-template-columns: 1fr; }
+}
