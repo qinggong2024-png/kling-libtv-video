@@ -40,6 +40,10 @@ def _motion_action(payload: Mapping[str, Any]) -> MotionAction:
         library_scope=payload.get("libraryScope", "general"),
         brand_id=payload.get("brandId"),
         base_action_id=payload.get("baseActionId"),
+        product_focus=payload.get("productFocus") or (
+            ACTION_LIBRARY[str(payload["id"])].product_focus
+            if str(payload["id"]) in ACTION_LIBRARY else "upper_garment"
+        ),
     )
 
 

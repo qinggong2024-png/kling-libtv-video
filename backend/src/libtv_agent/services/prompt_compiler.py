@@ -5,14 +5,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from libtv_agent.templates.motion_actions import (
+    ACTION_LIBRARY,
+    ActionCapability,
     ActionContext,
     MotionAction,
     canonical_action_id,
-    compatible_action_ids,
     normalize_action_ids,
     render_action_ids,
     select_brand_motion,
 )
+from libtv_agent.templates.shot_contracts import camera_motion, shot_motion_contract
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import (
     ActionIntensity,
@@ -111,20 +113,17 @@ def _cut_instruction(cut_mode: CutMode) -> str:
     return "优先在可行时保持连续运动；画面条件不兼容时使用干净切镜"
 
 
-def _shot_rule(template: VideoTemplate, order: int, total: int) -> str:
-    rules = template.prompt_rules
+def _shot_rule(template_id: str, order: int, total: int) -> str:
     if total == 1:
-        selected = (*rules.opening, *rules.middle, *rules.ending)
-    elif order == 1:
-        selected = rules.opening
-    elif order == total:
-        selected = rules.ending
-    else:
-        selected = rules.middle
-    rendered = "；".join(selected)
-    if total == 1:
-        return rendered.replace("按分镜顺序", "在输入支持范围内")
-    return rendered
+        return "建立完整上装视图，保持商品区域清晰并稳定结束"
+    if order == 1:
+        return "建立输入中可见的上装与人物关系"
+    if order == total:
+        return "回到输入支持的上装清晰画面并稳定结束"
+    return {
+        "garment_detail": "清晰展示输入中已有的上装纹理、印花或领袖细节",
+        "mood_model": "保留既有环境关系，上装始终是可辨认的主体",
+    }.get(template_id, "清晰展示输入中已有的上装肩线、衣摆和廓形")
 
 
 def _partition_profile_text(value: str) -> tuple[str, tuple[str, ...]]:
@@ -164,9 +163,17 @@ def _style_instruction(
     variant_index: int,
     recent_selected_action_ids: tuple[str, ...],
     recent_motion_combinations: tuple[str, ...],
-) -> tuple[str, tuple[str, ...], tuple[str, ...], dict[str, str]]:
+) -> tuple[str, tuple[str, ...], tuple[str, ...], dict[str, object]]:
     if profile is None:
-        return "自然日常；镜头平稳跟随并有限推进", (), (), {}
+        return (
+            "自然日常，上装展示优先",
+            ("motion_to_rest",),
+            (),
+            {
+                "selectedPrimaryActionId": "motion_to_rest",
+                "cameraFamily": "locked",
+            },
+        )
     base_action_ids = normalize_action_ids(
         (
             *profile.primary_motion_pool,
@@ -194,92 +201,70 @@ def _style_instruction(
             )
         )
     )
-    use_selector = bool(
-        profile.primary_motion_pool
-        or profile.micro_motion_pool
-    ) and action_context is not None
-    motion_metadata: dict[str, str] = {}
-    if use_selector:
-        selection = select_brand_motion(
-            template_id=template_id,
-            primary_motion_pool=ordered_action_ids,
-            micro_motion_pool=profile.micro_motion_pool,
-            expression_pool=profile.expression_pool,
-            camera_pool=profile.camera_pool,
-            variant_index=variant_index,
-            recent_selected_action_ids=recent_selected_action_ids,
-            recent_motion_combinations=recent_motion_combinations,
-            dedupe_recent_count=profile.dedupe_recent_count,
-            dedupe_combo_window=profile.dedupe_combo_window,
-            dedupe_family_window=profile.dedupe_family_window,
-            dedupe_family_limit=profile.dedupe_family_limit,
-            context=action_context,
-            library=action_library,
+    selection = select_brand_motion(
+        template_id=template_id,
+        primary_motion_pool=ordered_action_ids,
+        micro_motion_pool=profile.micro_motion_pool,
+        expression_pool=profile.expression_pool,
+        camera_pool=tuple(
+            dict.fromkeys(camera_motion(candidate).family for candidate in profile.camera_pool)
+        ),
+        variant_index=variant_index,
+        recent_selected_action_ids=recent_selected_action_ids,
+        recent_motion_combinations=recent_motion_combinations,
+        dedupe_recent_count=profile.dedupe_recent_count,
+        dedupe_combo_window=profile.dedupe_combo_window,
+        dedupe_family_window=profile.dedupe_family_window,
+        dedupe_family_limit=profile.dedupe_family_limit,
+        context=action_context,
+        library=action_library,
+    )
+    selected_action_ids = selection.selected_action_ids or ("motion_to_rest",)
+    motion_metadata: dict[str, object] = {
+        key: value
+        for key, value in (
+            ("selectedPrimaryActionId", selection.primary_action_id),
+            ("selectedMicroActionId", selection.micro_action_id),
+            ("selectedMotionFamily", selection.family),
+            ("selectedMotionCombination", selection.combo_key),
         )
-        selected_action_ids = selection.selected_action_ids
-        motion_metadata = {
-            key: value
-            for key, value in (
-                ("selectedPrimaryActionId", selection.primary_action_id),
-                ("selectedMicroActionId", selection.micro_action_id),
-                ("selectedMotionFamily", selection.family),
-                ("selectedMotionCombination", selection.combo_key),
+        if value
+    }
+    motion_metadata["selectedPrimaryActionId"] = selection.primary_action_id or "motion_to_rest"
+    motion_metadata["cameraFamily"] = selection.camera or "locked"
+    expression_allowed = (action_context or ActionContext()).supports(
+        (
+            ActionCapability.FACE_VISIBLE,
+            ActionCapability.FACE_GAZE_ADJUSTABLE,
+        )
+    )
+    selected_layer = "；".join(
+        part
+        for part in (
+            (
+                "主动作停稳后才执行微动作："
+                + render_action_ids(
+                    template_id,
+                    (selection.micro_action_id,),
+                    context=action_context,
+                    library=action_library,
+                ).rstrip("。；")
             )
-            if value
-        }
-        preferred_actions = render_action_ids(
-            template_id,
-            (selection.primary_action_id,) if selection.primary_action_id else (),
-            context=action_context,
-            library=action_library,
+            if selection.micro_action_id
+            else "",
+            f"表情：{selection.expression}" if selection.expression and expression_allowed else "",
         )
-        selected_layer = "；".join(
-            part
-            for part in (
-                f"主动作：{preferred_actions.rstrip('。；')}" if preferred_actions else "",
-                (
-                    "微动作："
-                    + render_action_ids(
-                        template_id,
-                        (selection.micro_action_id,),
-                        context=action_context,
-                        library=action_library,
-                    ).rstrip("。；")
-                )
-                if selection.micro_action_id
-                else "",
-                f"表情：{selection.expression}" if selection.expression else "",
-                f"镜头配合：{selection.camera}" if selection.camera else "",
-                f"选择依据：{selection.reason}" if selection.reason else "",
-            )
-            if part
-        )
-    else:
-        selected_action_ids = compatible_action_ids(
-            template_id,
-            ordered_action_ids,
-            context=action_context,
-            library=action_library,
-        )
-        preferred_actions = render_action_ids(
-            template_id,
-            selected_action_ids,
-            context=action_context,
-            library=action_library,
-        )
-        selected_layer = (
-            f"可用动作：{preferred_actions.rstrip('。；')}" if preferred_actions else ""
-        )
+        if part
+    )
     expression, expression_negatives = _partition_profile_text(profile.expression_language)
-    camera, camera_negatives = _partition_profile_text(profile.camera_language)
+    _, camera_negatives = _partition_profile_text(profile.camera_language)
     pacing, pacing_negatives = _partition_profile_text(profile.pacing)
     return (
         "；".join(
             part
             for part in (
                 f"基调：{profile.tone.rstrip('。；')}",
-                f"表演（面部清晰时）：{expression}" if expression else "",
-                f"镜头：{camera}" if camera else "",
+                f"表演（面部清晰时）：{expression}" if expression and expression_allowed else "",
                 selected_layer,
                 f"节奏：{pacing}" if pacing else "",
                 "仅采用输入支持的动作，不新增场景、道具或商品面",
@@ -322,9 +307,22 @@ def compile_video_plan(
     if not 1 <= value.variant_index <= value.result_count:
         raise ValueError("variant index must be between 1 and result count")
 
+    action_context = value.action_context
+    # The same contract is rendered for all shots, so every shot must support it.
+    if action_context is not None and action_context.evidence_sets:
+        action_context = ActionContext(
+            confirmed=frozenset.intersection(*action_context.evidence_sets),
+            denied=action_context.denied,
+        )
     action = template.action_presets[value.action_intensity]
-    camera = template.camera_presets["standard"]
     variant_action, variant_expression, variant_style = _VARIANT_MODIFIERS[value.variant_index - 1]
+    if not (action_context or ActionContext()).supports(
+        (
+            ActionCapability.FACE_VISIBLE,
+            ActionCapability.FACE_GAZE_ADJUSTABLE,
+        )
+    ):
+        variant_expression = "沿用输入可见表情，不补造不可见面部"
     variant_modifier = "；".join(
         (
             f"动作：{variant_action}",
@@ -345,7 +343,7 @@ def compile_video_plan(
     ) = _style_instruction(
         value.site_profile,
         template.id,
-        value.action_context,
+        action_context,
         value.action_library,
         value.learning_preferred_action_ids,
         value.learning_avoided_action_ids,
@@ -358,6 +356,20 @@ def compile_video_plan(
         raise ValueError("duration must be between 3 and 15 seconds")
     duration = float(duration_seconds)
     shot_duration = duration / value.storyboard_count
+    actions = value.action_library if value.action_library is not None else ACTION_LIBRARY
+    primary_id = str(motion_metadata["selectedPrimaryActionId"])
+    primary_instruction = render_action_ids(
+        template.id,
+        (primary_id,),
+        context=action_context,
+        library=actions,
+    )
+    if primary_id == "motion_to_rest":
+        primary_instruction = ACTION_LIBRARY["motion_to_rest"].instruction
+    contract = shot_motion_contract(
+        primary_instruction.rstrip("。；"),
+        camera_motion(str(motion_metadata["cameraFamily"])),
+    )
     shots = tuple(
         ShotInstruction(
             order=index,
@@ -367,9 +379,9 @@ def compile_video_plan(
                 2,
             ),
             instruction=(
-                _shot_rule(template, index, value.storyboard_count)
+                _shot_rule(template.id, index, value.storyboard_count)
                 if value.storyboard_count == 1
-                else f"分镜{index}：{_shot_rule(template, index, value.storyboard_count)}"
+                else f"分镜{index}：{_shot_rule(template.id, index, value.storyboard_count)}"
             ),
         )
         for index in range(1, value.storyboard_count + 1)
@@ -396,7 +408,14 @@ def compile_video_plan(
         else ()
     )
     negatives = tuple(
-        dict.fromkeys((*template.prompt_rules.negatives, *profile_negatives, *style_negatives))
+        dict.fromkeys(
+            (
+                *template.prompt_rules.negatives,
+                *profile_negatives,
+                *style_negatives,
+                "过度磨皮、塑料感、蜡感或精修广告感",
+            )
+        )
     )
     negative_prompt = "；".join(negatives)
     timeline = "；".join(
@@ -420,8 +439,6 @@ def compile_video_plan(
         if part
     )
     style_parts = [style_instruction, f"本条变化：{variant_modifier}"]
-    if value.site_profile is None:
-        style_parts.append(camera.instruction)
     prompt_parts = [
         (
             "任务："
@@ -433,10 +450,10 @@ def compile_video_plan(
             + f"生成{duration_seconds}秒、{template.ratio}的{template.name}视频"
         ),
         (f"保持：{'；'.join(invariants)}；其余输入事实不变；仅改变动作细节、神态和拍摄表达"),
-        f"动作：{motion_instruction}",
+        f"动作：{motion_instruction}；逐镜执行：{contract.render()}",
         f"风格：{'；'.join(style_parts)}",
         learning_instruction,
-        "质感：真实皮肤与布料，允许轻微自然手持；不过度磨皮，无塑料感、蜡感或精修广告感",
+        "质感：真实皮肤与布料，保留自然细节",
         f"避免：{negative_prompt}",
     ]
     master_prompt = "。".join(part for part in prompt_parts if part)
@@ -457,9 +474,20 @@ def compile_video_plan(
             if value.site_profile is not None
             else ""
         )
+        micro_instruction = (
+            "；主动作停稳后才执行微动作："
+            + render_action_ids(
+                template.id,
+                selected_action_ids[1:],
+                context=action_context,
+                library=actions,
+            ).rstrip("。；")
+            if len(selected_action_ids) > 1
+            else ""
+        )
         prompt_parts[3] = (
             f"风格：{compact_style}本条变化：{variant_modifier}；"
-            "仅采用输入支持的动作，不新增场景、道具或商品面"
+            "仅采用输入支持的动作，不新增场景、道具或商品面" + micro_instruction
         )
         master_prompt = "。".join(part for part in prompt_parts if part)
         compression_level = "compact-style"
@@ -484,6 +512,9 @@ def compile_video_plan(
             "pacingSource": "site-profile" if value.site_profile else "template-default",
             "siteProfileId": value.site_profile.id if value.site_profile else "none",
             "selectedActionIds": list(selected_action_ids),
+            "shotMotionContract": contract.to_dict(),
+            "productScope": "upper_garment",
+            "capabilityEvidencePolicy": "explicit-confirmation-only",
             **motion_metadata,
             "recentSelectedActionIds": list(value.recent_selected_action_ids),
             "recentMotionCombinations": list(value.recent_motion_combinations),

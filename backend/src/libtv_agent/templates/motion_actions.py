@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from typing import Literal
 
 ActionCategory = Literal["outfit", "detail", "back", "interaction", "product"]
 ActionRiskLevel = Literal["low", "conditional"]
 LibraryScope = Literal["general", "brand"]
+ProductFocus = Literal["upper_garment", "lower_garment", "footwear"]
+
+_NON_UPPER_ACTION_FOCUS: dict[str, ProductFocus] = {
+    "waistline_adjust_release": "lower_garment",
+    "lower_side_seam_smooth": "lower_garment",
+    "trouser_cuff_adjust_release": "lower_garment",
+    "knee_flex_settle": "lower_garment",
+    "skirt_slit_step_settle": "lower_garment",
+    "footwear_forward_hold": "footwear",
+    "heel_raise_settle": "footwear",
+    "footwear_glance_return": "footwear",
+    "stair_foot_tap": "footwear",
+    "stair_ascend_settle": "lower_garment",
+    "stair_descend_settle": "lower_garment",
+    "seated_footwear_reveal": "footwear",
+    "seated_ankle_shift": "lower_garment",
+}
 
 
 class ActionCapability(StrEnum):
@@ -54,6 +71,7 @@ class ActionCapability(StrEnum):
     PACKAGING_OR_PRODUCT_SURFACE = "packaging_or_product_surface"
     EXISTING_PROP = "existing_prop"
     PROP_PICKUP_SAFE = "prop_pickup_safe"
+    GARMENT_FASTENER_VISIBLE = "garment_fastener_visible"
 
 
 @dataclass(frozen=True)
@@ -118,6 +136,7 @@ class MotionAction:
     library_scope: LibraryScope = "general"
     brand_id: str | None = None
     base_action_id: str | None = None
+    product_focus: ProductFocus = "upper_garment"
 
     def to_public_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -130,6 +149,7 @@ class MotionAction:
         value["libraryScope"] = value.pop("library_scope")
         value["brandId"] = value.pop("brand_id")
         value["baseActionId"] = value.pop("base_action_id")
+        value["productFocus"] = value.pop("product_focus")
         return value
 
 
@@ -239,7 +259,7 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "print_detail_pause",
         "印花稳定停留",
         "detail",
-        "从整体画面平稳切入或推进到输入中已有的印花区域，保持短暂停留；结束后回到能确认商品轮廓的景别。",
+        "沿用输入中已有的印花景别，让印花区域清晰稳定停留；上装轮廓与可见图案持续完整。",
         "确保印花、Logo 或文字获得可读的展示时间。",
         ("garment_detail", "ootd_walk", "mood_model"),
         requirements=("输入画面中印花区域清晰可见",),
@@ -411,8 +431,8 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         "garment_sway_settle",
         "衣摆轻摆后垂落",
         "detail",
-        "从稳定站姿开始，通过一次小幅侧向重心变化让裙摆、长外套或宽松衣摆自然轻摆；动作停止后等待面料完全垂落。",
-        "展示长下摆的垂坠、层次与自然物理反馈。",
+        "从稳定站姿开始，通过一次小幅侧向重心变化让已有长外套或宽松上装衣摆自然轻摆；动作停止后等待衣料落定。",
+        "展示上装衣摆的垂坠、层次与自然物理反馈。",
         ("ootd_walk", "garment_detail", "mood_model"),
         requirements=("输入服装具有可见的长下摆或宽松垂坠结构",),
         required_capabilities=(ActionCapability.LONG_OR_LOOSE_HEM,),
@@ -656,11 +676,53 @@ ACTION_LIBRARY: dict[str, MotionAction] = {
         avoid=("凭空新增或替换饮品", "站起或离开座位", "掀动裙摆或衣摆", "饮品遮挡主要服装图案"),
         risk_level="conditional",
     ),
+    "fastener_adjust_release": MotionAction(
+        "fastener_adjust_release",
+        "门襟扣件小幅整理",
+        "detail",
+        "从扣件与手部均清晰的稳定姿态开始，单手沿上装门襟轻触一处已有扣件后沿原路径放下；纽扣与拉链开合沿用输入状态，门襟和主要图案保持连续清晰。",
+        "展示外套或上衣已有的纽扣、拉链与门襟结构。",
+        ("garment_detail", "ootd_walk"),
+        requirements=("输入中纽扣或拉链结构清晰可见", "单手路径不会遮挡主要图案"),
+        required_capabilities=(
+            ActionCapability.GARMENT_FASTENER_VISIBLE,
+            ActionCapability.FREE_HAND,
+            ActionCapability.SAFE_HAND_PATH,
+        ),
+        avoid=("凭空新增扣件", "改变扣件开合状态", "反复拉动拉链", "双手遮挡胸前图案"),
+        risk_level="conditional",
+    ),
+    "back_walk_settle": MotionAction(
+        "back_walk_settle",
+        "背面走动后停留",
+        "back",
+        "从可靠的背面站姿开始，背对镜头自然走一到两步后减速停稳；结束时上装后身、肩线、衣摆与背面图案保持完整。",
+        "展示服装后身在自然步态中的轮廓和垂坠。",
+        ("ootd_walk", "mood_model"),
+        requirements=("输入提供可靠背面参考", "画面具有一到两步纵深"),
+        required_capabilities=(ActionCapability.BACK_REFERENCE, ActionCapability.WALK_DEPTH),
+        avoid=("走出画面", "边走边回头", "背面图案被头发或道具遮挡"),
+        risk_level="conditional",
+    ),
 }
 
 
-# Legacy IDs remain valid for persisted profiles and external callers, but are
-# normalized before filtering and are not exposed as duplicate catalog entries.
+# Keep historical product actions readable, but mark their merchandising scope.
+for _action_id, _focus in _NON_UPPER_ACTION_FOCUS.items():
+    if _action_id in ACTION_LIBRARY:
+        ACTION_LIBRARY[_action_id] = replace(ACTION_LIBRARY[_action_id], product_focus=_focus)
+
+ACTION_LIBRARY["motion_to_rest"] = MotionAction(
+    "motion_to_rest",
+    "上装稳定收尾",
+    "detail",
+    "沿用输入中的姿态与持物关系，仅让已开始的动作自然减速并停稳；保持上装可见区域清晰，衣料随既有动作落定，随后稳定停留。",
+    "给上装展示提供稳定结束状态，不要求额外走动、抬手或重新站立。",
+    ("ootd_walk", "garment_detail", "mood_model"),
+    avoid=("为收尾新增动作", "切换坐站状态", "冻结表情或布料"),
+)
+
+# Normalize historical aliases without exposing duplicate catalog entries.
 ACTION_ALIASES: dict[str, str] = {
     "chest_print_pause": "print_detail_pause",
     "eye_contact_neutral": "controlled_gaze",
@@ -789,6 +851,42 @@ def evaluate_action_with_base(
     return evaluate_action(inherited, context)
 
 
+def supports_upper_garment(
+    action: MotionAction,
+    library: Mapping[str, MotionAction],
+) -> bool:
+    """Keep historical catalog entries while excluding other product targets."""
+
+    excluded_capabilities = {
+        "waistline_visible", "trouser_cuff_reachable", "skirt_slit_visible",
+        "footwear_visible", "stair_visible", "stair_path_clear",
+    }
+    candidates = (action,)
+    if action.base_action_id is not None:
+        base = library.get(action.base_action_id)
+        if base is None:
+            return False
+        candidates = (action, base)
+    return all(
+        item.product_focus == "upper_garment"
+        and item.id not in _NON_UPPER_ACTION_FOCUS
+        and not any(cap.value in excluded_capabilities for cap in item.required_capabilities)
+        for item in candidates
+    )
+
+
+def _joint_capabilities(
+    library: Mapping[str, MotionAction], *action_ids: str,
+) -> tuple[ActionCapability, ...]:
+    capabilities: list[ActionCapability] = []
+    for action_id in action_ids:
+        action = library[action_id]
+        capabilities.extend(action.required_capabilities)
+        if action.base_action_id is not None:
+            capabilities.extend(library[action.base_action_id].required_capabilities)
+    return tuple(dict.fromkeys(capabilities))
+
+
 def compatible_action_ids(
     template_id: str,
     action_ids: tuple[str, ...],
@@ -802,6 +900,7 @@ def compatible_action_ids(
         action_id
         for action_id in normalized_action_ids
         if action_id in actions
+        and supports_upper_garment(actions[action_id], actions)
         and template_id in actions[action_id].compatible_templates
         and (
             actions[action_id].base_action_id is None
@@ -938,6 +1037,13 @@ def select_brand_motion(
             library=actions,
         )
         if action_id != selected
+        and action_id in {"controlled_gaze", "eye_contact_soft_smile"}
+        and action_family(selected, library=actions) not in {
+            "walking", "turning", "back_reveal", "gaze_reaction",
+        }
+        and (context or ActionContext()).supports(
+            _joint_capabilities(actions, selected, action_id)
+        )
     )
     micro = (
         micro_candidates[(variant_index - 1) % len(micro_candidates)]

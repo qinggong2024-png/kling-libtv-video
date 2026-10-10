@@ -76,19 +76,34 @@ async def _save(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"unknown compatible template ids: {', '.join(unknown_templates)}",
         )
-    if payload.risk_level == "conditional" and payload.required_capabilities is None:
-        inherited_capabilities = (
-            base_action.required_capabilities
-            if payload.library_scope == "brand" and base_action is not None
-            else existing.required_capabilities if existing is not None else ()
+    inherited_capabilities = (
+        base_action.required_capabilities
+        if payload.library_scope == "brand" and base_action is not None
+        else ()
+    )
+    effective_capabilities = (
+        tuple(payload.required_capabilities)
+        if payload.required_capabilities is not None
+        else existing.required_capabilities if existing is not None else ()
+    )
+    if payload.risk_level == "conditional" and not (
+        effective_capabilities or inherited_capabilities
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "conditional motion actions require capability prerequisites",
         )
-        if not inherited_capabilities:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                "conditional motion actions require capability prerequisites",
-            )
+    if existing is not None and not set(existing.required_capabilities) <= set(
+        (*effective_capabilities, *inherited_capabilities)
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "motion action capability prerequisites cannot be removed",
+        )
     value = payload.model_dump(by_alias=True, mode="json")
     value["id"] = canonical_id
+    if payload.product_focus is None:
+        value["productFocus"] = existing.product_focus if existing is not None else "upper_garment"
     if payload.required_capabilities is None:
         value["requiredCapabilities"] = (
             [capability.value for capability in existing.required_capabilities]
