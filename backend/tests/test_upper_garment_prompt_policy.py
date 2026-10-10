@@ -149,6 +149,35 @@ def test_hand_micro_action_is_not_stacked_with_walking():
     assert selection.micro_action_id is None
 
 
+@pytest.mark.parametrize(
+    "primary_id",
+    ["walk_in_stop", "diagonal_step_turn", "back_walk_settle", "over_shoulder_back"],
+)
+@pytest.mark.parametrize("brand_child", [False, True])
+def test_extended_motion_families_and_brand_children_do_not_stack_gaze(primary_id, brand_child):
+    library = dict(ACTION_LIBRARY)
+    if brand_child:
+        child = replace(
+            library[primary_id],
+            id="brand_motion_child",
+            category="detail",
+            library_scope="brand",
+            brand_id="geeksoutfit",
+            base_action_id=primary_id,
+        )
+        library[child.id] = child
+        primary_id = child.id
+    selection = select_brand_motion(
+        template_id="ootd_walk",
+        primary_motion_pool=(primary_id,),
+        micro_motion_pool=("controlled_gaze",),
+        context=ActionContext(confirmed=frozenset(ActionCapability)),
+        library=library,
+    )
+    assert selection.primary_action_id == primary_id
+    assert selection.micro_action_id is None
+
+
 def test_primary_and_micro_require_joint_evidence_in_the_same_material():
     selection = select_brand_motion(
         template_id="ootd_walk",
