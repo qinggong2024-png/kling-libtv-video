@@ -7,7 +7,7 @@ import { variantDisplayName } from '../../../domain/taskPresentation'
 import { createImageCenterVideoSeed } from '../../../imageCenterVideoSeed'
 import type { Task, Variant, VariantKind } from '../../../types'
 import { createUuid } from '../../../uuid'
-import type { ImageCenterVideoHandoff } from '../../image-center/ImageCenter'
+import type { ImageCenterVideoHandoff } from '../../image-studio'
 import { imageCenterOutputFile } from '../productionTypes'
 import type { RemixSeed } from '../productionTypes'
 
