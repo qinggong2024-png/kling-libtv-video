@@ -25,6 +25,9 @@
 .composer-production-lane { display: contents; }
 .composer-subject-panel > .subject-input-panel { height: 100%; }
 .studio-task-detail .workspace-view { width: 100%; padding: 0; }
+.studio-task-detail .creative-workspace { width: 100%; min-width: 0; }
+.creative-workspace__context { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-soft); color: var(--muted); font-size: 11px; }
+.creative-workspace__context strong { color: var(--text); font-size: 12px; font-weight: 700; }
 .studio-task-detail .production-workspace { width: 100%; min-width: 0; border: 0; border-radius: 0; box-shadow: none; }
 .studio-task-detail .drawer-header { display: flex; min-height: 48px; padding: 8px 12px; }
 .studio-task-detail .drawer-header > button,
