@@ -1,3 +1,26 @@
+import type { DirectorCandidate, DirectorTaskResponse } from './directorApi'
+import type { DirectionCandidate } from './contracts'
+
+export function canReviewDirectorCandidate(
+  workflow: DirectorTaskResponse,
+  candidate: DirectorCandidate,
+): boolean {
+  return workflow.mode === 'OFFLINE_FAKE_ONLY'
+    && workflow.status === 'IMAGE_REVIEW'
+    && !workflow.snapshot.stopped
+    && !['UNKNOWN', 'WRITE_UNCERTAIN'].includes(workflow.snapshot.execution_state ?? '')
+    && candidate.synthetic
+    && candidate.shot_id === 'FIRST_FRAME'
+    && candidate.package_id === workflow.snapshot.package?.package_id
+}
+
+export function canSelectDirectorCandidate(
+  workflow: DirectorTaskResponse,
+  candidate: DirectorCandidate,
+): boolean {
+  return canReviewDirectorCandidate(workflow, candidate) && candidate.qualified
+}
+
 export type DirectorBrandMode = 'brand' | 'generic'
 export type DirectorPhase = 'intake' | 'directions' | 'package'
 
@@ -5,27 +28,37 @@ export interface DirectorProductIntake {
   productName: string
   productFrontName: string
   productFrontPreviewUrl: string
+  productFrontFile?: File
   brandMode: DirectorBrandMode
   brandName: string
+  objective: string
+  audience: string
   notes: string
 }
 
-export interface DirectorDirection {
-  id: 'A' | 'B' | 'C'
-  title: string
-  summary: string
-  human: string
-  scene: string
-  behavior: string
-  camera: string
-  emotion: string
-}
+export type DirectorDirection = DirectionCandidate
 
 export interface DirectorDraft {
   phase: DirectorPhase
   intake: DirectorProductIntake
   directions: DirectorDirection[]
   selectedDirectionId: DirectorDirection['id'] | null
+}
+
+export function directionsFromAnalysis(
+  directions: Array<{ id: DirectorDirection['id']; scene: string; behavior: string }>,
+): DirectorDirection[] {
+  const defaults = new Map(defaultDirectorDirections.map((direction) => [direction.id, direction]))
+  return directions.map((direction) => {
+    const fallback = defaults.get(direction.id)
+    if (!fallback) return defaultDirectorDirections[0]
+    return {
+      ...fallback,
+      summary: `${direction.scene}，${direction.behavior}。`,
+      scene: direction.scene,
+      behavior: direction.behavior,
+    }
+  })
 }
 
 export const defaultDirectorDirections: DirectorDirection[] = [
@@ -70,6 +103,8 @@ export function createDirectorDraft(): DirectorDraft {
       productFrontPreviewUrl: '',
       brandMode: 'generic',
       brandName: '',
+      objective: '',
+      audience: '',
       notes: '',
     },
     directions: defaultDirectorDirections,
