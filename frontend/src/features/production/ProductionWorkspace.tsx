@@ -13,8 +13,9 @@ import { TaskTimingTimeline } from '../../shared/components/TaskTiming'
 import { ProviderBadge, TaskStatusBadge } from '../../shared/components/Badges'
 import { type AnalysisResult, taskPrompt } from './productionTypes'
 import { type PromptRevisionMode, AnalysisProgress, HistoricalPrompt, PlanPanel, VariantStatus } from './WorkspacePanels'
+import { useOptionalCreativeProject } from '../../creative-project/hooks'
 
-export function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse, onPlay }: { task: Task; onClose: () => void; onChanged: () => Promise<void>; onRemix: () => void; onReuse: (variants: VariantKind[]) => void; onPlay: (variant: Variant) => void }) {
+function ProductionWorkspaceContent({ task, onClose, onChanged, onRemix, onReuse, onPlay }: { task: Task; onClose: () => void; onChanged: () => Promise<void>; onRemix: () => void; onReuse: (variants: VariantKind[]) => void; onPlay: (variant: Variant) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const reusableVariants = task.variants.filter((variant) => variant.promptText.trim())
@@ -227,3 +228,18 @@ export function ProductionWorkspace({ task, onClose, onChanged, onRemix, onReuse
     </section>
   </div>
 }
+
+export function CreativeWorkspace(props: { task: Task; onClose: () => void; onChanged: () => Promise<void>; onRemix: () => void; onReuse: (variants: VariantKind[]) => void; onPlay: (variant: Variant) => void }) {
+  const projectContext = useOptionalCreativeProject()
+  const projectName = projectContext?.project.name ?? 'Creative Project'
+  return <section className="creative-workspace" aria-label="Creative Workspace">
+    <header className="creative-workspace__context">
+      <span>Creative Workspace</span>
+      <strong>{projectName}</strong>
+    </header>
+    <ProductionWorkspaceContent {...props} />
+  </section>
+}
+
+/** Compatibility export for existing task drawer imports. */
+export const ProductionWorkspace = CreativeWorkspace
