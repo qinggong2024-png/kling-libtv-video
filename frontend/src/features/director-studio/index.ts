@@ -7,3 +7,4 @@ export type {
   StudioHandoffContext,
 } from './contracts'
 export { selectDirectorHandoff, selectDirectorPlanningSnapshot, selectDirectorProductionPackage } from './directorSelectors'
+export { readDirectorPlanningSnapshot, selectDirectorHandoffFromProject } from './directorHandoff'
