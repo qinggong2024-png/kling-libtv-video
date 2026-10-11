@@ -10,7 +10,7 @@ import {
   taskNotificationForTransition,
   writeBrowserNotificationPreference,
 } from '../browserNotifications'
-import type { ImageCenterNotificationEvent } from '../features/image-center/ImageCenter'
+import type { ImageCenterNotificationEvent } from '../features/image-studio'
 import type { InPageTaskToast, TaskNotificationEvent, View } from './appTypes'
 
 export function browserNotificationPermission(): NotificationPermission | 'unsupported' {

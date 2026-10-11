@@ -2,7 +2,7 @@
 // 代码为逐字搬运，未经逻辑改写。
 import { fetchImageAssetFile } from '../../api'
 import { type Task, type VariantKind } from '../../types'
-import { type ImageCenterVideoHandoff } from '../image-center/ImageCenter'
+import { type ImageCenterVideoHandoff } from '../image-studio'
 import { type SubjectReferenceFiles } from '../../subjectFiles'
 
 export type UploadBucket = 'storyboard' | 'product'

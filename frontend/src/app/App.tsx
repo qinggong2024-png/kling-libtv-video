@@ -5,10 +5,10 @@
 //
 // ★ 代码分割说明（勿改动语义）：
 //   admin / settings / library 用 React.lazy 做页面级分割，仅当对应 view 被打开时才拉取。
-//   ImageCenter 也走了 dynamic import，但它 **必须保持无条件挂载** —— 它靠在非激活时
+//   ImageStudio 也走了 dynamic import，但它 **必须保持无条件挂载** —— 它靠在非激活时
 //   继续轮询来推送图片任务完成通知（onNotifications / onActiveTasksChange）。
 //   因此它被包在 <Suspense fallback={null}> 里且不放进任何条件分支；
-//   一旦改成 {view === 'images' ? <ImageCenter/> : null}，非激活期轮询与通知会直接丢失。
+//   一旦改成 {view === 'images' ? <ImageStudio/> : null}，非激活期轮询与通知会直接丢失。
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Bell, Images, Library, ListVideo, LoaderCircle, Plus, RefreshCw, Settings, ShieldCheck, X } from 'lucide-react'
 import { logout } from '../api'
@@ -30,12 +30,12 @@ import { useTaskNotifications } from './useTaskNotifications'
 import type { View } from './appTypes'
 
 // 页面级 lazy：只在进入对应 view 时才下载该页面 chunk。
-const ImageCenter = lazy(() => import('../features/image-center/ImageCenter').then((m) => ({ default: m.ImageCenter })))
+const ImageStudio = lazy(() => import('../features/image-studio').then((m) => ({ default: m.ImageStudio })))
 const ContentLibraryView = lazy(() => import('../features/library/ContentLibraryView').then((m) => ({ default: m.ContentLibraryView })))
 const AdminCenterView = lazy(() => import('../features/admin/AdminCenterView').then((m) => ({ default: m.AdminCenterView })))
 const SettingsView = lazy(() => import('../features/settings/SettingsView').then((m) => ({ default: m.SettingsView })))
 const HomeView = lazy(() => import('../features/task-center/HomeView').then((m) => ({ default: m.HomeView })))
-const ProductionWorkspace = lazy(() => import('../features/production/ProductionWorkspace').then((m) => ({ default: m.ProductionWorkspace })))
+const CreativeWorkspace = lazy(() => import('../features/production/ProductionWorkspace').then((m) => ({ default: m.CreativeWorkspace })))
 
 function PageLoading() {
   return <div className="page-loading"><LoaderCircle className="spin" size={26} /><strong>正在加载页面</strong></div>
@@ -203,7 +203,7 @@ function App() {
         <button className="icon-button" type="button" aria-label="暂不开启通知" title="暂不开启" onClick={() => setNotificationPromptDismissed(true)}><X size={17} /></button>
       </div> : null}
       <Suspense fallback={null}>
-        <ImageCenter
+        <ImageStudio
           active={view === 'images'}
           draftScope={actor?.userId ?? null}
           openTaskId={imageNotificationTaskId}
@@ -214,11 +214,11 @@ function App() {
       </Suspense>
       {/* make 是默认落地视图。它同时走 lazy 是为了把 entry chunk 压到 300 kB 以下
           （方案验收线）。代价：应用打开时多一次页面级加载（此前已有 boot screen，
-          局域网内可忽略）。若不接受这次可见变化，把 HomeView / ProductionWorkspace
+          局域网内可忽略）。若不接受这次可见变化，把 HomeView / CreativeWorkspace
           改回顶部静态 import 并删掉本 Suspense 即可，entry 会回到约 333 kB。 */}
       <Suspense fallback={<PageLoading />}>
         <HomeView active={view === 'make'} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
-        {view === 'make' && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><ProductionWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
+        {view === 'make' && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><CreativeWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
       </Suspense>
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
