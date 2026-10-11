@@ -1,15 +1,30 @@
-import { Check, FileImage, LockKeyhole, Sparkles, WandSparkles } from 'lucide-react'
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { Check, FileImage, LockKeyhole, RefreshCw, Sparkles, WandSparkles, X } from 'lucide-react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useOptionalCreativeProject } from '../../creative-project/hooks'
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
+import { createUuid } from '../../uuid'
+import {
+  createDirectorProduct,
+  createDirectorTask,
+  DirectorApiError,
+  getDirectorTask,
+  sendDirectorCommand,
+  type DirectorCommandInput,
+  type DirectorTaskResponse,
+  type DirectorCandidate,
+} from './directorApi'
 import {
   createDirectorDraft,
+  canReviewDirectorCandidate,
+  canSelectDirectorCandidate,
+  directionsFromAnalysis,
   isDirectorIntakeReady,
   selectDirectorDirection,
   type DirectorDraft,
   type DirectorDirection,
   type DirectorProductIntake,
 } from './directorModel'
+import { selectDirectorPlanningSnapshot } from './directorSelectors'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -21,44 +36,250 @@ function updateProjectSnapshot(
 export function DirectorStudio() {
   const projectContext = useOptionalCreativeProject()
   const [draft, setDraft] = useState<DirectorDraft>(createDirectorDraft)
+  const [workflow, setWorkflow] = useState<DirectorTaskResponse | null>(null)
+  const [busyAction, setBusyAction] = useState<'analyze' | 'select' | 'authorize' | 'generate' | 'review' | 'select_frame' | 'refresh' | null>(null)
+  const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
+  const clientKeyRef = useRef(createUuid())
+  const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const ready = isDirectorIntakeReady(draft.intake)
   const selectedDirection = draft.directions.find((direction) => direction.id === draft.selectedDirectionId) ?? null
-  const packageState = selectedDirection ? '已选择方向，等待生产包合同接入' : '选择方向后生成生产包预览'
+  const packageState = workflow?.snapshot.package
+    ? workflow.status === 'IMAGE_REVIEW' ? 'Fake 首帧已生成，等待人工查看' : '生产包已锁定'
+    : selectedDirection ? '方向已选择，等待授权' : '选择方向后生成生产包预览'
   const snapshot = useMemo(
     () => updateProjectSnapshot(projectContext?.project.intelligenceSnapshot),
     [projectContext?.project.intelligenceSnapshot],
   )
 
+  const persistPlanningSnapshot = (nextWorkflow: DirectorTaskResponse | null, nextDraft: DirectorDraft = draft) => {
+    if (!projectContext) return
+    projectContext.updateProject({
+      currentStage: nextDraft.phase === 'package' ? 'production-package' : nextDraft.phase,
+      metadata: {
+        directorPlanning: selectDirectorPlanningSnapshot(
+          nextWorkflow,
+          nextDraft,
+          projectContext.project.id,
+          snapshot,
+        ),
+      },
+    })
+  }
+
   const updateIntake = (patch: Partial<DirectorProductIntake>) => {
-    setDraft((current) => ({ ...current, intake: { ...current.intake, ...patch } }))
+    const nextDraft = { ...draft, intake: { ...draft.intake, ...patch } }
+    setDraft(nextDraft)
+    persistPlanningSnapshot(workflow, nextDraft)
     setNotice('')
   }
 
   const onFrontImage = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    const previewUrl = URL.createObjectURL(file)
-    updateIntake({ productFrontName: file.name, productFrontPreviewUrl: previewUrl })
-  }
-
-  const chooseDirection = (direction: DirectorDirection) => {
-    const next = selectDirectorDirection(draft, direction.id)
-    setDraft(next)
-    projectContext?.updateProject({
-      currentStage: 'AWAITING_DIRECTION',
-      metadata: {
-        directorDirectionId: direction.id,
-        directorBrandMode: next.intake.brandMode,
-      },
+    updateIntake({
+      productFrontName: file.name,
+      productFrontPreviewUrl: URL.createObjectURL(file),
+      productFrontFile: file,
     })
-    setNotice('方向已记录。选择方向不会授权图片或视频生成。')
   }
 
-  const requestAnalysis = () => {
-    setNotice(ready
-      ? '分析接口尚未接入。本阶段只保存输入，不会调用 Provider 或创建任务。'
-      : '请先上传商品正面图。')
+  const applyWorkflow = (next: DirectorTaskResponse) => {
+    setWorkflow(next)
+    const nextDraft = {
+      ...draft,
+      ...({
+        phase: next.snapshot.package ? 'package' : next.snapshot.plan ? 'directions' : draft.phase,
+        directions: next.snapshot.plan?.directions
+          ? directionsFromAnalysis(next.snapshot.plan.directions)
+          : draft.directions,
+        selectedDirectionId: next.snapshot.plan?.selected_direction ?? draft.selectedDirectionId,
+      }),
+    } as DirectorDraft
+    setDraft((current) => ({
+      ...current,
+      phase: next.snapshot.package ? 'package' : next.snapshot.plan ? 'directions' : current.phase,
+      directions: next.snapshot.plan?.directions
+        ? directionsFromAnalysis(next.snapshot.plan.directions)
+        : current.directions,
+      selectedDirectionId: next.snapshot.plan?.selected_direction ?? current.selectedDirectionId,
+    }))
+    persistPlanningSnapshot(next, nextDraft)
+  }
+
+  const runCommand = async (
+    action: DirectorCommandInput['action'],
+    payload: Omit<DirectorCommandInput, 'action' | 'expected_version'>,
+  ) => {
+    if (!workflow) return null
+    const fingerprint = JSON.stringify([workflow.id, workflow.state_version, action, payload])
+    if (commandRef.current?.fingerprint !== fingerprint) {
+      commandRef.current = { fingerprint, key: createUuid() }
+    }
+    const next = await sendDirectorCommand(workflow.id, {
+      ...payload,
+      action,
+      expected_version: workflow.state_version,
+      command_key: commandRef.current.key,
+    })
+    applyWorkflow(next)
+    return next
+  }
+
+  const chooseDirection = async (direction: DirectorDirection) => {
+    if (!workflow || busyAction || workflow.status !== 'AWAITING_DIRECTION') return
+    setBusyAction('select')
+    setNotice('')
+    try {
+      const nextDraft = selectDirectorDirection(draft, direction.id)
+      await runCommand('select_direction', {
+        direction_id: direction.id,
+      })
+      setDraft(nextDraft)
+      persistPlanningSnapshot(workflow, nextDraft)
+      projectContext?.updateProject({
+        currentStage: 'AWAITING_DIRECTION',
+        metadata: {
+          directorDirectionId: direction.id,
+          directorBrandMode: nextDraft.intake.brandMode,
+        },
+      })
+      setNotice('方向已记录。接下来需要明确授权后才能生成首帧。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '方向选择失败，请重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const requestAnalysis = async () => {
+    if (workflow) return
+    if (!ready || !draft.intake.productFrontFile || busyAction) {
+      setNotice('请先上传商品正面图。')
+      return
+    }
+    setBusyAction('analyze')
+    setNotice('')
+    try {
+      const label = draft.intake.productName.trim()
+        || draft.intake.productFrontName.replace(/\.[^.]+$/, '')
+        || 'product'
+      const product = await createDirectorProduct(`director-${label}-${createUuid().slice(0, 8)}`)
+      const created = await createDirectorTask({
+        productId: product.id,
+        front: draft.intake.productFrontFile,
+        clientKey: clientKeyRef.current,
+      })
+      applyWorkflow(created)
+      setRejectionReasons({})
+      const analyzed = await sendDirectorCommand(created.id, {
+        action: 'analyze',
+        expected_version: created.state_version,
+      })
+      applyWorkflow(analyzed)
+      setNotice('分析完成。请选择 A、B 或 C 方向。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '创建或分析失败，请检查离线服务。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const authorize = async (expiresAt: string) => {
+    const packageRevision = workflow?.snapshot.package
+    if (!workflow || !packageRevision || busyAction) return
+    setBusyAction('authorize')
+    setNotice('')
+    try {
+      await runCommand('authorize', {
+        authorization: {
+          authorization_id: createUuid(),
+          package_id: packageRevision.package_id,
+          locks_hash: packageRevision.locks_hash,
+          scope: 'FIRST_FRAME',
+          shot_ids: ['FIRST_FRAME'],
+          expires_at: expiresAt,
+          loop_enabled: false,
+          max_revisions: 0,
+          max_calls: 6,
+          max_cost_micros: 6,
+          currency: 'FAKE',
+          allowed_modules: ['Reality'],
+        },
+      })
+      setNotice('首帧授权已记录。现在可以生成离线 Fake 首帧。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '首帧授权失败，请重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const generate = async () => {
+    const packageRevision = workflow?.snapshot.package
+    if (!workflow || !packageRevision || !workflow.snapshot.authorization || busyAction) return
+    setBusyAction('generate')
+    setNotice('')
+    try {
+      await runCommand('generate', {
+        package_id: packageRevision.package_id,
+      })
+      setNotice('Fake 首帧已生成。该候选仅用于离线流程验证，不可交付。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : 'Fake 首帧生成失败，请重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const reviewCandidate = async (candidate: DirectorCandidate, decision: 'QUALIFIED' | 'REJECTED') => {
+    if (!workflow || busyAction || !canReviewDirectorCandidate(workflow, candidate)) return
+    const reason = rejectionReasons[candidate.candidate_id]?.trim() ?? ''
+    if (decision === 'REJECTED' && (!reason || reason.length > 500)) return
+    setBusyAction('review')
+    setNotice('')
+    try {
+      await runCommand('review', {
+        candidate_id: candidate.candidate_id,
+        decision,
+        ...(decision === 'REJECTED' ? { reason } : {}),
+      })
+      setNotice(decision === 'QUALIFIED'
+        ? '离线审核决定已记录，可单独选择首帧；该 Fake 候选仍不可交付。'
+        : '离线拒绝已记录，该候选的首帧选择已撤回。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '审核结果未确认，请刷新任务状态后重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const selectFirstFrame = async (candidate: DirectorCandidate) => {
+    if (!workflow || busyAction || !canSelectDirectorCandidate(workflow, candidate)) return
+    setBusyAction('select_frame')
+    setNotice('')
+    try {
+      await runCommand('select', { candidate_id: candidate.candidate_id })
+      setNotice('离线首帧选择已记录；不代表真实 QUALIFIED 或可交付素材。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '选择结果未确认，请刷新任务状态后重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const refreshWorkflow = async () => {
+    if (!workflow || busyAction) return
+    setBusyAction('refresh')
+    setNotice('')
+    try {
+      applyWorkflow(await getDirectorTask(workflow.id))
+      setNotice('已读取服务端状态，审核决定和理由来自最新服务端记录。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '任务状态刷新失败，请重试。')
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   return <section className="director-studio page-view" aria-label="智能导演">
@@ -68,7 +289,7 @@ export function DirectorStudio() {
         <h1>智能导演</h1>
         <p>从真实商品输入开始，整理方向、锁定判断，再交给现有生产流程执行。</p>
       </div>
-      <span className="director-studio__contract"><LockKeyhole size={14} />当前为规划模式</span>
+      <span className="director-studio__contract"><LockKeyhole size={14} />离线 Fake 模式 · 不可交付</span>
     </header>
 
     <div className="director-studio__steps" aria-label="导演流程">
@@ -84,7 +305,7 @@ export function DirectorStudio() {
           <span className={ready ? 'director-state is-ready' : 'director-state'}>{ready ? '已就绪' : '待输入'}</span>
         </div>
         <label className="director-upload">
-          <input type="file" accept="image/*" onChange={onFrontImage} />
+          <input type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
           {draft.intake.productFrontPreviewUrl
             ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" />
             : <><FileImage size={24} /><strong>上传商品正面</strong><small>PNG、JPG 或 WEBP</small></>}
@@ -97,21 +318,26 @@ export function DirectorStudio() {
           <label><input type="radio" checked={draft.intake.brandMode === 'brand'} onChange={() => updateIntake({ brandMode: 'brand' })} />选择品牌</label>
         </fieldset>
         {draft.intake.brandMode === 'brand' ? <label className="director-field"><span>品牌名称</span><input value={draft.intake.brandName} onChange={(event) => updateIntake({ brandName: event.target.value })} placeholder="输入已确认的品牌" /></label> : null}
+        <label className="director-field"><span>创作目标 <small>可选</small></span><input value={draft.intake.objective} onChange={(event) => updateIntake({ objective: event.target.value })} placeholder="例如：突出面料质感和日常穿着场景" /></label>
+        <label className="director-field"><span>目标受众 <small>可选</small></span><input value={draft.intake.audience} onChange={(event) => updateIntake({ audience: event.target.value })} placeholder="例如：关注通勤穿搭的成年用户" /></label>
         <label className="director-field"><span>创作备注 <small>可选</small></span><textarea value={draft.intake.notes} onChange={(event) => updateIntake({ notes: event.target.value })} rows={3} placeholder="记录用户锁定项或需要保留的商品细节" /></label>
-        <button type="button" className="primary-button director-action" onClick={requestAnalysis}><WandSparkles size={16} />整理方向候选</button>
+        <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={!ready || busyAction !== null || workflow !== null}>
+          <WandSparkles size={16} />{busyAction === 'analyze' ? '正在创建并分析' : workflow ? '已创建任务' : '创建任务并分析'}
+        </button>
       </section>
 
       <section className="director-panel director-panel--directions" aria-labelledby="director-directions-title">
         <div className="director-panel__heading">
           <div><span className="director-panel__index">02</span><div><h2 id="director-directions-title">Direction Candidates</h2><p>候选只表达创意差异，不代表已经分析或获得生成授权。</p></div></div>
-          <span className="director-state">{draft.directions.length} 个候选</span>
+          <span className="director-state">{workflow?.snapshot.plan ? `${draft.directions.length} 个候选` : '等待分析'}</span>
         </div>
         <div className="director-direction-list">
           {draft.directions.map((direction) => <button
             key={direction.id}
             type="button"
             className={`director-direction${draft.selectedDirectionId === direction.id ? ' is-selected' : ''}`}
-            onClick={() => chooseDirection(direction)}
+            onClick={() => void chooseDirection(direction)}
+            disabled={!workflow || workflow.status !== 'AWAITING_DIRECTION' || busyAction !== null}
           >
             <span className="director-direction__marker">{direction.id}</span>
             <span className="director-direction__body"><strong>{direction.title}</strong><small>{direction.summary}</small><span className="director-direction__facts"><em>{direction.human}</em><em>{direction.scene}</em><em>{direction.camera}</em></span></span>
@@ -120,15 +346,77 @@ export function DirectorStudio() {
         </div>
         <div className="director-summary">
           <div><span>DNA / Reality Summary</span><strong>{selectedDirection ? selectedDirection.title : '等待方向选择'}</strong></div>
-          <p>{selectedDirection ? selectedDirection.summary : '真实观察、用户锁定和创意假设将在后端合同接入后分别显示。'}</p>
+          <p>{selectedDirection ? selectedDirection.summary : '上传正面图并完成分析后，服务端会返回 A、B、C 三个离线方向候选。'}</p>
           {snapshot?.referenceStrength !== undefined ? <small>已有参考强度：{snapshot.referenceStrength}</small> : <small>尚未关联 Reality、Spatial 或 Video DNA</small>}
         </div>
       </section>
 
       <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
         <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">Production Package</h2><p>生产包由后端版本化合同提供，前端不复制 Prompt 真源。</p></div></div></div>
-        <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>分析、首帧、分镜和视频授权在接入真实合同前保持关闭。</span></div></div>
-        <dl className="director-package-list"><div><dt>商品事实</dt><dd>{ready ? '正面已提供' : '未提供'}</dd></div><div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div><div><dt>生成任务</dt><dd>未创建</dd></div></dl>
+        <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>此闭环只调用离线 Fake 接口。候选沿用商品正面图作为占位，不能作为真实首帧、审核合格或交付素材。</span></div></div>
+        <dl className="director-package-list">
+          <div><dt>商品事实</dt><dd>{ready ? '正面已提供' : '未提供'}</dd></div>
+          <div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div>
+          <div><dt>任务状态</dt><dd>{workflow?.status ?? '未创建'}</dd></div>
+        </dl>
+        {workflow?.snapshot.package && !workflow.snapshot.candidates.length ? <div className="director-package-actions">
+          {!workflow.snapshot.authorization ? <button type="button" className="primary-button director-action" onClick={() => {
+            const expiresAt = new Date()
+            expiresAt.setTime(expiresAt.getTime() + 60 * 60 * 1000)
+            void authorize(expiresAt.toISOString())
+          }} disabled={busyAction !== null}>
+            <LockKeyhole size={16} />{busyAction === 'authorize' ? '正在记录授权' : '授权 Fake 首帧'}
+          </button> : <button type="button" className="primary-button director-action" onClick={() => void generate()} disabled={busyAction !== null}>
+            <WandSparkles size={16} />{busyAction === 'generate' ? '正在生成 Fake 首帧' : '生成 Fake 首帧'}
+          </button>}
+        </div> : null}
+        {workflow?.snapshot.candidates.length ? <section aria-label="首帧候选审核">
+          <button type="button" className="secondary-button" onClick={() => void refreshWorkflow()} disabled={busyAction !== null}>
+            <RefreshCw size={16} />{busyAction === 'refresh' ? '正在刷新' : '刷新任务状态'}
+          </button>
+          {workflow.snapshot.candidates.map((candidate, index) => {
+            const selected = workflow.snapshot.selection?.candidate_id === candidate.candidate_id
+            const canReview = canReviewDirectorCandidate(workflow, candidate)
+            const reason = rejectionReasons[candidate.candidate_id] ?? ''
+            const latestReview = workflow.snapshot.latest_review?.candidate_id === candidate.candidate_id
+              ? workflow.snapshot.latest_review
+              : undefined
+            const reviewLabel = latestReview?.decision === 'QUALIFIED'
+              ? '服务端审核：合格（仅离线范围）'
+              : latestReview?.decision === 'REJECTED'
+                ? '服务端审核：已拒绝'
+                : candidate.qualified
+                  ? '离线审核：合格（仅流程决定）'
+                  : '离线审核：待人工审核'
+            return <section key={candidate.candidate_id} className="director-candidate" aria-label={`首帧候选 ${index + 1}`} style={{ marginTop: 16, overflowWrap: 'anywhere' }}>
+              <div className="director-candidate__heading"><strong>首帧候选 {index + 1}</strong><p>OFFLINE_SYNTHETIC_ONLY · 不可交付</p></div>
+              <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 首帧占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+              <p>候选 ID：{candidate.candidate_id}</p>
+              <p role="status">{reviewLabel}</p>
+              <p>{selected ? '首帧选择：已选择（仅离线）' : '首帧选择：未选择'}</p>
+              <small>Fake 候选不具备真实 QUALIFIED / Deliverable 资格。</small>
+              <label className="director-field">
+                <span>拒绝理由（必填，最多 500 字）</span>
+                <textarea rows={2} maxLength={500} value={reason} disabled={!canReview || busyAction !== null}
+                  onChange={(event) => setRejectionReasons((current) => ({ ...current, [candidate.candidate_id]: event.target.value }))} />
+              </label>
+              {latestReview?.decision === 'REJECTED' && latestReview.reason
+                ? <p>服务端拒绝理由：{latestReview.reason}</p>
+                : null}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                <button type="button" className="secondary-button" disabled={!canReview || busyAction !== null || candidate.qualified} onClick={() => void reviewCandidate(candidate, 'QUALIFIED')}>
+                  <Check size={16} />离线审核合格
+                </button>
+                <button type="button" className="secondary-button" disabled={!canReview || busyAction !== null || !reason.trim() || reason.trim().length > 500} onClick={() => void reviewCandidate(candidate, 'REJECTED')}>
+                  <X size={16} />拒绝候选
+                </button>
+                <button type="button" className="primary-button" disabled={!canSelectDirectorCandidate(workflow, candidate) || busyAction !== null || selected} onClick={() => void selectFirstFrame(candidate)}>
+                  <Check size={16} />{selected ? '已选择离线首帧' : '选择离线首帧'}
+                </button>
+              </div>
+            </section>
+          })}
+        </section> : null}
       </section>
     </div>
     {notice ? <div className="director-notice" role="status">{notice}</div> : null}
