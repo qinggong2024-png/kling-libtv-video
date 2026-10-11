@@ -9,7 +9,7 @@ import { type View } from '../../app/appTypes'
 import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, RESULT_PHASES } from '../../domain/workflowStates'
 import { TaskElapsed } from '../../shared/components/TaskTiming'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
-import { ProductionComposer } from '../production/ProductionComposer'
+import { VideoStudio as ProductionComposer } from '../video-studio'
 import { ResultCard } from '../production/ResultCard'
 import { isAnalysisFailure, taskFailureMessage, taskStatus, variantDisplayName } from '../../domain/taskPresentation'
 import { ProviderBadge, TaskStatusBadge } from '../../shared/components/Badges'
@@ -85,7 +85,7 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
     })
   }
   return <div className="home-view video-studio" hidden={!active}>
-    <div className="home-title"><div><span className="studio-kicker">Video Studio</span><h1>视频制作</h1></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
+    <div className="home-title"><div><h1>视频制作</h1><span className="studio-kicker">Video Studio</span></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
       <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} layout="studio" />
     </div>

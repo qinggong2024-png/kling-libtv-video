@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { type SystemStatus, type Task } from '../../types'
-import { ProductionComposer } from './ProductionComposer'
+import { VideoStudio as ProductionComposer } from '../video-studio'
 import { type RemixSeed } from './productionTypes'
 
 export function ImageVideoComposerSheet({ seed, system, actorId, onClose, onCreated }: {
