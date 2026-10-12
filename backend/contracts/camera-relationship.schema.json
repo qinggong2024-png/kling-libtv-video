@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "libtv://contracts/camera-relationship/v1",
+  "title": "Camera Relationship Schema",
+  "description": "Static camera-to-subject relationship language for planning. It is not a camera control or video replication contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cameraId", "subjectId", "relationship", "framing"],
+  "properties": {
+    "schemaVersion": { "const": "camera-relationship.v1" },
+    "cameraId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "subjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "relationship": {
+      "enum": [
+        "FRONTAL",
+        "THREE_QUARTER",
+        "PROFILE",
+        "OVER_SHOULDER",
+        "TOP_DOWN",
+        "LOW_ANGLE",
+        "UNKNOWN"
+      ]
+    },
+    "framing": {
+      "enum": ["WIDE", "MEDIUM_WIDE", "MEDIUM", "MEDIUM_CLOSE", "CLOSE", "UNKNOWN"]
+    },
+    "screenSide": { "enum": ["LEFT", "CENTER", "RIGHT", "UNKNOWN"] },
+    "notes": { "type": "string", "maxLength": 500 }
+  }
+}
