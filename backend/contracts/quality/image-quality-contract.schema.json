@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://internal.example/schemas/image-quality-contract-1.0.json",
+  "title": "Image Quality Contract",
+  "description": "Evidence-only image quality observations. It does not change task state or production gating.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "asset", "checks", "observedAt"],
+  "properties": {
+    "contractVersion": {"const": "1.0"},
+    "asset": {"$ref": "#/$defs/asset"},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "observedAt": {"type": "string", "format": "date-time"},
+    "adapter": {"type": "string", "minLength": 1, "maxLength": 120},
+    "mode": {"type": "string", "enum": ["LIVE", "OFFLINE_SYNTHETIC_ONLY"]}
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assetId", "mimeType", "sha256"],
+      "properties": {
+        "assetId": {"type": "string", "minLength": 1, "maxLength": 160},
+        "mimeType": {"type": "string", "pattern": "^image/"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "sizeBytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkId", "result", "evidence"],
+      "properties": {
+        "checkId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"},
+        "result": {"type": "string", "enum": ["PASS", "WARNING", "FAIL", "NOT_EVALUATED"]},
+        "evidence": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+        "observedValue": {},
+        "expectedValue": {},
+        "failureCode": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"}
+      }
+    }
+  }
+}
