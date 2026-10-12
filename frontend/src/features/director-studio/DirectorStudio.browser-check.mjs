@@ -36,12 +36,12 @@ await server.listen()
 const origin = `http://127.0.0.1:${server.httpServer.address().port}`
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 const report = { browser: browser.version(), cases: [], externalRequests: [], sourceHashes: {} }
-for (const file of ['DirectorStudio.tsx', 'directorApi.ts', 'directorModel.ts']) {
+for (const file of ['DirectorStudio.tsx', 'DirectorPlanningViews.tsx', 'directorPresentation.ts', 'directorStudio.css', 'directorApi.ts', 'directorModel.ts', 'productionBridge.ts']) {
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, 'frontend/src/features/director-studio', file))).digest('hex')
 }
 try {
-  for (const width of [1440, 390]) {
-    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, serviceWorkers: 'block' })
+  for (const width of [1440, 1024, 768, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: ({ 390: 844, 768: 1024, 1024: 768 })[width] ?? 900 }, serviceWorkers: 'block' })
     const page = await context.newPage()
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
@@ -83,7 +83,13 @@ try {
         } else if (body.action === 'select_direction') {
           task.status = 'PLAN_READY'
           task.snapshot.plan.selected_direction = body.direction_id
-          task.snapshot.package = { package_id: 'package-1', locks_hash: 'locks' }
+          task.snapshot.package = {
+            package_id: 'package-1', revision: 3, parent_package_id: null,
+            locks_hash: 'a'.repeat(64), preservation_hash: 'b'.repeat(64), facts_revision: 2,
+            ruleset: 'offline-rules-v1', shot_id: 'FIRST_FRAME',
+            prompt: 'Read-only server prompt\nPreserve the original garment.',
+            reality: [{ dimension: 'fabric', decision: 'preserve', evidence: 'Observed original garment' }],
+          }
         } else if (body.action === 'authorize') {
           if (task.snapshot.authorization) {
             assert.equal(body.authorization.parent_authorization_id, task.snapshot.authorization.authorization_id)
@@ -93,9 +99,11 @@ try {
             assert(task.snapshot.selection && task.snapshot.candidates[0].qualified)
             task.snapshot.storyboard.packages.SHOT_01 = {
               package_id: 'storyboard-package-1',
-              locks_hash: 'locks',
+              revision: 4, parent_package_id: 'package-1', facts_revision: 2,
+              locks_hash: 'c'.repeat(64), preservation_hash: 'd'.repeat(64), ruleset: 'offline-rules-v1',
               shot_id: 'SHOT_01',
               purpose: 'VIDEO_STORYBOARD',
+              prompt: 'Read-only storyboard prompt', reality: [],
             }
             task.snapshot.authorization.package_id = 'storyboard-package-1'
           }
@@ -147,12 +155,35 @@ try {
     })
     try {
       await page.goto(origin)
+      await page.getByText('尚无服务端方向候选', { exact: true }).waitFor()
+      await page.getByText('暂无 handoff · 未执行生产预检', { exact: true }).waitFor()
+      await page.getByRole('textbox', { name: '创作目标 可选' }).fill('突出面料与商品细节')
+      await page.getByRole('textbox', { name: '目标受众 可选' }).fill('通勤穿搭用户')
+      await page.getByText('Brief 摘要 · 项目规划记录', { exact: true }).click()
+      assert(await page.getByText('突出面料与商品细节', { exact: true }).isVisible())
+      await page.screenshot({ path: resolve(evidence, `brief-${width}.png`), fullPage: true })
       await page.locator('input[type=file]').setInputFiles({
         name: 'front.png', mimeType: 'image/png',
         buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
       })
       await page.getByRole('button', { name: '创建任务并分析', exact: true }).click()
+      const comparison = page.getByRole('region', { name: '方向差异对比' })
+      await comparison.getByText('scene A', { exact: true }).waitFor()
+      assert.equal(await comparison.locator('article').count(), 3)
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No comparison overflow')
+      await page.screenshot({ path: resolve(evidence, `comparison-${width}.png`), fullPage: true })
       await page.getByRole('button', { name: /A 干净街拍/ }).click()
+      const firstFramePackage = page.getByRole('region', { name: 'FIRST_FRAME 生产包证据' })
+      await firstFramePackage.getByText('r3', { exact: true }).waitFor()
+      await firstFramePackage.getByText('Prompt · 服务端只读', { exact: true }).click()
+      await firstFramePackage.getByText('Reality 决策 · 1 项', { exact: true }).click()
+      assert(await firstFramePackage.getByText('Observed original garment', { exact: true }).isVisible())
+      const bridge = page.getByRole('region', { name: 'Production Bridge Preparation' })
+      await bridge.getByText('服务端预检要求 · 10 项', { exact: true }).click()
+      assert.equal(await bridge.getByText('待服务端验证', { exact: true }).count(), 10)
+      assert(await bridge.getByText('PREFLIGHT_REQUIRED', { exact: true }).isVisible())
+      assert.equal(await bridge.getByRole('button').count(), 0, 'Bridge has no submission control')
+      await page.screenshot({ path: resolve(evidence, `package-bridge-${width}.png`), fullPage: true })
       await page.getByRole('button', { name: '授权 Fake 首帧', exact: true }).click()
       await page.getByRole('button', { name: '生成 Fake 首帧', exact: true }).click()
       const candidate = page.getByRole('region', { name: '首帧候选 1', exact: true })
@@ -169,6 +200,7 @@ try {
       failReview = true
       await approve.click()
       await page.getByRole('status').filter({ hasText: '测试冲突' }).waitFor()
+      assert(await page.getByRole('status').filter({ hasText: 'STALE_VERSION' }).isVisible())
       assert(await select.isDisabled(), 'Failed review never enables selection')
       await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
       await approve.click()
@@ -207,6 +239,7 @@ try {
       assert(await reject.isDisabled())
       assert(await select.isDisabled())
       assert(await candidate.getByText(/OFFLINE_SYNTHETIC_ONLY/).isVisible())
+      assert(await bridge.getByText(/执行证据为 UNKNOWN/).isVisible())
       uncertain = false
       await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
       await approve.click()
@@ -214,6 +247,7 @@ try {
       await select.click()
       await candidate.getByText('首帧选择：已选择（仅离线）', { exact: true }).waitFor()
       await page.getByRole('button', { name: '授权 Fake 分镜', exact: true }).click()
+      await page.getByRole('region', { name: 'SHOT_01 生产包证据' }).getByText('r4', { exact: true }).waitFor()
       await page.getByRole('button', { name: '生成 Fake 分镜', exact: true }).click()
       const storyboardCandidate = page.getByRole('region', { name: '分镜候选 1', exact: true })
       await storyboardCandidate.waitFor()
@@ -245,6 +279,7 @@ try {
       assert.equal(commands.find(command => command.action === 'select' && command.shot_id === 'SHOT_01').shot_id, 'SHOT_01')
       await page.screenshot({ path: resolve(evidence, `selected-${width}.png`), fullPage: true })
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No page overflow')
+      assert(await page.locator('.director-upload img').evaluate(img => img.complete && img.naturalWidth > 0), 'Product preview renders')
       assert.deepEqual(errors, [])
       report.cases.push({ width, passed: true, commands: commands.length })
     } finally {

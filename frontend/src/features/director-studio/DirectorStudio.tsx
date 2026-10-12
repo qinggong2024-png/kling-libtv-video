@@ -6,7 +6,6 @@ import { createUuid } from '../../uuid'
 import {
   createDirectorProduct,
   createDirectorTask,
-  DirectorApiError,
   getDirectorTask,
   sendDirectorCommand,
   type DirectorCommandInput,
@@ -36,6 +35,9 @@ import {
   selectDirectorStoryboardSelection,
 } from './directorSelectors'
 import { prepareProductionBridge } from './productionBridge'
+import { toCreativeBrief } from './directorAdapters'
+import { explainDirectorFailure } from './directorPresentation'
+import { DirectorBriefSummary, DirectorBridgeStatus, DirectorDirectionComparison, DirectorPackageEvidence } from './DirectorPlanningViews'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -175,7 +177,7 @@ export function DirectorStudio() {
       })
       setNotice('方向已记录。接下来需要明确授权后才能生成首帧。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '方向选择失败，请重试。')
+      setNotice(explainDirectorFailure(cause, '方向选择失败，请重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -208,7 +210,7 @@ export function DirectorStudio() {
       applyWorkflow(analyzed)
       setNotice('分析完成。请选择 A、B 或 C 方向。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '创建或分析失败，请检查离线服务。')
+      setNotice(explainDirectorFailure(cause, '创建或分析失败，请检查离线服务。'))
     } finally {
       setBusyAction(null)
     }
@@ -254,7 +256,7 @@ export function DirectorStudio() {
         ? '分镜授权已记录。现在可以生成离线 Fake 分镜。'
         : '首帧授权已记录。现在可以生成离线 Fake 首帧。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '授权结果未确认，请刷新任务状态后重试。')
+      setNotice(explainDirectorFailure(cause, '授权结果未确认，请刷新任务状态后重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -271,7 +273,7 @@ export function DirectorStudio() {
       })
       setNotice('Fake 首帧已生成。该候选仅用于离线流程验证，不可交付。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : 'Fake 首帧生成失败，请重试。')
+      setNotice(explainDirectorFailure(cause, 'Fake 首帧生成失败，请重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -291,7 +293,7 @@ export function DirectorStudio() {
       })
       setNotice('Fake 分镜已生成。该候选仅用于离线流程验证，不可交付。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : 'Fake 分镜生成失败，请重试。')
+      setNotice(explainDirectorFailure(cause, 'Fake 分镜生成失败，请重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -319,7 +321,7 @@ export function DirectorStudio() {
         ? '离线审核决定已记录，可单独选择候选；该 Fake 候选仍不可交付。'
         : '离线拒绝已记录，该候选的选择已撤回。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '审核结果未确认，请刷新任务状态后重试。')
+      setNotice(explainDirectorFailure(cause, '审核结果未确认，请刷新任务状态后重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -333,7 +335,7 @@ export function DirectorStudio() {
       await runCommand('select', { candidate_id: candidate.candidate_id })
       setNotice('离线首帧选择已记录；不代表真实 QUALIFIED 或可交付素材。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '选择结果未确认，请刷新任务状态后重试。')
+      setNotice(explainDirectorFailure(cause, '选择结果未确认，请刷新任务状态后重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -350,7 +352,7 @@ export function DirectorStudio() {
       })
       setNotice('离线分镜选择已记录；不代表真实 QUALIFIED 或可交付素材。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '分镜选择未确认，请刷新任务状态后重试。')
+      setNotice(explainDirectorFailure(cause, '分镜选择未确认，请刷新任务状态后重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -364,7 +366,7 @@ export function DirectorStudio() {
       applyWorkflow(await getDirectorTask(workflow.id))
       setNotice('已读取服务端状态，审核决定和理由来自最新服务端记录。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '任务状态刷新失败，请重试。')
+      setNotice(explainDirectorFailure(cause, '任务状态刷新失败，请重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -406,9 +408,14 @@ export function DirectorStudio() {
           <label><input type="radio" checked={draft.intake.brandMode === 'brand'} onChange={() => updateIntake({ brandMode: 'brand' })} />选择品牌</label>
         </fieldset>
         {draft.intake.brandMode === 'brand' ? <label className="director-field"><span>品牌名称</span><input value={draft.intake.brandName} onChange={(event) => updateIntake({ brandName: event.target.value })} placeholder="输入已确认的品牌" /></label> : null}
+        <fieldset className="director-brief" aria-describedby="director-brief-scope">
+        <legend>Creative Brief</legend>
+        <p id="director-brief-scope" className="director-evidence__note">项目规划记录 · 未纳入当前离线分析请求</p>
         <label className="director-field"><span>创作目标 <small>可选</small></span><input value={draft.intake.objective} onChange={(event) => updateIntake({ objective: event.target.value })} placeholder="例如：突出面料质感和日常穿着场景" /></label>
         <label className="director-field"><span>目标受众 <small>可选</small></span><input value={draft.intake.audience} onChange={(event) => updateIntake({ audience: event.target.value })} placeholder="例如：关注通勤穿搭的成年用户" /></label>
         <label className="director-field"><span>创作备注 <small>可选</small></span><textarea value={draft.intake.notes} onChange={(event) => updateIntake({ notes: event.target.value })} rows={3} placeholder="记录用户锁定项或需要保留的商品细节" /></label>
+        </fieldset>
+        <DirectorBriefSummary brief={toCreativeBrief(draft.intake)} />
         <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={!ready || busyAction !== null || workflow !== null}>
           <WandSparkles size={16} />{busyAction === 'analyze' ? '正在创建并分析' : workflow ? '已创建任务' : '创建任务并分析'}
         </button>
@@ -424,14 +431,16 @@ export function DirectorStudio() {
             key={direction.id}
             type="button"
             className={`director-direction${draft.selectedDirectionId === direction.id ? ' is-selected' : ''}`}
+            aria-pressed={draft.selectedDirectionId === direction.id}
             onClick={() => void chooseDirection(direction)}
             disabled={!workflow || workflow.status !== 'AWAITING_DIRECTION' || busyAction !== null}
           >
             <span className="director-direction__marker">{direction.id}</span>
-            <span className="director-direction__body"><strong>{direction.title}</strong><small>{direction.summary}</small><span className="director-direction__facts"><em>{direction.human}</em><em>{direction.scene}</em><em>{direction.camera}</em></span></span>
+            <span className="director-direction__body"><strong>{direction.title}</strong><small>{workflow?.snapshot.plan ? direction.summary : '本地规划参考 · 等待服务端分析'}</small></span>
             <span className="director-direction__check">{draft.selectedDirectionId === direction.id ? <Check size={17} /> : '选择'}</span>
           </button>)}
         </div>
+        <DirectorDirectionComparison workflow={workflow} draft={draft} />
         <div className="director-summary">
           <div><span>DNA / Reality Summary</span><strong>{selectedDirection ? selectedDirection.title : '等待方向选择'}</strong></div>
           <p>{selectedDirection ? selectedDirection.summary : '上传正面图并完成分析后，服务端会返回 A、B、C 三个离线方向候选。'}</p>
@@ -447,6 +456,13 @@ export function DirectorStudio() {
           <div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div>
           <div><dt>任务状态</dt><dd>{workflow?.status ?? '未创建'}</dd></div>
         </dl>
+        {workflow ? <div className="director-task-toolbar">
+          <span>版本 {workflow.state_version} · {workflow.snapshot.execution_state ?? '暂无执行证据'}</span>
+          <button type="button" className="secondary-button" onClick={() => void refreshWorkflow()} disabled={busyAction !== null}>
+            <RefreshCw size={16} />{busyAction === 'refresh' ? '正在刷新' : '刷新任务状态'}
+          </button>
+        </div> : null}
+        <DirectorPackageEvidence workflow={workflow} shotId="FIRST_FRAME" />
         {workflow?.snapshot.package && !firstFrameCandidates.length ? <div className="director-package-actions">
           {!workflow.snapshot.authorization ? <button type="button" className="primary-button director-action" onClick={() => {
             const expiresAt = new Date()
@@ -459,9 +475,6 @@ export function DirectorStudio() {
           </button>}
         </div> : null}
         {workflow && firstFrameCandidates.length ? <section aria-label="首帧候选审核">
-          <button type="button" className="secondary-button" onClick={() => void refreshWorkflow()} disabled={busyAction !== null}>
-            <RefreshCw size={16} />{busyAction === 'refresh' ? '正在刷新' : '刷新任务状态'}
-          </button>
           {firstFrameCandidates.map((candidate, index) => {
             if (!workflow) return null
             const selected = workflow.snapshot.selection?.candidate_id === candidate.candidate_id
@@ -530,6 +543,7 @@ export function DirectorStudio() {
               <span>分镜包继承已选离线首帧的服务端合同。Fake 分镜仅用于验证 workflow，不具备真实视频生产或交付资格。</span>
             </div>
           </div>
+          <DirectorPackageEvidence workflow={workflow} shotId="SHOT_01" />
           {workflow && canAuthorizeStoryboard(workflow) ? <button
             type="button"
             className="primary-button director-action"
@@ -638,6 +652,7 @@ export function DirectorStudio() {
               </li>)}
             </ul>
           </div> : null}
+          <DirectorBridgeStatus preparation={bridgePreparation} workflow={workflow} />
         </section>
       </section>
     </div>
