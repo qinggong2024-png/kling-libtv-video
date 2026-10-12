@@ -1,7 +1,7 @@
 # Video Replication Research Preparation v1
 
-状态：P3 / schema-interface-adapter only  
-执行边界：Window 7  
+状态：P3 / schema-interface-adapter only
+执行边界：Window 7
 日期：2026-10-12
 
 ## Purpose
