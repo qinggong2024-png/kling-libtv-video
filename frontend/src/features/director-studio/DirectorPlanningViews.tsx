@@ -89,7 +89,7 @@ export function DirectorBridgeStatus({ preparation, workflow }: { preparation: P
     {explanation.executionWarning ? <p className="director-execution-warning" role="status">{explanation.executionWarning}</p> : null}
     <h3>当前阻断原因</h3>
     <ul className="director-blocking-reasons">
-      {explanation.blockingReasons.map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}
+      {explanation.blockingReasons.map((reason) => <li key={reason.code}>{reason.message}</li>)}
     </ul>
     <details className="director-evidence">
       <summary>服务端预检要求 · {explanation.checks.length} 项</summary>

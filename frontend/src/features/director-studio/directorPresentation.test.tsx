@@ -129,6 +129,9 @@ describe('Director UX read-only projections', () => {
     expect(markup).toContain('禁止 Provider submission')
     expect(markup).toContain('OFFLINE_SYNTHETIC_ONLY 不可交付')
     expect(markup).toContain('待验证不等于验证失败')
+    for (const reason of preparation.blockingReasons) {
+      expect(markup).toContain(reason.message)
+    }
     expect(markup).not.toContain('<button')
     expect(preparation.providerSubmissionAllowed).toBe(false)
   })
