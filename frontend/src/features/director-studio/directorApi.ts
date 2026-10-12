@@ -2,6 +2,9 @@ import { getCurrentUser, getSystemStatus } from '../../api'
 import { createUuid } from '../../uuid'
 
 export type DirectorCommandAction = 'analyze' | 'select_direction' | 'authorize' | 'generate' | 'review' | 'select'
+export type DirectorWorkflowScope = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
+export type DirectorWorkflowShotId = 'FIRST_FRAME' | 'SHOT_01' | string
+export type DirectorPackagePurpose = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
 
 export interface DirectorCandidate {
   candidate_id: string
@@ -23,8 +26,60 @@ export interface DirectorLatestReview {
   candidate_id: string
   reviewer_id: string
   decision: 'QUALIFIED' | 'REJECTED'
-  qualification_scope: 'OFFLINE_SYNTHETIC_ONLY'
+  qualification_scope: string
   reason: string | null
+  shot_id?: DirectorWorkflowShotId
+}
+
+export interface DirectorProductionPackage {
+  package_id: string
+  revision: number
+  parent_package_id: string | null
+  locks_hash: string
+  facts_revision: number
+  preservation_hash: string
+  ruleset: string
+  purpose: DirectorPackagePurpose
+  shot_id: DirectorWorkflowShotId
+  source_first_frame_candidate_id?: string
+  prompt: string
+  reality: Array<{ dimension: string; decision: string; evidence: string }>
+}
+
+export interface DirectorAuthorization {
+  authorization_id: string
+  package_id: string
+  locks_hash: string
+  scope: DirectorWorkflowScope
+  shot_ids: string[]
+  expires_at: string
+  loop_enabled: boolean
+  max_revisions: number
+  max_calls: number
+  max_cost_micros: number
+  currency: string
+  allowed_modules: string[]
+  parent_authorization_id?: string | null
+  total_task_cap_micros?: number | null
+}
+
+export interface DirectorSelection {
+  candidate_id: string
+  package_id: string
+  shot_id: DirectorWorkflowShotId
+  batch_id?: string
+  item_id?: string
+  output_id?: string
+  order?: number
+  synthetic?: boolean
+}
+
+export interface DirectorStoryboardState {
+  packages: Record<string, DirectorProductionPackage>
+  candidates: DirectorCandidate[]
+  selections: Record<string, DirectorSelection>
+  latest_reviews: Record<string, DirectorLatestReview>
+  shot_mappings?: Record<string, unknown>
 }
 
 export interface DirectorTaskSnapshot {
@@ -47,26 +102,21 @@ export interface DirectorTaskSnapshot {
     facts_revision: number
     preservation_hash: string
     ruleset: string
+    purpose?: 'FIRST_FRAME'
     shot_id: 'FIRST_FRAME'
     prompt: string
     reality: Array<{ dimension: string; decision: string; evidence: string }>
   }
-  authorization?: {
-    authorization_id: string
-    package_id: string
-    locks_hash: string
-    expires_at: string
-  }
+  storyboard?: DirectorStoryboardState
+  packages?: Record<string, DirectorProductionPackage>
+  authorization?: DirectorAuthorization
   execution_state?: string
   stop_reason?: string
   stopped?: boolean
   latest_review?: DirectorLatestReview
-  selection?: {
-    candidate_id: string
-    package_id: string
-    shot_id: 'FIRST_FRAME'
-    synthetic: true
-  }
+  latest_reviews?: Record<string, DirectorLatestReview>
+  selection?: DirectorSelection
+  selections?: Record<string, DirectorSelection>
 }
 
 export interface DirectorTaskResponse {
@@ -84,21 +134,24 @@ export interface DirectorCommandInput {
   direction_id?: 'A' | 'B' | 'C'
   package_id?: string
   candidate_id?: string
+  shot_id?: DirectorWorkflowShotId
   decision?: 'QUALIFIED' | 'REJECTED'
   reason?: string
   authorization?: {
     authorization_id: string
     package_id: string
     locks_hash: string
-    scope: 'FIRST_FRAME'
-    shot_ids: ['FIRST_FRAME']
+    scope: DirectorWorkflowScope
+    shot_ids: string[]
     expires_at: string
-    loop_enabled: false
-    max_revisions: 0
-    max_calls: 6
-    max_cost_micros: 6
-    currency: 'FAKE'
-    allowed_modules: ['Reality']
+    loop_enabled: boolean
+    max_revisions: number
+    max_calls: number
+    max_cost_micros: number
+    currency: string
+    allowed_modules: string[]
+    parent_authorization_id?: string | null
+    total_task_cap_micros?: number | null
   }
 }
 
@@ -193,6 +246,7 @@ export function sendDirectorCommand(
         ...(input.direction_id ? { direction_id: input.direction_id } : {}),
         ...(input.package_id ? { package_id: input.package_id } : {}),
         ...(input.candidate_id ? { candidate_id: input.candidate_id } : {}),
+        ...(input.shot_id ? { shot_id: input.shot_id } : {}),
         ...(input.decision ? { decision: input.decision } : {}),
         ...(input.reason ? { reason: input.reason } : {}),
         ...(input.authorization ? { authorization: input.authorization } : {}),

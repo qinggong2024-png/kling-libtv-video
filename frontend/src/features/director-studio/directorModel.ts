@@ -14,11 +14,56 @@ export function canReviewDirectorCandidate(
     && candidate.package_id === workflow.snapshot.package?.package_id
 }
 
+export function canReviewDirectorStoryboardCandidate(
+  workflow: DirectorTaskResponse,
+  candidate: DirectorCandidate,
+): boolean {
+  return workflow.mode === 'OFFLINE_FAKE_ONLY'
+    && workflow.status === 'STORYBOARD_REVIEW'
+    && !workflow.snapshot.stopped
+    && !['UNKNOWN', 'WRITE_UNCERTAIN'].includes(workflow.snapshot.execution_state ?? '')
+    && candidate.synthetic
+    && candidate.shot_id === 'SHOT_01'
+    && candidate.package_id === workflow.snapshot.storyboard?.packages?.SHOT_01?.package_id
+}
+
 export function canSelectDirectorCandidate(
   workflow: DirectorTaskResponse,
   candidate: DirectorCandidate,
 ): boolean {
   return canReviewDirectorCandidate(workflow, candidate) && candidate.qualified
+}
+
+export function canSelectDirectorStoryboardCandidate(
+  workflow: DirectorTaskResponse,
+  candidate: DirectorCandidate,
+): boolean {
+  return canReviewDirectorStoryboardCandidate(workflow, candidate) && candidate.qualified
+}
+
+export function hasSelectedFirstFrame(workflow: DirectorTaskResponse): boolean {
+  const selection = workflow.snapshot.selection
+  return Boolean(
+    selection?.shot_id === 'FIRST_FRAME'
+      && workflow.snapshot.candidates.some((candidate) => (
+        candidate.candidate_id === selection.candidate_id
+          && candidate.shot_id === 'FIRST_FRAME'
+          && candidate.qualified
+          && candidate.synthetic
+          && candidate.package_id === workflow.snapshot.package?.package_id
+          && selection.package_id === candidate.package_id
+      )),
+  )
+}
+
+export function canAuthorizeStoryboard(workflow: DirectorTaskResponse): boolean {
+  return workflow.mode === 'OFFLINE_FAKE_ONLY'
+    && workflow.status === 'IMAGE_REVIEW'
+    && !workflow.snapshot.stopped
+    && !['UNKNOWN', 'WRITE_UNCERTAIN'].includes(workflow.snapshot.execution_state ?? '')
+    && hasSelectedFirstFrame(workflow)
+    && Boolean(workflow.snapshot.package)
+    && workflow.snapshot.authorization?.scope !== 'VIDEO_STORYBOARD'
 }
 
 export type DirectorBrandMode = 'brand' | 'generic'

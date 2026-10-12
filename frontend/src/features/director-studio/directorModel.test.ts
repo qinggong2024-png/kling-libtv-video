@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canReviewDirectorCandidate, canSelectDirectorCandidate, createDirectorDraft, directionsFromAnalysis, isDirectorIntakeReady, selectDirectorDirection } from './directorModel'
+import { canAuthorizeStoryboard, canReviewDirectorCandidate, canReviewDirectorStoryboardCandidate, canSelectDirectorCandidate, canSelectDirectorStoryboardCandidate, createDirectorDraft, directionsFromAnalysis, isDirectorIntakeReady, selectDirectorDirection } from './directorModel'
 import type { DirectorCandidate, DirectorTaskResponse } from './directorApi'
 
 describe('Director Studio planning model', () => {
@@ -67,5 +67,66 @@ describe('Director offline review boundary', () => {
     for (const patch of [{ package_id: 'old-package' }, { shot_id: 'shot-2' }, { synthetic: false }]) {
       expect(canSelectDirectorCandidate(workflow, { ...candidate, ...patch, qualified: true })).toBe(false)
     }
+  })
+
+  it('keeps storyboard review behind a selected first-frame and a separate package', () => {
+    const storyboardCandidate = {
+      ...candidate,
+      candidate_id: 'storyboard-1',
+      package_id: 'storyboard-package-1',
+      shot_id: 'SHOT_01',
+      qualified: false,
+    } as DirectorCandidate
+    const storyboardWorkflow = {
+      ...workflow,
+      status: 'STORYBOARD_REVIEW',
+      snapshot: {
+        ...workflow.snapshot,
+        package: { package_id: 'package-1' },
+        candidates: [{ ...candidate, qualified: true }],
+        selection: { candidate_id: candidate.candidate_id, package_id: 'package-1', shot_id: 'FIRST_FRAME' },
+        storyboard: {
+          packages: { SHOT_01: { package_id: 'storyboard-package-1' } },
+          candidates: [storyboardCandidate],
+        },
+      },
+    } as unknown as DirectorTaskResponse
+
+    expect(canReviewDirectorStoryboardCandidate(storyboardWorkflow, storyboardCandidate)).toBe(true)
+    expect(canSelectDirectorStoryboardCandidate(storyboardWorkflow, { ...storyboardCandidate, qualified: true })).toBe(true)
+    expect(canReviewDirectorCandidate(storyboardWorkflow, storyboardCandidate)).toBe(false)
+  })
+
+  it('opens storyboard authorization only after first-frame human qualification and selection', () => {
+    const eligible = {
+      ...workflow,
+      snapshot: {
+        ...workflow.snapshot,
+        candidates: [{ ...candidate, qualified: true }],
+        selection: { candidate_id: candidate.candidate_id, package_id: 'package-1', shot_id: 'FIRST_FRAME' },
+      },
+    } as DirectorTaskResponse
+
+    expect(canAuthorizeStoryboard(eligible)).toBe(true)
+    expect(canAuthorizeStoryboard({
+      ...eligible,
+      snapshot: { ...eligible.snapshot, selection: undefined },
+    })).toBe(false)
+    for (const patch of [{ qualified: false }, { synthetic: false }, { package_id: 'stale-package' }]) {
+      expect(canAuthorizeStoryboard({
+        ...eligible,
+        snapshot: { ...eligible.snapshot, candidates: [{ ...candidate, qualified: true, ...patch }] },
+      })).toBe(false)
+    }
+    for (const execution_state of ['UNKNOWN', 'WRITE_UNCERTAIN']) {
+      expect(canAuthorizeStoryboard({
+        ...eligible,
+        snapshot: { ...eligible.snapshot, execution_state },
+      })).toBe(false)
+    }
+    expect(canAuthorizeStoryboard({
+      ...eligible, snapshot: { ...eligible.snapshot, stopped: true },
+    })).toBe(false)
+    expect(canAuthorizeStoryboard({ ...eligible, mode: 'REAL_PROVIDER' })).toBe(false)
   })
 })

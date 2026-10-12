@@ -111,6 +111,51 @@ describe('Director Studio offline API adapter', () => {
     ])
   })
 
+  it('sends storyboard scope and shot identity without changing the command endpoint', async () => {
+    vi.mocked(fetch).mockImplementation(async () => jsonResponse({ id: 'task-1' }))
+    await sendDirectorCommand('task-1', {
+      action: 'authorize',
+      expected_version: 7,
+      command_key: 'storyboard-authorize-1',
+      authorization: {
+        authorization_id: 'auth-storyboard-1',
+        package_id: 'task-1:storyboard:SHOT_01:1',
+        locks_hash: 'locks',
+        scope: 'VIDEO_STORYBOARD',
+        shot_ids: ['SHOT_01'],
+        expires_at: '2026-10-12T02:00:00.000Z',
+        loop_enabled: false,
+        max_revisions: 0,
+        max_calls: 6,
+        max_cost_micros: 6,
+        currency: 'FAKE',
+        allowed_modules: ['Reality'],
+      },
+    })
+    await sendDirectorCommand('task-1', {
+      action: 'select',
+      expected_version: 8,
+      command_key: 'storyboard-select-1',
+      candidate_id: 'storyboard-candidate-1',
+      shot_id: 'SHOT_01',
+    })
+
+    expect(vi.mocked(fetch).mock.calls.map((call) => JSON.parse(String(call[1]?.body)))).toEqual([
+      expect.objectContaining({
+        action: 'authorize',
+        authorization: expect.objectContaining({
+          scope: 'VIDEO_STORYBOARD',
+          shot_ids: ['SHOT_01'],
+        }),
+      }),
+      expect.objectContaining({
+        action: 'select',
+        candidate_id: 'storyboard-candidate-1',
+        shot_id: 'SHOT_01',
+      }),
+    ])
+  })
+
   it('reads current task state without submitting a command', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
       id: 'task-1', state_version: 7,

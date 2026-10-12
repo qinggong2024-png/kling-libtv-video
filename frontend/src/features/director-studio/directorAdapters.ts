@@ -29,7 +29,8 @@ export function toProductionPackage(
     facts_revision: number
     preservation_hash: string
     ruleset: string
-    shot_id: 'FIRST_FRAME'
+    purpose?: 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
+    shot_id: 'FIRST_FRAME' | 'SHOT_01'
     prompt: string
     reality: Array<{ dimension: string; decision: string; evidence: string }>
   },
