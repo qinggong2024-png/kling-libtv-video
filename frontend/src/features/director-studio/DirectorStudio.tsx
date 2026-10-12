@@ -17,6 +17,9 @@ import {
   createDirectorDraft,
   canReviewDirectorCandidate,
   canSelectDirectorCandidate,
+  canReviewDirectorStoryboardCandidate,
+  canSelectDirectorStoryboardCandidate,
+  canAuthorizeStoryboard,
   directionsFromAnalysis,
   isDirectorIntakeReady,
   selectDirectorDirection,
@@ -24,7 +27,14 @@ import {
   type DirectorDirection,
   type DirectorProductIntake,
 } from './directorModel'
-import { selectDirectorPlanningSnapshot } from './directorSelectors'
+import {
+  selectDirectorFirstFrameCandidates,
+  selectDirectorPlanningSnapshot,
+  selectDirectorStoryboardCandidates,
+  selectDirectorStoryboardPackage,
+  selectDirectorStoryboardReview,
+  selectDirectorStoryboardSelection,
+} from './directorSelectors'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -37,15 +47,30 @@ export function DirectorStudio() {
   const projectContext = useOptionalCreativeProject()
   const [draft, setDraft] = useState<DirectorDraft>(createDirectorDraft)
   const [workflow, setWorkflow] = useState<DirectorTaskResponse | null>(null)
-  const [busyAction, setBusyAction] = useState<'analyze' | 'select' | 'authorize' | 'generate' | 'review' | 'select_frame' | 'refresh' | null>(null)
+  const [busyAction, setBusyAction] = useState<'analyze' | 'select' | 'authorize' | 'generate' | 'authorize_storyboard' | 'generate_storyboard' | 'review' | 'select_frame' | 'select_storyboard' | 'refresh' | null>(null)
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const clientKeyRef = useRef(createUuid())
   const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
+  const authorizationRef = useRef<{
+    fingerprint: string
+    payload: NonNullable<DirectorCommandInput['authorization']>
+  } | null>(null)
   const ready = isDirectorIntakeReady(draft.intake)
   const selectedDirection = draft.directions.find((direction) => direction.id === draft.selectedDirectionId) ?? null
+  const firstFrameCandidates = selectDirectorFirstFrameCandidates(workflow)
+  const storyboardPackage = selectDirectorStoryboardPackage(workflow)
+  const storyboardCandidates = selectDirectorStoryboardCandidates(workflow)
+  const storyboardSelection = selectDirectorStoryboardSelection(workflow)
+  const storyboardReview = selectDirectorStoryboardReview(workflow)
   const packageState = workflow?.snapshot.package
-    ? workflow.status === 'IMAGE_REVIEW' ? 'Fake 首帧已生成，等待人工查看' : '生产包已锁定'
+    ? workflow.status === 'STORYBOARD_REVIEW'
+      ? 'Fake 分镜已生成，等待人工查看'
+      : workflow.status === 'IMAGE_REVIEW' && firstFrameCandidates.length
+        ? 'Fake 首帧已生成，等待人工查看'
+        : storyboardPackage
+          ? '首帧已选，分镜生产包已锁定'
+          : '生产包已锁定'
     : selectedDirection ? '方向已选择，等待授权' : '选择方向后生成生产包预览'
   const snapshot = useMemo(
     () => updateProjectSnapshot(projectContext?.project.intelligenceSnapshot),
@@ -132,11 +157,11 @@ export function DirectorStudio() {
     setNotice('')
     try {
       const nextDraft = selectDirectorDirection(draft, direction.id)
-      await runCommand('select_direction', {
+      const nextWorkflow = await runCommand('select_direction', {
         direction_id: direction.id,
       })
       setDraft(nextDraft)
-      persistPlanningSnapshot(workflow, nextDraft)
+      persistPlanningSnapshot(nextWorkflow, nextDraft)
       projectContext?.updateProject({
         currentStage: 'AWAITING_DIRECTION',
         metadata: {
@@ -185,19 +210,27 @@ export function DirectorStudio() {
     }
   }
 
-  const authorize = async (expiresAt: string) => {
-    const packageRevision = workflow?.snapshot.package
+  const authorize = async (expiresAt: string, scope: 'FIRST_FRAME' | 'VIDEO_STORYBOARD') => {
+    const packageRevision = scope === 'VIDEO_STORYBOARD'
+      ? storyboardPackage ?? workflow?.snapshot.package
+      : workflow?.snapshot.package
     if (!workflow || !packageRevision || busyAction) return
-    setBusyAction('authorize')
+    if (scope === 'VIDEO_STORYBOARD' && !canAuthorizeStoryboard(workflow)) return
+    setBusyAction(scope === 'VIDEO_STORYBOARD' ? 'authorize_storyboard' : 'authorize')
     setNotice('')
     try {
-      await runCommand('authorize', {
-        authorization: {
+      const fingerprint = JSON.stringify([workflow.id, workflow.state_version, scope])
+      if (authorizationRef.current?.fingerprint !== fingerprint) {
+        authorizationRef.current = { fingerprint, payload: {
           authorization_id: createUuid(),
-          package_id: packageRevision.package_id,
+          // The backend accepts the root package for storyboard authorization
+          // and returns the generated SHOT_01 package in the next snapshot.
+          package_id: scope === 'VIDEO_STORYBOARD'
+            ? workflow.snapshot.package?.package_id ?? packageRevision.package_id
+            : packageRevision.package_id,
           locks_hash: packageRevision.locks_hash,
-          scope: 'FIRST_FRAME',
-          shot_ids: ['FIRST_FRAME'],
+          scope,
+          shot_ids: [scope === 'VIDEO_STORYBOARD' ? 'SHOT_01' : 'FIRST_FRAME'],
           expires_at: expiresAt,
           loop_enabled: false,
           max_revisions: 0,
@@ -205,11 +238,19 @@ export function DirectorStudio() {
           max_cost_micros: 6,
           currency: 'FAKE',
           allowed_modules: ['Reality'],
-        },
+          ...(workflow.snapshot.authorization ? {
+            parent_authorization_id: workflow.snapshot.authorization.authorization_id,
+          } : {}),
+        } }
+      }
+      await runCommand('authorize', {
+        authorization: authorizationRef.current.payload,
       })
-      setNotice('首帧授权已记录。现在可以生成离线 Fake 首帧。')
+      setNotice(scope === 'VIDEO_STORYBOARD'
+        ? '分镜授权已记录。现在可以生成离线 Fake 分镜。'
+        : '首帧授权已记录。现在可以生成离线 Fake 首帧。')
     } catch (cause) {
-      setNotice(cause instanceof DirectorApiError ? cause.message : '首帧授权失败，请重试。')
+      setNotice(cause instanceof DirectorApiError ? cause.message : '授权结果未确认，请刷新任务状态后重试。')
     } finally {
       setBusyAction(null)
     }
@@ -232,8 +273,33 @@ export function DirectorStudio() {
     }
   }
 
+  const generateStoryboard = async () => {
+    if (!workflow || !storyboardPackage || workflow.snapshot.authorization?.scope !== 'VIDEO_STORYBOARD' || busyAction) return
+    if (workflow.mode !== 'OFFLINE_FAKE_ONLY' || workflow.status !== 'IMAGE_REVIEW'
+      || workflow.snapshot.stopped
+      || ['UNKNOWN', 'WRITE_UNCERTAIN'].includes(workflow.snapshot.execution_state ?? '')) return
+    setBusyAction('generate_storyboard')
+    setNotice('')
+    try {
+      await runCommand('generate', {
+        package_id: storyboardPackage.package_id,
+        shot_id: 'SHOT_01',
+      })
+      setNotice('Fake 分镜已生成。该候选仅用于离线流程验证，不可交付。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : 'Fake 分镜生成失败，请重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const reviewCandidate = async (candidate: DirectorCandidate, decision: 'QUALIFIED' | 'REJECTED') => {
-    if (!workflow || busyAction || !canReviewDirectorCandidate(workflow, candidate)) return
+    const canReview = workflow && candidate.shot_id === 'FIRST_FRAME'
+      ? canReviewDirectorCandidate(workflow, candidate)
+      : workflow
+        ? canReviewDirectorStoryboardCandidate(workflow, candidate)
+        : false
+    if (!workflow || busyAction || !canReview) return
     const reason = rejectionReasons[candidate.candidate_id]?.trim() ?? ''
     if (decision === 'REJECTED' && (!reason || reason.length > 500)) return
     setBusyAction('review')
@@ -241,12 +307,13 @@ export function DirectorStudio() {
     try {
       await runCommand('review', {
         candidate_id: candidate.candidate_id,
+        ...(candidate.shot_id !== 'FIRST_FRAME' ? { shot_id: candidate.shot_id } : {}),
         decision,
         ...(decision === 'REJECTED' ? { reason } : {}),
       })
       setNotice(decision === 'QUALIFIED'
-        ? '离线审核决定已记录，可单独选择首帧；该 Fake 候选仍不可交付。'
-        : '离线拒绝已记录，该候选的首帧选择已撤回。')
+        ? '离线审核决定已记录，可单独选择候选；该 Fake 候选仍不可交付。'
+        : '离线拒绝已记录，该候选的选择已撤回。')
     } catch (cause) {
       setNotice(cause instanceof DirectorApiError ? cause.message : '审核结果未确认，请刷新任务状态后重试。')
     } finally {
@@ -263,6 +330,23 @@ export function DirectorStudio() {
       setNotice('离线首帧选择已记录；不代表真实 QUALIFIED 或可交付素材。')
     } catch (cause) {
       setNotice(cause instanceof DirectorApiError ? cause.message : '选择结果未确认，请刷新任务状态后重试。')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const selectStoryboard = async (candidate: DirectorCandidate) => {
+    if (!workflow || busyAction || !canSelectDirectorStoryboardCandidate(workflow, candidate)) return
+    setBusyAction('select_storyboard')
+    setNotice('')
+    try {
+      await runCommand('select', {
+        candidate_id: candidate.candidate_id,
+        shot_id: 'SHOT_01',
+      })
+      setNotice('离线分镜选择已记录；不代表真实 QUALIFIED 或可交付素材。')
+    } catch (cause) {
+      setNotice(cause instanceof DirectorApiError ? cause.message : '分镜选择未确认，请刷新任务状态后重试。')
     } finally {
       setBusyAction(null)
     }
@@ -359,22 +443,23 @@ export function DirectorStudio() {
           <div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div>
           <div><dt>任务状态</dt><dd>{workflow?.status ?? '未创建'}</dd></div>
         </dl>
-        {workflow?.snapshot.package && !workflow.snapshot.candidates.length ? <div className="director-package-actions">
+        {workflow?.snapshot.package && !firstFrameCandidates.length ? <div className="director-package-actions">
           {!workflow.snapshot.authorization ? <button type="button" className="primary-button director-action" onClick={() => {
             const expiresAt = new Date()
             expiresAt.setTime(expiresAt.getTime() + 60 * 60 * 1000)
-            void authorize(expiresAt.toISOString())
+            void authorize(expiresAt.toISOString(), 'FIRST_FRAME')
           }} disabled={busyAction !== null}>
             <LockKeyhole size={16} />{busyAction === 'authorize' ? '正在记录授权' : '授权 Fake 首帧'}
           </button> : <button type="button" className="primary-button director-action" onClick={() => void generate()} disabled={busyAction !== null}>
             <WandSparkles size={16} />{busyAction === 'generate' ? '正在生成 Fake 首帧' : '生成 Fake 首帧'}
           </button>}
         </div> : null}
-        {workflow?.snapshot.candidates.length ? <section aria-label="首帧候选审核">
+        {workflow && firstFrameCandidates.length ? <section aria-label="首帧候选审核">
           <button type="button" className="secondary-button" onClick={() => void refreshWorkflow()} disabled={busyAction !== null}>
             <RefreshCw size={16} />{busyAction === 'refresh' ? '正在刷新' : '刷新任务状态'}
           </button>
-          {workflow.snapshot.candidates.map((candidate, index) => {
+          {firstFrameCandidates.map((candidate, index) => {
+            if (!workflow) return null
             const selected = workflow.snapshot.selection?.candidate_id === candidate.candidate_id
             const canReview = canReviewDirectorCandidate(workflow, candidate)
             const reason = rejectionReasons[candidate.candidate_id] ?? ''
@@ -417,6 +502,93 @@ export function DirectorStudio() {
             </section>
           })}
         </section> : null}
+        <section className="director-storyboard" aria-labelledby="director-storyboard-title">
+          <div className="director-panel__heading">
+            <div>
+              <span className="director-panel__index">04</span>
+              <div>
+                <h2 id="director-storyboard-title">Storyboard / SHOT_01</h2>
+                <p>首帧选择后，单独授权并验证第一镜头的离线分镜候选。</p>
+              </div>
+            </div>
+            <span className="director-state">
+              {storyboardCandidates.length
+                ? `${storyboardCandidates.length} 个候选`
+                : storyboardPackage
+                  ? '已准备'
+                  : '等待首帧选择'}
+            </span>
+          </div>
+          <div className="director-package-state">
+            <LockKeyhole size={18} />
+            <div>
+              <strong>{storyboardPackage ? 'SHOT_01 分镜包已建立' : 'SHOT_01 分镜包未建立'}</strong>
+              <span>分镜包继承已选离线首帧的服务端合同。Fake 分镜仅用于验证 workflow，不具备真实视频生产或交付资格。</span>
+            </div>
+          </div>
+          {workflow && canAuthorizeStoryboard(workflow) ? <button
+            type="button"
+            className="primary-button director-action"
+            onClick={() => {
+              const expiresAt = new Date()
+              expiresAt.setTime(expiresAt.getTime() + 60 * 60 * 1000)
+              void authorize(expiresAt.toISOString(), 'VIDEO_STORYBOARD')
+            }}
+            disabled={busyAction !== null}
+          >
+            <LockKeyhole size={16} />{busyAction === 'authorize_storyboard' ? '正在记录分镜授权' : '授权 Fake 分镜'}
+          </button> : null}
+          {storyboardPackage && workflow?.status === 'IMAGE_REVIEW' && !workflow.snapshot.stopped && !['UNKNOWN', 'WRITE_UNCERTAIN'].includes(workflow.snapshot.execution_state ?? '') && workflow.snapshot.authorization?.scope === 'VIDEO_STORYBOARD' && !storyboardCandidates.length ? <button
+            type="button"
+            className="primary-button director-action"
+            onClick={() => void generateStoryboard()}
+            disabled={busyAction !== null}
+          >
+            <WandSparkles size={16} />{busyAction === 'generate_storyboard' ? '正在生成 Fake 分镜' : '生成 Fake 分镜'}
+          </button> : null}
+          {storyboardCandidates.length ? <div className="director-storyboard__candidates">
+            <p className="director-storyboard__status" role="status">
+              {storyboardReview?.decision === 'QUALIFIED'
+                ? '服务端审核：合格（仅离线范围）'
+                : storyboardReview?.decision === 'REJECTED'
+                  ? '服务端审核：已拒绝'
+                  : '离线审核：待人工审核'}
+              {storyboardSelection ? ' · SHOT_01 已选择' : ' · SHOT_01 未选择'}
+            </p>
+            {storyboardCandidates.map((candidate, index) => {
+              const selected = storyboardSelection?.candidate_id === candidate.candidate_id
+              const latestReview = storyboardReview?.candidate_id === candidate.candidate_id ? storyboardReview : null
+              const canReview = workflow ? canReviewDirectorStoryboardCandidate(workflow, candidate) : false
+              const reason = rejectionReasons[candidate.candidate_id] ?? ''
+              return <section key={candidate.candidate_id} className="director-candidate" aria-label={`分镜候选 ${index + 1}`} style={{ marginTop: 16, overflowWrap: 'anywhere' }}>
+                <div className="director-candidate__heading"><strong>SHOT_01 分镜候选 {index + 1}</strong><p>OFFLINE_SYNTHETIC_ONLY · 不可交付</p></div>
+                <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 分镜占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                <p>候选 ID：{candidate.candidate_id}</p>
+                <p>{selected ? '分镜选择：已选择（仅离线）' : '分镜选择：未选择'}</p>
+                {latestReview?.decision === 'REJECTED' && latestReview.reason
+                  ? <p>服务端拒绝理由：{latestReview.reason}</p>
+                  : null}
+                <small>Fake 候选不具备真实 QUALIFIED / Deliverable 资格。</small>
+                <label className="director-field">
+                  <span>拒绝理由（必填，最多 500 字）</span>
+                  <textarea rows={2} maxLength={500} value={reason} disabled={!canReview || busyAction !== null}
+                    onChange={(event) => setRejectionReasons((current) => ({ ...current, [candidate.candidate_id]: event.target.value }))} />
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                  <button type="button" className="secondary-button" disabled={!canReview || busyAction !== null || candidate.qualified} onClick={() => void reviewCandidate(candidate, 'QUALIFIED')}>
+                    <Check size={16} />离线审核合格
+                  </button>
+                  <button type="button" className="secondary-button" disabled={!canReview || busyAction !== null || !reason.trim() || reason.trim().length > 500} onClick={() => void reviewCandidate(candidate, 'REJECTED')}>
+                    <X size={16} />拒绝候选
+                  </button>
+                  <button type="button" className="primary-button" disabled={!workflow || !canSelectDirectorStoryboardCandidate(workflow, candidate) || busyAction !== null || selected} onClick={() => void selectStoryboard(candidate)}>
+                    <Check size={16} />{selected ? '已选择离线分镜' : '选择离线分镜'}
+                  </button>
+                </div>
+              </section>
+            })}
+          </div> : null}
+        </section>
       </section>
     </div>
     {notice ? <div className="director-notice" role="status">{notice}</div> : null}

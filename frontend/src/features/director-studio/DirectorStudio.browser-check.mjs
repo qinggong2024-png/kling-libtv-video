@@ -51,7 +51,10 @@ try {
     let uncertain = false
     const task = {
       id: 'task-1', status: 'DRAFT', state_version: 0, mode: 'OFFLINE_FAKE_ONLY',
-      snapshot: { asset: {}, candidates: [], trace: [] },
+      snapshot: {
+        asset: {}, candidates: [], trace: [],
+        storyboard: { packages: {}, candidates: [], selections: {}, latest_reviews: {} },
+      },
     }
     await context.route('**/*', async route => {
       const url = new URL(route.request().url())
@@ -82,23 +85,55 @@ try {
           task.snapshot.plan.selected_direction = body.direction_id
           task.snapshot.package = { package_id: 'package-1', locks_hash: 'locks' }
         } else if (body.action === 'authorize') {
-          task.snapshot.authorization = body.authorization
-        } else if (body.action === 'generate') {
-          task.status = 'IMAGE_REVIEW'
-          task.snapshot.candidates = [{ candidate_id: 'candidate-1', package_id: 'package-1', shot_id: 'FIRST_FRAME', synthetic: true, qualified: false }]
-        } else if (body.action === 'review') {
-          task.snapshot.candidates[0].qualified = body.decision === 'QUALIFIED'
-          task.snapshot.latest_review = {
-            candidate_id: body.candidate_id,
-            reviewer_id: 'reviewer-1',
-            decision: body.decision,
-            qualification_scope: 'OFFLINE_SYNTHETIC_ONLY',
-            reason: body.reason ?? null,
+          if (task.snapshot.authorization) {
+            assert.equal(body.authorization.parent_authorization_id, task.snapshot.authorization.authorization_id)
           }
-          delete task.snapshot.selection
+          task.snapshot.authorization = body.authorization
+          if (body.authorization.scope === 'VIDEO_STORYBOARD') {
+            assert(task.snapshot.selection && task.snapshot.candidates[0].qualified)
+            task.snapshot.storyboard.packages.SHOT_01 = {
+              package_id: 'storyboard-package-1',
+              locks_hash: 'locks',
+              shot_id: 'SHOT_01',
+              purpose: 'VIDEO_STORYBOARD',
+            }
+            task.snapshot.authorization.package_id = 'storyboard-package-1'
+          }
+        } else if (body.action === 'generate') {
+          if (body.shot_id === 'SHOT_01') {
+            assert.equal(body.package_id, task.snapshot.authorization.package_id)
+            task.status = 'STORYBOARD_REVIEW'
+            task.snapshot.storyboard.candidates = [{ candidate_id: 'storyboard-candidate-1', package_id: 'storyboard-package-1', shot_id: 'SHOT_01', synthetic: true, qualified: false }]
+          } else {
+            task.status = 'IMAGE_REVIEW'
+            task.snapshot.candidates = [{ candidate_id: 'candidate-1', package_id: 'package-1', shot_id: 'FIRST_FRAME', synthetic: true, qualified: false }]
+          }
+        } else if (body.action === 'review') {
+          const isStoryboard = body.shot_id === 'SHOT_01'
+          const candidates = isStoryboard ? task.snapshot.storyboard.candidates : task.snapshot.candidates
+          candidates[0].qualified = body.decision === 'QUALIFIED'
+          const review = {
+              candidate_id: body.candidate_id,
+              reviewer_id: 'reviewer-1',
+              decision: body.decision,
+              qualification_scope: 'OFFLINE_SYNTHETIC_ONLY',
+              reason: body.reason ?? null,
+          }
+          if (isStoryboard) {
+            task.snapshot.storyboard.latest_reviews.SHOT_01 = review
+            delete task.snapshot.storyboard.selections.SHOT_01
+          } else {
+            task.snapshot.latest_review = review
+            delete task.snapshot.selection
+          }
         } else if (body.action === 'select') {
-          assert(task.snapshot.candidates[0].qualified)
-          task.snapshot.selection = { candidate_id: body.candidate_id, package_id: 'package-1', shot_id: 'FIRST_FRAME', synthetic: true }
+          if (body.shot_id === 'SHOT_01') {
+            assert(task.snapshot.storyboard.candidates[0].qualified)
+            task.snapshot.storyboard.selections.SHOT_01 = { candidate_id: body.candidate_id, package_id: 'storyboard-package-1', shot_id: 'SHOT_01', synthetic: true }
+          } else {
+            assert(task.snapshot.candidates[0].qualified)
+            task.snapshot.selection = { candidate_id: body.candidate_id, package_id: 'package-1', shot_id: 'FIRST_FRAME', synthetic: true }
+          }
         } else assert.fail(`Unexpected command ${body.action}`)
         task.state_version++
         return json(task)
@@ -153,13 +188,14 @@ try {
       const selectionCommands = commands.filter(command => command.action === 'select')
       assert.equal(selectionCommands.length, 2)
       assert.equal(selectionCommands[0].command_key, selectionCommands[1].command_key, 'Retry preserves idempotency key')
-      await page.screenshot({ path: resolve(evidence, `selected-${width}.png`), fullPage: true })
+      await page.screenshot({ path: resolve(evidence, `first-frame-selected-${width}.png`), fullPage: true })
       await reject.click()
       await candidate.getByText('服务端审核：已拒绝', { exact: true }).waitFor()
       await candidate.getByText('服务端拒绝理由：印花与原商品不一致', { exact: true }).waitFor()
       assert(await select.isDisabled())
       assert(await candidate.getByText('首帧选择：未选择', { exact: true }).isVisible())
       assert.equal(commands.at(-1).reason, '印花与原商品不一致')
+      assert.equal(await page.getByRole('button', { name: '授权 Fake 分镜', exact: true }).count(), 0)
       await page.screenshot({ path: resolve(evidence, `rejected-${width}.png`), fullPage: true })
       await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
       await candidate.getByText('服务端审核：已拒绝', { exact: true }).waitFor()
@@ -171,6 +207,43 @@ try {
       assert(await reject.isDisabled())
       assert(await select.isDisabled())
       assert(await candidate.getByText(/OFFLINE_SYNTHETIC_ONLY/).isVisible())
+      uncertain = false
+      await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
+      await approve.click()
+      await candidate.getByText('服务端审核：合格（仅离线范围）', { exact: true }).waitFor()
+      await select.click()
+      await candidate.getByText('首帧选择：已选择（仅离线）', { exact: true }).waitFor()
+      await page.getByRole('button', { name: '授权 Fake 分镜', exact: true }).click()
+      await page.getByRole('button', { name: '生成 Fake 分镜', exact: true }).click()
+      const storyboardCandidate = page.getByRole('region', { name: '分镜候选 1', exact: true })
+      await storyboardCandidate.waitFor()
+      const storyboardApprove = storyboardCandidate.getByRole('button', { name: '离线审核合格', exact: true })
+      const storyboardSelect = storyboardCandidate.getByRole('button', { name: '选择离线分镜', exact: true })
+      assert(await storyboardSelect.isDisabled())
+      await storyboardApprove.click()
+      await page.locator('.director-storyboard').getByText('服务端审核：合格（仅离线范围）', { exact: false }).waitFor()
+      await storyboardSelect.click()
+      await storyboardCandidate.getByText('分镜选择：已选择（仅离线）', { exact: true }).waitFor()
+      await storyboardCandidate.getByRole('textbox').fill('分镜商品不一致')
+      await storyboardCandidate.getByRole('button', { name: '拒绝候选', exact: true }).click()
+      await storyboardCandidate.getByText('服务端拒绝理由：分镜商品不一致', { exact: true }).waitFor()
+      assert(await storyboardSelect.isDisabled())
+      assert(await candidate.getByText('首帧选择：已选择（仅离线）', { exact: true }).isVisible())
+      await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
+      await storyboardCandidate.getByText('服务端拒绝理由：分镜商品不一致', { exact: true }).waitFor()
+      await storyboardApprove.click()
+      await page.locator('.director-storyboard').getByText('服务端审核：合格（仅离线范围）', { exact: false }).waitFor()
+      await storyboardSelect.click()
+      await storyboardCandidate.getByText('分镜选择：已选择（仅离线）', { exact: true }).waitFor()
+      uncertain = true
+      await page.getByRole('button', { name: '刷新任务状态', exact: true }).click()
+      await page.getByRole('status').filter({ hasText: '已读取服务端状态' }).waitFor()
+      assert(await storyboardApprove.isDisabled())
+      assert(await storyboardCandidate.getByRole('button', { name: '已选择离线分镜', exact: true }).isDisabled())
+      assert.equal(commands.find(command => command.action === 'authorize' && command.authorization?.scope === 'VIDEO_STORYBOARD').authorization.shot_ids[0], 'SHOT_01')
+      assert.equal(commands.find(command => command.action === 'generate' && command.shot_id === 'SHOT_01').shot_id, 'SHOT_01')
+      assert.equal(commands.find(command => command.action === 'select' && command.shot_id === 'SHOT_01').shot_id, 'SHOT_01')
+      await page.screenshot({ path: resolve(evidence, `selected-${width}.png`), fullPage: true })
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No page overflow')
       assert.deepEqual(errors, [])
       report.cases.push({ width, passed: true, commands: commands.length })

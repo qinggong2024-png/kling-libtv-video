@@ -30,7 +30,7 @@ export interface ProductionPackage {
   factsRevision: number
   preservationHash: string
   ruleset: string
-  shotId: 'FIRST_FRAME'
+  shotId: 'FIRST_FRAME' | 'SHOT_01'
   prompt: string
   reality: Array<{ dimension: string; decision: string; evidence: string }>
 }

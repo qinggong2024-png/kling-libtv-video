@@ -53,6 +53,8 @@
 .director-package-list dt { color: var(--muted); font-size: 11px; }
 .director-package-list dd { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
 .director-notice { position: fixed; right: 24px; bottom: 24px; max-width: 360px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px rgb(15 23 42 / 12%); font-size: 12px; line-height: 1.5; }
+.director-storyboard { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+.director-storyboard__status { color: var(--muted); font-size: 13px; line-height: 1.5; }
 @media (max-width: 760px) {
   .director-studio { padding: 24px 16px 56px; }
   .director-studio__header { display: block; }
