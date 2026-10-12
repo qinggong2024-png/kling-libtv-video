@@ -653,7 +653,7 @@ export function BatchImageOutputReview({ outputs, onSaved, onClose }: {
   </FoundationDrawer>
 }
 
-function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
+function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
   const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
   const [activeOutfitId, setActiveOutfitId] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -669,12 +669,16 @@ function ScopedImageCenter({ active, draftScope, openTaskId, onPrepareVideos, on
   const [submitting, setSubmitting] = useState(false)
   const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>('checking')
   const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState('')
-  const [studioMode, setStudioMode] = useState<'custom' | 'director'>('custom')
+  const [studioMode, setStudioMode] = useState<'custom' | 'director'>(initialMode ?? 'custom')
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
   const loadedRef = useRef(false)
   const previousTaskStatusesRef = useRef<Map<string, ImageGenerationTask['status']>>(new Map())
   const notificationBaselineReadyRef = useRef(false)
+
+  useEffect(() => {
+    if (initialMode) setStudioMode(initialMode)
+  }, [initialMode])
 
   useEffect(() => {
     latestDraftRef.current = draft

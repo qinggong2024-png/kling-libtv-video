@@ -11,6 +11,7 @@ export interface ImageCenterVideoHandoff {
 
 export interface ImageCenterProps {
   active: boolean
+  initialMode?: 'custom' | 'director'
   draftScope: string | null
   openTaskId: string | null
   onPrepareVideos: (handoffs: ImageCenterVideoHandoff[], onSubmitted: () => void) => void | Promise<void>
