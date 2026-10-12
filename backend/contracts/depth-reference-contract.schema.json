@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "libtv://contracts/depth-reference/v1",
+  "title": "Depth Reference Contract",
+  "description": "Relative depth ordering for planning and review. Values are observations or placeholders, never depth-model output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "entityId", "depthBand", "confidence", "source"],
+  "properties": {
+    "schemaVersion": { "const": "depth-reference.v1" },
+    "entityId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "depthBand": {
+      "enum": ["FOREGROUND", "MIDGROUND", "BACKGROUND", "UNKNOWN"]
+    },
+    "relativeOrder": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 999
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source": {
+      "enum": ["HUMAN_ANNOTATION", "SYNTHETIC_PLACEHOLDER", "UNSPECIFIED"]
+    },
+    "notes": { "type": "string", "maxLength": 500 }
+  }
+}

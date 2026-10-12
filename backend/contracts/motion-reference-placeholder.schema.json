@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "libtv://contracts/motion-reference-placeholder/v1",
+  "title": "Motion Reference Placeholder",
+  "description": "A non-executable motion intent placeholder. It must not contain copied video, provider identifiers, or submission instructions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "preflightStatus",
+    "providerSubmissionAllowed",
+    "placeholderId",
+    "motionClass",
+    "source"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "motion-reference-placeholder.v1" },
+    "mode": { "const": "OFFLINE_SYNTHETIC_ONLY" },
+    "preflightStatus": { "const": "PREFLIGHT_REQUIRED" },
+    "providerSubmissionAllowed": { "const": false },
+    "placeholderId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "motionClass": {
+      "enum": ["STILLNESS", "WEIGHT_SHIFT", "GESTURE", "WALK_CYCLE", "CAMERA_DRIFT", "UNKNOWN"]
+    },
+    "source": { "enum": ["HUMAN_INTENT", "SYNTHETIC_PLACEHOLDER", "UNSPECIFIED"] },
+    "description": { "type": "string", "maxLength": 500 },
+    "constraints": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+    }
+  }
+}
