@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AdminSection, RecordsFilter, View } from './appTypes'
 import { readJsonStorage, removeStorage, writeJsonStorage } from '../safeStorage'
+import { preserveProjectQuery, productSurfaceView, readProductSurface, type ProductSurface } from './productNavigation'
 
 const RECORD_FILTERS: RecordsFilter[] = ['all', 'attention', 'active', 'partial', 'done', 'failed', 'cancelled']
 const RECORDS_RETURN_KEY = 'app.records-return'
@@ -28,6 +29,7 @@ export function readAppLocation() {
 }
 
 export function useAppNavigation() {
+  const [surface, setSurface] = useState<ProductSurface | null>(() => readProductSurface(window.location.search))
   const [view, setView] = useState<View>(() => readAppLocation().view)
   const [detailId, setDetailId] = useState<string | null>(() => readAppLocation().detailId)
   const [adminSection, setAdminSection] = useState<AdminSection>(() => readAppLocation().adminSection)
@@ -38,6 +40,7 @@ export function useAppNavigation() {
   useEffect(() => {
     const restoreLocation = () => {
       const next = readAppLocation()
+      setSurface(readProductSurface(window.location.search))
       setView(next.view)
       setDetailId(next.detailId)
       setAdminSection(next.adminSection)
@@ -55,7 +58,9 @@ export function useAppNavigation() {
     setDetailId(null)
     setRecordsFilter(nextFilter)
     setRecordsQuery(normalizedQuery)
-    const params = new URLSearchParams({ view: 'records' })
+    const params = preserveProjectQuery(new URLSearchParams({ view: 'records' }))
+    if (readProductSurface(window.location.search) === 'review') params.set('pane', 'review')
+    setSurface(readProductSurface(`?${params}`))
     if (nextFilter !== 'all') params.set('filter', nextFilter)
     if (normalizedQuery) params.set('q', normalizedQuery)
     const url = `${window.location.pathname}?${params.toString()}`
@@ -64,7 +69,8 @@ export function useAppNavigation() {
 
   const openTaskFromRecords = useCallback((taskId: string) => {
     writeJsonStorage('session', RECORDS_RETURN_KEY, { url: window.location.href, scrollY: window.scrollY })
-    const params = new URLSearchParams({ task: taskId })
+    const params = preserveProjectQuery(new URLSearchParams({ task: taskId }))
+    setSurface(null)
     setView('make')
     setDetailId(taskId)
     window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`)
@@ -77,7 +83,9 @@ export function useAppNavigation() {
       removeStorage('session', RECORDS_RETURN_KEY)
       setView('make')
       setDetailId(null)
-      window.history.pushState(null, '', window.location.pathname)
+      setSurface(null)
+      const params = preserveProjectQuery(new URLSearchParams())
+      window.history.pushState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
       return
     }
     removeStorage('session', RECORDS_RETURN_KEY)
@@ -88,11 +96,13 @@ export function useAppNavigation() {
     setAdminSection(location.adminSection)
     setRecordsFilter(location.recordsFilter)
     setRecordsQuery(location.recordsQuery)
+    setSurface(readProductSurface(next.search))
     setRecordsRestoreScroll(snapshot?.scrollY ?? 0)
     window.history.replaceState(null, '', `${next.pathname}${next.search}${next.hash}`)
   }, [])
 
   const navigate = useCallback((nextView: View, nextDetailId: string | null = null, replace = false, nextAdminSection: AdminSection = 'overview') => {
+    setSurface(null)
     setView(nextView)
     setDetailId(nextView === 'make' ? nextDetailId : null)
     if (nextView === 'records') {
@@ -101,7 +111,7 @@ export function useAppNavigation() {
       setRecordsQuery('')
     }
     if (nextView === 'admin') setAdminSection(nextAdminSection)
-    const params = new URLSearchParams()
+    const params = preserveProjectQuery(new URLSearchParams())
     if (nextView !== 'make') params.set('view', nextView)
     if (nextView === 'make' && nextDetailId) params.set('task', nextDetailId)
     if (nextView === 'admin' && nextAdminSection !== 'overview') params.set('section', nextAdminSection)
@@ -109,5 +119,21 @@ export function useAppNavigation() {
     window.history[replace ? 'replaceState' : 'pushState'](null, '', url)
   }, [])
 
-  return { view, detailId, adminSection, recordsFilter, recordsQuery, recordsRestoreScroll, setRecordsRestoreScroll, navigate, navigateRecords, openTaskFromRecords, closeTaskDetail, setAdminSection }
+  const navigateSurface = useCallback((next: ProductSurface) => {
+    const nextView = productSurfaceView(next)
+    const params = preserveProjectQuery(new URLSearchParams({ view: nextView, pane: next }))
+    setSurface(next)
+    setView(nextView)
+    setDetailId(null)
+    if (nextView === 'records') {
+      removeStorage('session', RECORDS_RETURN_KEY)
+      setRecordsFilter('attention')
+      setRecordsQuery('')
+      params.set('filter', 'attention')
+    }
+    window.history.pushState(null, '', `${window.location.pathname}?${params}`)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [])
+
+  return { view, surface, detailId, adminSection, recordsFilter, recordsQuery, recordsRestoreScroll, setRecordsRestoreScroll, navigate, navigateSurface, navigateRecords, openTaskFromRecords, closeTaskDetail, setAdminSection }
 }

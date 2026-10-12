@@ -10,7 +10,7 @@
 //   因此它被包在 <Suspense fallback={null}> 里且不放进任何条件分支；
 //   一旦改成 {view === 'images' ? <ImageStudio/> : null}，非激活期轮询与通知会直接丢失。
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Bell, Images, Library, ListVideo, LoaderCircle, Plus, RefreshCw, Settings, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Bell, Boxes, BriefcaseBusiness, Clapperboard, Compass, FolderKanban, Images, Library, ListVideo, LoaderCircle, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { logout } from '../api'
 import { ACTIVE_PHASES } from '../domain/workflowStates'
 import { LoginScreen } from '../features/auth/LoginScreen'
@@ -18,13 +18,14 @@ import { ImageVideoComposerSheet } from '../features/production/ImageVideoCompos
 import { useProductionActions } from '../features/production/hooks/useProductionActions'
 import { useTaskPolling } from '../features/production/hooks/useTaskPolling'
 import { RecordsView } from '../features/task-center/RecordsView'
+import { CreativeWorkspaceView, ProjectContextBar } from '../features/creative-workspace/CreativeWorkspaceView'
 import { providerPresentation } from '../providerPresentation'
 import { writeStorage } from '../safeStorage'
 import { InPageTaskToasts } from '../shared/components/InPageTaskToasts'
 import { VideoPreview } from '../shared/components/Media'
 import { FoundationDrawer } from '../shared/components/ui'
 import { AppShell } from './AppShell'
-import type { NavItem } from './AppShell'
+import type { NavItem, ProductNavItem } from './AppShell'
 import { useAppNavigation } from './useAppNavigation'
 import { useTaskNotifications } from './useTaskNotifications'
 import type { View } from './appTypes'
@@ -42,7 +43,7 @@ function PageLoading() {
 }
 
 function App() {
-  const { view, detailId, adminSection, recordsFilter, recordsQuery, recordsRestoreScroll, setRecordsRestoreScroll, navigate, navigateRecords, openTaskFromRecords, closeTaskDetail } = useAppNavigation()
+  const { view, surface, detailId, adminSection, recordsFilter, recordsQuery, recordsRestoreScroll, setRecordsRestoreScroll, navigate, navigateSurface, navigateRecords, openTaskFromRecords, closeTaskDetail } = useAppNavigation()
   const [sidebarInfo, setSidebarInfo] = useState<'account' | 'help' | null>(null)
   const [hasActiveImageTasks, setHasActiveImageTasks] = useState(false)
   const [imageNotificationTaskId, setImageNotificationTaskId] = useState<string | null>(null)
@@ -160,7 +161,18 @@ function App() {
     ...(canOperate ? [{ value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
     { value: 'settings', label: '设置', icon: <Settings size={18} /> },
   ]
+  const productNav: ProductNavItem[] = [
+    { value: 'workspace', label: '工作区', icon: <BriefcaseBusiness size={17} /> },
+    { value: 'projects', label: '项目', icon: <FolderKanban size={17} /> },
+    { value: 'director', label: '导演', icon: <Compass size={17} /> },
+    { value: 'image', label: '图片', icon: <Images size={17} /> },
+    { value: 'video', label: '视频', icon: <Clapperboard size={17} /> },
+    { value: 'review', label: '审核', icon: <Sparkles size={17} /> },
+    { value: 'assets', label: '资产', icon: <Boxes size={17} /> },
+    { value: 'memory', label: '记忆', icon: <Library size={17} /> },
+  ]
   const actorId = system?.sharedAuthentication ? null : actor?.userId ?? null
+  const isCreativeWorkspaceSurface = surface === 'workspace' || surface === 'projects' || surface === 'memory'
 
   const overlays = <>
     <InPageTaskToasts
@@ -185,6 +197,9 @@ function App() {
     system={system}
     error={error}
     currentProviderLabel={currentProviderLabel}
+    productNav={productNav}
+    surface={surface}
+    onNavigateSurface={navigateSurface}
     sidebarInfo={sidebarInfo}
     onSidebarInfoChange={setSidebarInfo}
     devActorRole={devActorRole}
@@ -192,6 +207,7 @@ function App() {
     onSignOut={() => void signOut()}
     errorResetKeys={[view, adminSection, selectedTask?.id]}
     onErrorBack={() => navigate('make')}
+    projectContext={<ProjectContextBar tasks={tasks} onNavigate={navigateSurface} />}
     overlays={overlays}
   >
     {loading ? <PageLoading /> : <>
@@ -205,6 +221,7 @@ function App() {
       <Suspense fallback={null}>
         <ImageStudio
           active={view === 'images'}
+          initialMode={surface === 'director' ? 'director' : surface === 'image' ? 'custom' : undefined}
           draftScope={actor?.userId ?? null}
           openTaskId={imageNotificationTaskId}
           onPrepareVideos={prepareImageCenterVideos}
@@ -217,8 +234,11 @@ function App() {
           局域网内可忽略）。若不接受这次可见变化，把 HomeView / CreativeWorkspace
           改回顶部静态 import 并删掉本 Suspense 即可，entry 会回到约 333 kB。 */}
       <Suspense fallback={<PageLoading />}>
-        <HomeView active={view === 'make'} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
-        {view === 'make' && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><CreativeWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
+        <HomeView active={view === 'make' && !isCreativeWorkspaceSurface} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
+        {isCreativeWorkspaceSurface
+          ? <CreativeWorkspaceView surface={surface} tasks={tasks} onNavigate={navigateSurface} />
+          : null}
+        {view === 'make' && surface === null && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><CreativeWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
       </Suspense>
       {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
