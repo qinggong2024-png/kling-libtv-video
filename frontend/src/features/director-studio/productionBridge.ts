@@ -1,7 +1,10 @@
 import type { StudioHandoffContext } from './contracts'
+import { mapCreativeIntelligenceSnapshotToReality } from '../../creative-project/realityAdapters'
+import type { RealityEngineExecutionMode, RealitySnapshotMapping } from '../../creative-project/reality'
 
 export type ProductionBridgePurpose = 'IMAGE_FIRST_FRAME' | 'VIDEO_DIRECTOR_FIXED'
 export type ProductionBridgePreparationStatus = 'PLANNING_ONLY' | 'PREFLIGHT_REQUIRED'
+export type ProductionBridgeExecutionMode = RealityEngineExecutionMode
 
 export interface ProductionBridgeChecks {
   ownerValidated: boolean
@@ -20,6 +23,7 @@ export interface ProductionBridgePreparation {
   source: 'director-studio'
   purpose: ProductionBridgePurpose
   status: ProductionBridgePreparationStatus
+  executionMode: ProductionBridgeExecutionMode
   providerSubmissionAllowed: false
   projectId?: string
   directionId: StudioHandoffContext['directionId']
@@ -27,6 +31,7 @@ export interface ProductionBridgePreparation {
   packageRevision: number
   shotId: StudioHandoffContext['shotId']
   checks: ProductionBridgeChecks
+  reality: RealitySnapshotMapping
   blockingReasons: string[]
   nextSteps: [
     'SERVER_VALIDATED_PACKAGE_REQUIRED',
@@ -58,6 +63,7 @@ export function prepareProductionBridge(
     source: 'director-studio',
     purpose,
     status: 'PREFLIGHT_REQUIRED',
+    executionMode: 'OFFLINE_SYNTHETIC_ONLY',
     providerSubmissionAllowed: false,
     ...(handoff.projectId ? { projectId: handoff.projectId } : {}),
     directionId: handoff.directionId,
@@ -65,6 +71,7 @@ export function prepareProductionBridge(
     packageRevision: handoff.packageRevision,
     shotId: handoff.shotId,
     checks: { ...preflightChecks },
+    reality: mapCreativeIntelligenceSnapshotToReality(handoff.intelligenceSnapshot),
     blockingReasons: [
       '当前 handoff 仍是前端只读上下文',
       '需要服务端重新校验 owner、package revision、lock hash、source hash 和 execution state',
@@ -86,8 +93,11 @@ export function isProductionBridgePreparation(
   const candidate = value as Partial<ProductionBridgePreparation>
   return candidate.source === 'director-studio'
     && candidate.providerSubmissionAllowed === false
+    && candidate.executionMode === 'OFFLINE_SYNTHETIC_ONLY'
     && (candidate.status === 'PLANNING_ONLY' || candidate.status === 'PREFLIGHT_REQUIRED')
     && typeof candidate.packageId === 'string'
     && typeof candidate.packageRevision === 'number'
     && typeof candidate.shotId === 'string'
+    && typeof candidate.reality === 'object'
+    && candidate.reality !== null
 }
