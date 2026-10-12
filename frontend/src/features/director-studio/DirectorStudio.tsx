@@ -35,6 +35,7 @@ import {
   selectDirectorStoryboardReview,
   selectDirectorStoryboardSelection,
 } from './directorSelectors'
+import { prepareProductionBridge } from './productionBridge'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -75,6 +76,9 @@ export function DirectorStudio() {
   const snapshot = useMemo(
     () => updateProjectSnapshot(projectContext?.project.intelligenceSnapshot),
     [projectContext?.project.intelligenceSnapshot],
+  )
+  const bridgePreparation = prepareProductionBridge(
+    workflow ? selectDirectorPlanningSnapshot(workflow, draft, projectContext?.project.id, snapshot).handoff : null,
   )
 
   const persistPlanningSnapshot = (nextWorkflow: DirectorTaskResponse | null, nextDraft: DirectorDraft = draft) => {
@@ -588,6 +592,30 @@ export function DirectorStudio() {
               </section>
             })}
           </div> : null}
+        </section>
+        <section className="director-storyboard" aria-labelledby="director-bridge-title">
+          <div className="director-panel__heading">
+            <div>
+              <span className="director-panel__index">05</span>
+              <div>
+                <h2 id="director-bridge-title">Production Bridge Preparation</h2>
+                <p>整理未来生产桥接所需的服务端校验边界，当前不提交 Provider。</p>
+              </div>
+            </div>
+            <span className="director-state">{bridgePreparation?.status ?? '等待 handoff'}</span>
+          </div>
+          {bridgePreparation ? <div className="director-package-state">
+            <LockKeyhole size={18} />
+            <div>
+              <strong>只读桥接上下文 · Provider submission disabled</strong>
+              <span>package、授权、来源哈希、许可、预算和 execution state 必须在服务端提交前重新验证。</span>
+            </div>
+          </div> : <p className="director-storyboard__status">完成首帧生产包和方向选择后，才会生成桥接准备上下文。</p>}
+          {bridgePreparation ? <dl className="director-package-list">
+            <div><dt>Package</dt><dd>{bridgePreparation.packageId} · r{bridgePreparation.packageRevision}</dd></div>
+            <div><dt>Shot</dt><dd>{bridgePreparation.shotId}</dd></div>
+            <div><dt>提交状态</dt><dd>禁止 Provider submission</dd></div>
+          </dl> : null}
         </section>
       </section>
     </div>

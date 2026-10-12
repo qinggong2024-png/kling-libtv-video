@@ -8,3 +8,13 @@ export type {
 } from './contracts'
 export { selectDirectorHandoff, selectDirectorPlanningSnapshot, selectDirectorProductionPackage } from './directorSelectors'
 export { readDirectorPlanningSnapshot, selectDirectorHandoffFromProject } from './directorHandoff'
+export {
+  isProductionBridgePreparation,
+  prepareProductionBridge,
+} from './productionBridge'
+export type {
+  ProductionBridgeChecks,
+  ProductionBridgePreparation,
+  ProductionBridgePreparationStatus,
+  ProductionBridgePurpose,
+} from './productionBridge'
