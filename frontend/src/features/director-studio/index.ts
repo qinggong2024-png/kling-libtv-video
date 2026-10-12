@@ -13,9 +13,19 @@ export {
   prepareProductionBridge,
 } from './productionBridge'
 export type {
+  ProductionBridgeApprovalCheckpoint,
+  ProductionBridgeBlockingReason,
+  ProductionBridgeBlockingReasonCategory,
+  ProductionBridgeBlockingReasonCode,
+  ProductionBridgeCheckKey,
+  ProductionBridgeCheckResult,
   ProductionBridgeChecks,
+  ProductionBridgeCheckStatus,
+  ProductionBridgePreflightResult,
   ProductionBridgePreparation,
   ProductionBridgePreparationStatus,
   ProductionBridgePurpose,
   ProductionBridgeExecutionMode,
+  ProductionBridgeReadiness,
+  ProductionBridgeReadinessState,
 } from './productionBridge'
