@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://internal.example/schemas/quality-review-1.0.json",
+  "title": "Quality Review",
+  "description": "A review record that combines quality evidence without owning workflow state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewVersion", "subject", "recommendation", "evidenceRefs", "reviewedAt"],
+  "properties": {
+    "reviewVersion": {"const": "1.0"},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectType", "subjectId"],
+      "properties": {
+        "subjectType": {"type": "string", "enum": ["IMAGE", "VIDEO"]},
+        "subjectId": {"type": "string", "minLength": 1, "maxLength": 160}
+      }
+    },
+    "recommendation": {"type": "string", "enum": ["PASS", "WARNING", "QUALITY_REVIEW", "UNRESOLVED"]},
+    "evidenceRefs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 160}},
+    "failureCodes": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"}
+    },
+    "reviewedAt": {"type": "string", "format": "date-time"},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 120},
+    "mode": {"type": "string", "enum": ["LIVE", "OFFLINE_SYNTHETIC_ONLY"]},
+    "notes": {"type": "string", "maxLength": 2000}
+  }
+}

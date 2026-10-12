@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://internal.example/schemas/video-quality-contract-1.0.json",
+  "title": "Video Quality Contract",
+  "description": "Evidence-only video quality observations. It does not change task state or production gating.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "artifact", "checks", "observedAt"],
+  "properties": {
+    "contractVersion": {"const": "1.0"},
+    "artifact": {"$ref": "#/$defs/artifact"},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "observedAt": {"type": "string", "format": "date-time"},
+    "adapter": {"type": "string", "minLength": 1, "maxLength": 120},
+    "mode": {"type": "string", "enum": ["LIVE", "OFFLINE_SYNTHETIC_ONLY"]}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "mimeType", "sha256", "sizeBytes"],
+      "properties": {
+        "artifactId": {"type": "string", "minLength": 1, "maxLength": 160},
+        "mimeType": {"type": "string", "pattern": "^video/"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "sizeBytes": {"type": "integer", "minimum": 1},
+        "durationSeconds": {"type": "number", "exclusiveMinimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "hasAudio": {"type": "boolean"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkId", "result", "evidence"],
+      "properties": {
+        "checkId": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"},
+        "result": {"type": "string", "enum": ["PASS", "WARNING", "FAIL", "NOT_EVALUATED"]},
+        "evidence": {"type": "array", "items": {"type": "string", "maxLength": 500}},
+        "observedValue": {},
+        "expectedValue": {},
+        "failureCode": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,79}$"}
+      }
+    }
+  }
+}
