@@ -616,6 +616,28 @@ export function DirectorStudio() {
             <div><dt>Shot</dt><dd>{bridgePreparation.shotId}</dd></div>
             <div><dt>提交状态</dt><dd>禁止 Provider submission</dd></div>
           </dl> : null}
+          {bridgePreparation ? <div className="director-bridge-readiness" aria-label="Production Bridge readiness">
+            <div className="director-bridge-readiness__heading">
+              <div>
+                <strong>Preflight readiness</strong>
+                <span>只读技术证据评分，不代表生产就绪或提交授权</span>
+              </div>
+              <b>{bridgePreparation.preflight.readiness.score}%</b>
+            </div>
+            <div className="director-bridge-readiness__track" aria-hidden="true">
+              <span style={{ width: `${bridgePreparation.preflight.readiness.score}%` }} />
+            </div>
+            <div className="director-bridge-readiness__meta">
+              <span>{bridgePreparation.preflight.readiness.validatedChecks}/{bridgePreparation.preflight.readiness.totalChecks} 项服务端证据已验证</span>
+              <span>{bridgePreparation.preflight.approvalCheckpoint.id} · {bridgePreparation.preflight.approvalCheckpoint.status}</span>
+            </div>
+            <ul className="director-bridge-reasons">
+              {bridgePreparation.blockingReasons.map((reason) => <li key={reason.code}>
+                <span className="director-bridge-reason__category">{reason.category}</span>
+                <span>{reason.message}</span>
+              </li>)}
+            </ul>
+          </div> : null}
         </section>
       </section>
     </div>
