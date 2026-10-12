@@ -27,4 +27,5 @@ export type {
   ProductionBridgePurpose,
   ProductionBridgeReadiness,
   ProductionBridgeReadinessState,
+  ProductionBridgeExecutionMode,
 } from './productionBridge'

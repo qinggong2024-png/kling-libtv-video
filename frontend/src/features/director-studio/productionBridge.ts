@@ -1,4 +1,6 @@
 import type { StudioHandoffContext } from './contracts'
+import { mapCreativeIntelligenceSnapshotToReality } from '../../creative-project/realityAdapters'
+import type { RealityEngineExecutionMode, RealitySnapshotMapping } from '../../creative-project/reality'
 
 export const PRODUCTION_BRIDGE_PREFLIGHT_SCHEMA_VERSION = 'production-bridge-preflight.v1' as const
 export const PRODUCTION_BRIDGE_QUALIFICATION_SCOPE = 'OFFLINE_SYNTHETIC_ONLY' as const
@@ -49,6 +51,7 @@ export type ProductionBridgeBlockingReasonCategory =
   | 'EXECUTION_STATE'
   | 'HUMAN_APPROVAL'
   | 'EXECUTION_POLICY'
+export type ProductionBridgeExecutionMode = RealityEngineExecutionMode
 
 export interface ProductionBridgeChecks {
   ownerValidated: boolean
@@ -110,6 +113,7 @@ export interface ProductionBridgePreparation {
   source: 'director-studio'
   purpose: ProductionBridgePurpose
   status: ProductionBridgePreparationStatus
+  executionMode: ProductionBridgeExecutionMode
   providerSubmissionAllowed: false
   qualificationScope: typeof PRODUCTION_BRIDGE_QUALIFICATION_SCOPE
   projectId?: string
@@ -120,6 +124,7 @@ export interface ProductionBridgePreparation {
   checks: ProductionBridgeChecks
   blockingReasons: ProductionBridgeBlockingReason[]
   preflight: ProductionBridgePreflightResult
+  reality: RealitySnapshotMapping
   nextSteps: [
     'SERVER_VALIDATED_PACKAGE_REQUIRED',
     'MATERIALIZED_SOURCE_MAPPING_REQUIRED',
@@ -302,6 +307,7 @@ export function prepareProductionBridge(
     source: 'director-studio',
     purpose,
     status: 'PREFLIGHT_REQUIRED',
+    executionMode: 'OFFLINE_SYNTHETIC_ONLY',
     providerSubmissionAllowed: false,
     qualificationScope: PRODUCTION_BRIDGE_QUALIFICATION_SCOPE,
     ...(handoff.projectId ? { projectId: handoff.projectId } : {}),
@@ -312,6 +318,7 @@ export function prepareProductionBridge(
     checks: { ...preflightChecks },
     blockingReasons,
     preflight,
+    reality: mapCreativeIntelligenceSnapshotToReality(handoff.intelligenceSnapshot),
     nextSteps: [
       'SERVER_VALIDATED_PACKAGE_REQUIRED',
       'MATERIALIZED_SOURCE_MAPPING_REQUIRED',
@@ -329,6 +336,7 @@ export function isProductionBridgePreparation(
     && candidate.schemaVersion === PRODUCTION_BRIDGE_PREFLIGHT_SCHEMA_VERSION
     && candidate.providerSubmissionAllowed === false
     && candidate.qualificationScope === PRODUCTION_BRIDGE_QUALIFICATION_SCOPE
+    && candidate.executionMode === 'OFFLINE_SYNTHETIC_ONLY'
     && (candidate.status === 'PLANNING_ONLY' || candidate.status === 'PREFLIGHT_REQUIRED')
     && typeof candidate.packageId === 'string'
     && typeof candidate.packageRevision === 'number'
@@ -339,4 +347,6 @@ export function isProductionBridgePreparation(
     && candidate.preflight.schemaVersion === PRODUCTION_BRIDGE_PREFLIGHT_SCHEMA_VERSION
     && candidate.preflight.mode === 'READ_ONLY'
     && candidate.preflight.providerSubmissionAllowed === false
+    && typeof candidate.reality === 'object'
+    && candidate.reality !== null
 }

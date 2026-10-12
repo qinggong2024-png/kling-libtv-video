@@ -1,4 +1,5 @@
 import type { AssetReference, CreativeProject } from './types'
+import type { RealitySnapshot } from './reality'
 
 export function selectProjectAssets(project: CreativeProject): readonly AssetReference[] {
   return project.assets
@@ -18,4 +19,8 @@ export function selectProjectTaskId(project: CreativeProject): string | null {
 
 export function selectCreativeIntelligenceSnapshot(project: CreativeProject) {
   return project.intelligenceSnapshot ?? null
+}
+
+export function selectProjectRealitySnapshot(project: CreativeProject): RealitySnapshot | null {
+  return project.intelligenceSnapshot?.realitySnapshot ?? null
 }

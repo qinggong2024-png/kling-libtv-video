@@ -30,12 +30,26 @@ describe('Production Bridge Preparation', () => {
       source: 'director-studio',
       purpose: 'VIDEO_DIRECTOR_FIXED',
       status: 'PREFLIGHT_REQUIRED',
+      executionMode: 'OFFLINE_SYNTHETIC_ONLY',
       providerSubmissionAllowed: false,
       qualificationScope: PRODUCTION_BRIDGE_QUALIFICATION_SCOPE,
       projectId: 'project-1',
       packageId: 'package-1',
       packageRevision: 3,
       shotId: 'FIRST_FRAME',
+    })
+    expect(preparation?.reality).toEqual({
+      source: 'creative-intelligence-snapshot',
+      mode: 'OFFLINE_SYNTHETIC_ONLY',
+      status: 'PREFLIGHT_REQUIRED',
+      snapshotId: null,
+      snapshotRevision: null,
+      dna: {
+        characterDNAId: null,
+        sceneDNAId: null,
+        cameraDNAId: null,
+        styleDNAId: null,
+      },
     })
     expect(preparation?.checks).toEqual({
       ownerValidated: false,
@@ -93,6 +107,39 @@ describe('Production Bridge Preparation', () => {
 
   it('does not create a preparation context without a handoff', () => {
     expect(prepareProductionBridge(null)).toBeNull()
+  })
+
+  it('carries the existing CreativeIntelligenceSnapshot DNA mapping into preflight', () => {
+    const preparation = prepareProductionBridge({
+      ...handoff,
+      intelligenceSnapshot: {
+        realityEngineMode: 'OFFLINE_SYNTHETIC_ONLY',
+        realitySnapshot: {
+          id: 'reality-1',
+          revision: 4,
+          mode: 'OFFLINE_SYNTHETIC_ONLY',
+          status: 'PREFLIGHT_REQUIRED',
+          source: 'creative-project',
+          characterDNA: {
+            id: 'character-1',
+            revision: 1,
+            origin: 'USER_CONFIRMED',
+            confidence: 0.9,
+            identity: {},
+            continuity: { appearance: [], wardrobe: [], behavior: [] },
+            evidence: [],
+            constraints: [],
+          },
+        },
+      },
+    })
+
+    expect(preparation?.reality.snapshotId).toBe('reality-1')
+    expect(preparation?.reality.snapshotRevision).toBe(4)
+    expect(preparation?.reality.dna.characterDNAId).toBe('character-1')
+    expect(preparation?.executionMode).toBe('OFFLINE_SYNTHETIC_ONLY')
+    expect(preparation?.status).toBe('PREFLIGHT_REQUIRED')
+    expect(preparation?.providerSubmissionAllowed).toBe(false)
   })
 
   it('recognizes only the explicitly non-submitting preparation shape', () => {

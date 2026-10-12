@@ -1,3 +1,12 @@
+import type {
+  CameraDNA,
+  CharacterDNA,
+  RealityEngineExecutionMode,
+  RealitySnapshot,
+  SceneDNA,
+  StyleDNA,
+} from './reality'
+
 export type CreativeAssetKind =
   | 'product'
   | 'character'
@@ -30,6 +39,7 @@ export interface CreativeWorkflowContext {
 }
 
 export interface CreativeIntelligenceSnapshot {
+  realityEngineMode?: RealityEngineExecutionMode
   realityReference?: {
     realityDNAId?: string
   }
@@ -40,6 +50,11 @@ export interface CreativeIntelligenceSnapshot {
     videoDNAId?: string
   }
   referenceStrength?: number
+  characterDNA?: CharacterDNA
+  sceneDNA?: SceneDNA
+  cameraDNA?: CameraDNA
+  styleDNA?: StyleDNA
+  realitySnapshot?: RealitySnapshot
 }
 
 export interface CreativeProject {
