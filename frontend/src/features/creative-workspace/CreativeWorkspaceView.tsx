@@ -1,9 +1,9 @@
-import { ArrowRight, BookOpen, FolderOpen, Image, Pencil, Save, Shirt } from 'lucide-react'
+import { ArrowRight, BookOpen, FolderOpen, Pencil, Save, Shirt } from 'lucide-react'
 import { useState } from 'react'
 import type { ProductSurface } from '../../app/productNavigation'
 import { useOptionalCreativeProject } from '../../creative-project/hooks'
 import type { Task } from '../../types'
-import { Button } from '../../shared/components/ui/Button'
+import { Button, IconButton } from '../../shared/components/ui/Button'
 import { FoundationDrawer } from '../../shared/components/ui'
 import { CreativePanel, CreativeReviewSummary, CreativeStatus, CreativeSteps } from '../../shared/components/studio/CreativeFoundation'
 import { presentCreativeWorkspace } from './workspacePresentation'
@@ -13,10 +13,8 @@ export function ProjectContextBar({ tasks, onNavigate }: { tasks?: readonly Task
   if (!context) return null
   const summary = presentCreativeWorkspace(context.project, tasks)
   return <div className="creative-context-bar" aria-label="当前项目">
-    <button type="button" className="creative-project-link" onClick={() => onNavigate('workspace')}><FolderOpen size={17} /><span>{context.project.name || '未命名项目'}</span></button>
-    <span className="creative-context-divider" aria-hidden="true">/</span>
+    <button type="button" className="creative-project-link" title="查看当前项目" onClick={() => onNavigate('workspace')}><FolderOpen size={17} /><span>{context.project.name || '未命名项目'}</span><ArrowRight size={14} /></button>
     <CreativeStatus value={summary.status} />
-    <button className="creative-context-action" type="button" onClick={() => onNavigate('workspace')}>工作区<ArrowRight size={14} /></button>
   </div>
 }
 
@@ -33,8 +31,12 @@ export function CreativeWorkspaceView({ surface, tasks, onNavigate }: { surface:
 
   return <section className="creative-workspace-view" aria-label={title}>
     <header className="creative-workspace-heading">
-      <div><span className="creative-workspace-kicker">Creative OS / {surface === 'projects' ? 'Projects' : surface === 'memory' ? 'Memory' : 'Workspace'}</span><h1>{title}</h1></div>
-      <Button icon={<Pencil size={16} />} onClick={openEditor}>项目设置</Button>
+      <div><span className="creative-workspace-kicker">{surface === 'projects' ? '项目' : surface === 'memory' ? '规划记录' : '当前创作'}</span><h1>{surface === 'workspace' ? project.name || '未命名项目' : title}</h1></div>
+      <div className="creative-workspace-tools">
+        <CreativeStatus value={summary.status} />
+        {surface !== 'memory' ? <IconButton label="规划记录" onClick={() => onNavigate('memory')}><BookOpen size={17} /></IconButton> : <IconButton label="返回当前项目" onClick={() => onNavigate('workspace')}><FolderOpen size={17} /></IconButton>}
+        <IconButton label="编辑项目名称" onClick={openEditor}><Pencil size={17} /></IconButton>
+      </div>
     </header>
     {surface === 'projects' ? <>
       <CreativePanel title="当前项目" subtitle="当前浏览器的项目与规划记录">
@@ -55,7 +57,10 @@ export function CreativeWorkspaceView({ surface, tasks, onNavigate }: { surface:
         <Button icon={<BookOpen size={16} />} onClick={() => onNavigate('director')}>查看导演证据</Button>
       </CreativePanel>
     </> : <>
-      <div className="creative-project-heading"><div><h2>{project.name || '未命名项目'}</h2><span>当前项目</span></div><CreativeStatus value={summary.status} /></div>
+      <section className="creative-next-action" aria-label="下一步">
+        <div><span>下一步</span><h2>{summary.nextAction.label}</h2><p>{summary.nextAction.description}</p></div>
+        <Button variant="primary" icon={<ArrowRight size={17} />} onClick={() => onNavigate(summary.nextAction.surface)}>{summary.nextAction.label}</Button>
+      </section>
       <CreativePanel title="创意概览">
         <dl className="creative-overview-list">
           <div><dt><Shirt size={15} />商品</dt><dd>{summary.planning?.brief.productName || '待输入商品'}</dd></div>
@@ -70,14 +75,10 @@ export function CreativeWorkspaceView({ surface, tasks, onNavigate }: { surface:
         }} />
         <p className="creative-progress-caption">{summary.steps.filter((step) => step.evidenced).length} / 5 个阶段有记录 · 不是生成进度或交付资格</p>
       </CreativePanel>
-      <section className="creative-next-action" aria-label="下一步">
-        <div><span>下一步</span><h2>{summary.nextAction.label}</h2><p>{summary.nextAction.description}</p></div>
-        <Button variant="primary" icon={<ArrowRight size={17} />} onClick={() => onNavigate(summary.nextAction.surface)}>{summary.nextAction.label}</Button>
-      </section>
       {summary.pkg ? <CreativePanel title="当前生产包" action={<Button variant="ghost" icon={<ArrowRight size={16} />} onClick={() => onNavigate('director')}>查看证据</Button>}>
         <dl className="creative-overview-list"><div><dt>版本</dt><dd>r{summary.pkg.revision} · {summary.pkg.shotId}</dd></div><div><dt>方向</dt><dd>{summary.direction?.title ?? '未提供'}</dd></div><div><dt>生产预检</dt><dd>待服务端验证</dd></div></dl>
         <CreativeReviewSummary>离线规划与 Fake 候选不可交付。真实 Provider 提交保持关闭。</CreativeReviewSummary>
-      </CreativePanel> : <div className="creative-start-row"><Image size={19} /><span>先整理商品与方向，再查看生产包和 Studio 输入。</span></div>}
+      </CreativePanel> : null}
     </>}
     {editing ? <FoundationDrawer open title="项目设置" onClose={() => setEditing(false)}>
       <form className="creative-project-form" onSubmit={(event) => {

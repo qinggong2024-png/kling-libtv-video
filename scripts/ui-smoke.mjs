@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 export const ROUTES = [
-  { name: 'images', query: '?view=images', selector: '.image-center.page-view', heading: '\u56fe\u7247\u4e2d\u5fc3' },
+  { name: 'images', query: '?view=images', selector: '.image-center.page-view', heading: '\u56fe\u7247\u5de5\u4f5c\u5ba4' },
   { name: 'make', query: '', selector: '.home-view', heading: '\u89c6\u9891\u5236\u4f5c' },
   { name: 'records', query: '?view=records', selector: '.page-view > .records-overview', heading: '\u4efb\u52a1' },
   { name: 'library', query: '?view=library', selector: '.content-library-view', heading: '\u5185\u5bb9\u4e0e\u4e3b\u4f53\u5e93' },
