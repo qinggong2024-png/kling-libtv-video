@@ -10,7 +10,7 @@
 //   因此它被包在 <Suspense fallback={null}> 里且不放进任何条件分支；
 //   一旦改成 {view === 'images' ? <ImageStudio/> : null}，非激活期轮询与通知会直接丢失。
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Bell, Boxes, BriefcaseBusiness, Clapperboard, Compass, FolderKanban, Images, Library, ListVideo, LoaderCircle, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, Bell, Clapperboard, Images, Library, ListVideo, LoaderCircle, RefreshCw, Settings, ShieldCheck, X } from 'lucide-react'
 import { logout } from '../api'
 import { ACTIVE_PHASES } from '../domain/workflowStates'
 import { LoginScreen } from '../features/auth/LoginScreen'
@@ -25,7 +25,7 @@ import { InPageTaskToasts } from '../shared/components/InPageTaskToasts'
 import { VideoPreview } from '../shared/components/Media'
 import { FoundationDrawer } from '../shared/components/ui'
 import { AppShell } from './AppShell'
-import type { NavItem, ProductNavItem } from './AppShell'
+import type { NavItem } from './AppShell'
 import { useAppNavigation } from './useAppNavigation'
 import { useTaskNotifications } from './useTaskNotifications'
 import type { View } from './appTypes'
@@ -154,22 +154,12 @@ function App() {
     ? providerPresentation(currentVideoGeneration?.provider).displayLabel
     : 'AI 视频生产'
   const nav: NavItem[] = [
-    { value: 'images', label: '图片中心', icon: <Images size={18} /> },
-    { value: 'make', label: '视频制作', icon: <Plus size={18} /> },
-    { value: 'records', label: '任务', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
-    { value: 'library', label: '内容库', icon: <Library size={18} /> },
+    { value: 'images', label: '图片工作室', icon: <Images size={18} /> },
+    { value: 'make', label: '视频工作室', icon: <Clapperboard size={18} /> },
+    { value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
+    { value: 'library', label: '素材库', icon: <Library size={18} /> },
     ...(canOperate ? [{ value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
     { value: 'settings', label: '设置', icon: <Settings size={18} /> },
-  ]
-  const productNav: ProductNavItem[] = [
-    { value: 'workspace', label: '工作区', icon: <BriefcaseBusiness size={17} /> },
-    { value: 'projects', label: '项目', icon: <FolderKanban size={17} /> },
-    { value: 'director', label: '导演', icon: <Compass size={17} /> },
-    { value: 'image', label: '图片', icon: <Images size={17} /> },
-    { value: 'video', label: '视频', icon: <Clapperboard size={17} /> },
-    { value: 'review', label: '审核', icon: <Sparkles size={17} /> },
-    { value: 'assets', label: '资产', icon: <Boxes size={17} /> },
-    { value: 'memory', label: '记忆', icon: <Library size={17} /> },
   ]
   const actorId = system?.sharedAuthentication ? null : actor?.userId ?? null
   const isCreativeWorkspaceSurface = surface === 'workspace' || surface === 'projects' || surface === 'memory'
@@ -197,9 +187,7 @@ function App() {
     system={system}
     error={error}
     currentProviderLabel={currentProviderLabel}
-    productNav={productNav}
     surface={surface}
-    onNavigateSurface={navigateSurface}
     sidebarInfo={sidebarInfo}
     onSidebarInfoChange={setSidebarInfo}
     devActorRole={devActorRole}
@@ -207,7 +195,9 @@ function App() {
     onSignOut={() => void signOut()}
     errorResetKeys={[view, adminSection, selectedTask?.id]}
     onErrorBack={() => navigate('make')}
-    projectContext={<ProjectContextBar tasks={tasks} onNavigate={navigateSurface} />}
+    projectContext={!isCreativeWorkspaceSurface && view !== 'admin' && view !== 'settings'
+      ? <ProjectContextBar tasks={tasks} onNavigate={navigateSurface} />
+      : null}
     overlays={overlays}
   >
     {loading ? <PageLoading /> : <>
