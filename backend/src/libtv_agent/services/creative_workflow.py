@@ -9,6 +9,11 @@ from tempfile import TemporaryDirectory
 
 from fastapi import HTTPException
 from libtv_agent.creative.brand_dna import project_brand_dna, validate_brand_dna
+from libtv_agent.creative.director_analysis import (
+    build_director_analysis,
+    select_director_direction,
+    validate_director_analysis,
+)
 from libtv_agent.creative.reality_evidence import registry_evidence_rules
 from libtv_agent.creative.text_contract import (
     freeze_text_contract,
@@ -176,6 +181,34 @@ def validate_package_contract(snapshot: dict, package: dict, command_key: str) -
         "unverified": result["unverified"],
     }
     return result
+
+
+def director_analysis(snapshot: dict):
+    analysis = snapshot.get("director_analysis")
+    if not isinstance(analysis, dict):
+        reject("DIRECTOR_ANALYSIS_REQUIRED")
+    try:
+        validated = validate_director_analysis(
+            analysis,
+            selected_direction=(snapshot.get("plan") or {}).get("selected_direction"),
+        )
+        plan = snapshot.get("plan") or {}
+        if (
+            snapshot.get("director_analysis_hash") != digest(analysis)
+            or validated.source_hash != snapshot["asset"]["sha256"]
+            or validated.source_hash != plan.get("source_hash")
+            or validated.facts_revision != snapshot["product_version"]["facts_revision"]
+            or validated.facts_revision != plan.get("facts_revision")
+            or validated.directions_hash != digest(plan.get("directions", []))
+            or validated.direction_ids != tuple(
+                direction["id"] for direction in plan.get("directions", [])
+            )
+            or validated.selected_direction != plan.get("selected_direction")
+        ):
+            reject("DIRECTOR_ANALYSIS_INVALID")
+        return validated
+    except (ValueError, KeyError, TypeError):
+        reject("DIRECTOR_ANALYSIS_INVALID")
 
 
 def storyboard_state(snapshot: dict) -> dict:
@@ -472,12 +505,26 @@ async def execute(
                 "unknown_or_assumption": "back view not observed",
             }],
         )
+        analysis = build_director_analysis(
+            source_hash=snapshot["asset"]["sha256"],
+            facts_revision=facts_revision,
+            directions=plan.directions,
+            brand_selected=brand is not None,
+        )
         snapshot["plan"] = plan.model_dump(mode="json")
+        snapshot["director_analysis"] = analysis.model_dump(mode="json")
+        snapshot["director_analysis_hash"] = digest(snapshot["director_analysis"])
         snapshot["trace"].extend(["D1", "D2"])
         stage = "AWAITING_DIRECTION"
         record(session, task.id, "plan", "1", snapshot["plan"])
+        record(session, task.id, "director_analysis", "1", snapshot["director_analysis"])
     elif action == "select_direction":
         if stage != "AWAITING_DIRECTION" or command.direction_id is None:
+            reject("DIRECTION_REQUIRED")
+        analysis = director_analysis(snapshot)
+        try:
+            selected_analysis = select_director_direction(analysis, command.direction_id)
+        except ValueError:
             reject("DIRECTION_REQUIRED")
         locks = {
             "product_id": str(task.product_id),
@@ -492,18 +539,22 @@ async def execute(
             revision=2,
             locks=locks,
         )
+        snapshot["director_analysis"] = selected_analysis.model_dump(mode="json")
+        snapshot["director_analysis_hash"] = digest(snapshot["director_analysis"])
         package = compile_package(task.id, snapshot["plan"], digest(locks), 1)
         snapshot["package"] = package.model_dump(mode="json")
         freeze_package_contract(session, task.id, snapshot, snapshot["package"])
         snapshot["trace"].extend(["D3", "D4"])
         stage = "PLAN_READY"
         record(session, task.id, "plan", "2", snapshot["plan"])
+        record(session, task.id, "director_analysis", "2", snapshot["director_analysis"])
         record(session, task.id, "package", package.package_id, snapshot["package"])
     elif action == "authorize":
         if stage not in {"PLAN_READY", "IMAGE_REVIEW"} or command.authorization is None:
             reject("AUTHORIZATION_REQUIRED")
         if snapshot.get("stopped"):
             reject("USER_STOPPED")
+        director_analysis(snapshot)
         auth = command.authorization
         if auth.expires_at <= now:
             reject("AUTHORIZATION_SCOPE_INVALID")
@@ -556,6 +607,7 @@ async def execute(
         snapshot["trace"].append("H1")
         record(session, task.id, "authorization", auth.authorization_id, snapshot["authorization"])
     elif action in {"generate", "revise"}:
+        director_analysis(snapshot)
         storyboard_mode = snapshot.get("authorization", {}).get("scope") == "VIDEO_STORYBOARD"
         if storyboard_mode and action == "revise":
             reject("STORYBOARD_REVISION_NOT_SUPPORTED")

@@ -7,6 +7,47 @@ export type DirectorWorkflowScope = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
 export type DirectorWorkflowShotId = 'FIRST_FRAME' | 'SHOT_01' | string
 export type DirectorPackagePurpose = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
 
+export type DirectorAnalysisStageStatus =
+  | 'COMPLETE'
+  | 'PLANNED'
+  | 'UNRESOLVED'
+  | 'UNVERIFIED'
+  | 'NOT_APPLICABLE'
+
+export interface DirectorAnalysisStage {
+  key: string
+  order: number
+  status: DirectorAnalysisStageStatus
+  depends_on: string[]
+  evidence: string[]
+  outputs: string[]
+}
+
+export interface DirectorVideoStrategy {
+  strategy: 'single_take' | 'single_call_multishot' | 'independent_segments' | 'hybrid' | 'strategy_unresolved'
+  exact_model: string
+  entrypoint: string
+  capability_evidence: 'official_documented' | 'entrypoint_verified' | 'tool_input_accepted' | 'rendered_observed' | 'unknown'
+  segment_map: string[]
+  fallback: string
+  benchmark_state: 'not_tested' | 'provisional' | 'verified'
+  generation_authorized: false
+}
+
+export interface DirectorAnalysis {
+  schema_version: 'director-analysis.v1'
+  source_hash: string
+  facts_revision: number
+  directions_hash: string
+  direction_ids: string[]
+  selected_direction: string | null
+  trace: string[]
+  stages: DirectorAnalysisStage[]
+  product_showcase: 'print_first' | 'not_print_first' | 'unknown'
+  video_strategy: DirectorVideoStrategy
+  planning_status: 'READY_FOR_DIRECTION' | 'READY_FOR_PACKAGE' | 'UNVERIFIED'
+}
+
 export interface DirectorCandidate {
   candidate_id: string
   package_id: string
@@ -101,6 +142,7 @@ export interface DirectorTaskSnapshot {
     directions: Array<{ id: 'A' | 'B' | 'C'; scene: string; behavior: string }>
     selected_direction?: 'A' | 'B' | 'C' | null
   }
+  director_analysis?: DirectorAnalysis
   package?: {
     package_id: string
     revision: number

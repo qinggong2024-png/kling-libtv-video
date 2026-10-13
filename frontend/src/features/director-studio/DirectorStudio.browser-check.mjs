@@ -52,6 +52,21 @@ try {
     let failReview = false
     let failSelect = false
     let uncertain = false
+    const analysisStages = [
+      ['PRODUCT_BRAND_AUDIENCE_DNA', 'COMPLETE'],
+      ['SCENE_REALITY_SPATIAL', 'PLANNED'],
+      ['STORYBOARD_SHOT_MIX_PRECHECK', 'PLANNED'],
+      ['KEY_VISUAL_SELECTOR', 'PLANNED'],
+      ['IMAGE_PROMPT_MOTION_READY', 'PLANNED'],
+      ['MODEL_AWARE_VIDEO_STRATEGY', 'UNRESOLVED'],
+      ['EMOTION_VIDEO_PROMPT', 'PLANNED'],
+      ['VIDEO_QA_ONE_FIX', 'UNVERIFIED'],
+    ].map(([key, status], index, values) => ({
+      key, order: index + 1, status,
+      depends_on: values.slice(0, index).map(([value]) => value),
+      evidence: [`Fixture evidence for ${key}`],
+      outputs: [`${key.toLowerCase()}_output`],
+    }))
     const task = {
       id: 'task-1', status: 'DRAFT', state_version: 0, mode: 'OFFLINE_FAKE_ONLY',
       snapshot: {
@@ -84,9 +99,24 @@ try {
         if (body.action === 'analyze') {
           task.status = 'AWAITING_DIRECTION'
           task.snapshot.plan = { directions: ['A', 'B', 'C'].map(id => ({ id, scene: `scene ${id}`, behavior: 'standing' })) }
+          task.snapshot.director_analysis = {
+            schema_version: 'director-analysis.v1',
+            source_hash: 'f'.repeat(64), facts_revision: 2, directions_hash: 'e'.repeat(64),
+            direction_ids: ['A', 'B', 'C'], selected_direction: null,
+            trace: analysisStages.map(stage => stage.key), stages: analysisStages,
+            product_showcase: 'unknown',
+            video_strategy: {
+              strategy: 'strategy_unresolved', exact_model: 'unknown', entrypoint: 'unknown',
+              capability_evidence: 'unknown', segment_map: [], fallback: 'fixture fallback',
+              benchmark_state: 'not_tested', generation_authorized: false,
+            },
+            planning_status: 'READY_FOR_DIRECTION',
+          }
         } else if (body.action === 'select_direction') {
           task.status = 'PLAN_READY'
           task.snapshot.plan.selected_direction = body.direction_id
+          task.snapshot.director_analysis.selected_direction = body.direction_id
+          task.snapshot.director_analysis.planning_status = 'READY_FOR_PACKAGE'
           task.snapshot.package = {
             package_id: 'package-1', revision: 3, parent_package_id: null,
             locks_hash: 'a'.repeat(64), preservation_hash: 'b'.repeat(64), facts_revision: 2,
@@ -281,6 +311,12 @@ try {
       assert.equal(await directionB.locator('button').getAttribute('aria-pressed'), 'false', 'Confirmed package blocks switching')
       assert.equal(commands.filter(command => command.action === 'select_direction').length, 1)
       await page.locator('.director-studio__steps').getByRole('button', { name: /生产方案/ }).click()
+      const analysis = page.getByRole('region', { name: '导演分析八步链路' })
+      assert.equal(await analysis.locator('ol > li').count(), 8)
+      assert(await analysis.getByText('模型感知视频策略', { exact: true }).isVisible())
+      assert(await analysis.getByText('视频策略待核对', { exact: true }).isVisible())
+      await analysis.getByText('规则与证据', { exact: true }).first().click()
+      assert(await analysis.getByText('Fixture evidence for PRODUCT_BRAND_AUDIENCE_DNA', { exact: true }).isVisible())
       const spatial = page.getByRole('region', { name: '空间与关键视觉规划' })
       await spatial.getByText('Key Visual Shot Selector', { exact: true }).waitFor()
       assert.equal(await spatial.locator('.director-camera-row').count(), 3)

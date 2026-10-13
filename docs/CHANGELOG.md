@@ -2,6 +2,23 @@
 
 ## 2026-10-13
 
+### Director Analysis Contract · Plugin v1.13.7–v1.13.13 Absorption
+
+- 将插件升级能力收口为 `director-analysis.v1` 八步服务端分析合同：
+  Product/Brand/Audience DNA → Scene/Reality/Spatial → Storyboard/Shot Mix →
+  Key Visual → Motion-Ready → Model-Aware Video Strategy → Emotion/Video Prompt
+  → Video QA/One-Fix。
+- 每步保存固定顺序、依赖、证据、输出和状态；分析快照篡改、重排或缺失时，
+  方向确认、授权和生成命令均阻断，继续复用 state version、幂等、素材哈希、
+  Prompt Preservation、人工审核和 UNKNOWN 恢复门。
+- 视频策略默认 `strategy_unresolved`，记录具体型号、入口、能力证据、分段映射、
+  fallback 和 benchmark 状态；不把官方文档、模型系列名或规划文本当成当前账号
+  可用能力、真实媒体交接或视频 QA 通过。
+- 智能导演台新增八步链路和视频策略证据展示；不新增产品工作区、不调用 Provider、
+  不授予生成授权、不改变旧 automatic/custom 视频路径。
+
+## 2026-10-13
+
 ### Director Studio V2 Sprint 4
 
 - 阶段主标题改为“商品输入 / 创意方向 / 生产方案”，保留英文辅助名称；导演模式只显示一个“导演台”主标题。
