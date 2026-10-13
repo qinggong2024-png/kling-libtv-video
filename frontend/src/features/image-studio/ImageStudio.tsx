@@ -1,6 +1,6 @@
 import {
   AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Clock3, Columns2, Film, GripVertical,
-  Download, Image as ImageIcon, Images, Layers3, LoaderCircle, Package, Plus, RotateCcw, Save, Shirt,
+  Download, Image as ImageIcon, Images, LoaderCircle, Package, Plus, RotateCcw, Shirt,
   Sparkles, UploadCloud, UserRound, WandSparkles, X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -29,6 +29,12 @@ import { imageStatusPresentation } from '../../domain/statusPresentation'
 import { DirectorStudio } from '../director-studio/DirectorStudio'
 import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 import '../image-center/imageReview.css'
+import { BatchStudio } from './BatchStudio'
+import { ImageRecords } from './ImageRecords'
+import { ImageStudioHome } from './ImageStudioHome'
+import { ImageToImageStudio } from './ImageToImageStudio'
+import { TextToImageStudio } from './TextToImageStudio'
+import { useImageStudioNavigation } from './imageStudioNavigation'
 
 import type {
   ImageCenterNotificationEvent,
@@ -656,6 +662,7 @@ export function BatchImageOutputReview({ outputs, onSaved, onClose }: {
 }
 
 function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
+  const { view: imageView, navigate: navigateImageView } = useImageStudioNavigation()
   const [draft, setDraft] = useState<ImageCenterDraft>(() => createImageCenterDraft(createUuid(), createUuid()))
   const [activeOutfitId, setActiveOutfitId] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -817,14 +824,12 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   }
   useEffect(() => {
     if (!active || !openTaskId) return
-    setDraft((current) => current.activeTab === 'results'
-      ? current
-      : { ...current, activeTab: 'results', updatedAt: new Date().toISOString() })
+    navigateImageView('records', true)
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(`image-task-${openTaskId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [active, openTaskId])
+  }, [active, navigateImageView, openTaskId])
   const summary = useMemo(() => calculateImageTaskSummary(draft), [draft])
   const errors = useMemo(() => validateImageCenterDraft(draft), [draft])
   const generationBlocked = generationAvailability !== 'available'
@@ -881,6 +886,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
     })
 
     setSubmitting(true)
+    navigateImageView('records')
     updateDraft((current) => ({ ...current, activeTab: 'results', tasks: [...identifiedTasks, ...current.tasks], selectedOutputIds: [] }))
     await new Promise((resolve) => window.setTimeout(resolve, 0))
     updateDraft((current) => ({ ...current, tasks: current.tasks.map((task) => identifiedTasks.some((item) => item.id === task.id) ? { ...task, status: 'submitting' } : task) }))
@@ -923,6 +929,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
     }
     const outfitId = createUuid()
     setActiveOutfitId(outfitId)
+    navigateImageView('batch')
     updateDraft((current) => createImageCenterRegenerationDraft(current, source, outfitId))
     setNotice(`已载入「${source.outfitName}」的素材与生成配置。`)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
@@ -1026,12 +1033,13 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   if (!loaded) return <div className="image-center-loading" hidden={!active}><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
 
   return <div className={`image-center page-view${studioMode === 'director' ? ' image-center--director' : ''}`} hidden={!active}>
-    {studioMode === 'custom' ? <header className="image-center-title"><div><span>Image Studio</span><h1>图片工作室</h1></div><div className="image-center-title__actions"><span className={`image-center-save-state is-${saveState}`}><Save size={14} />{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</span></div></header> : null}
-    {studioMode === 'custom' ? <nav className="image-center-tabs" aria-label="图片工作室工作区"><button type="button" className={draft.activeTab === 'create' ? 'is-active' : ''} onClick={() => { setStudioMode('custom'); updateDraft((current) => ({ ...current, activeTab: 'create' })) }}><Layers3 size={17} />批量创作</button><button type="button" className={draft.activeTab === 'results' ? 'is-active' : ''} onClick={() => { setStudioMode('custom'); updateDraft((current) => ({ ...current, activeTab: 'results' })) }}><Images size={17} />生图记录{draft.tasks.length ? <i>{draft.tasks.length}</i> : null}</button></nav> : null}
     {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
 
     {studioMode === 'director' ? <DirectorStudio /> : null}
-    {studioMode === 'custom' && draft.activeTab === 'create' ? <div className="image-center-create">
+    {studioMode === 'custom' && imageView === 'home' ? <ImageStudioHome taskCount={draft.tasks.length} onOpen={navigateImageView} /> : null}
+    {studioMode === 'custom' && imageView === 'image-to-image' ? <ImageToImageStudio onBack={() => navigateImageView('home')} onOpenBatch={() => navigateImageView('batch')} /> : null}
+    {studioMode === 'custom' && imageView === 'text-to-image' ? <TextToImageStudio onBack={() => navigateImageView('home')} onOpenBatch={() => navigateImageView('batch')} /> : null}
+    {studioMode === 'custom' && imageView === 'batch' ? <BatchStudio saveState={saveState} onBack={() => navigateImageView('home')}><div className="image-center-create">
       <section className="image-center-section asset-composer" aria-labelledby="asset-composer-title">
         <div className="image-center-section__heading"><div><span className="section-number">01</span><div><h2 id="asset-composer-title">素材编排</h2><p>左侧模特复用到全部套装，右侧每套产品独立生成。</p></div></div><div className="asset-composer-toolbar"><span className="section-state"><Shirt size={15} />{summary.outfitCount}/{draft.outfits.length} 套已就绪</span><a className="image-center-jump" href="#generation-config-title"><WandSparkles size={15} />生成配置</a></div></div>
         <div className="asset-composer-grid">
@@ -1071,21 +1079,21 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
         <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><p className="image-generation-submit__hint" role="status">{generationStatusMessage}</p></div></div>
         {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
       </section>
-    </div> : studioMode === 'custom' ? <section className="image-results" aria-labelledby="image-results-title">
-      <div className="image-results-heading"><div><h2 id="image-results-title">生图记录</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{selectedCompareOutputs.length === 2 ? <button type="button" className="secondary-button" onClick={() => setCompareOpen(true)}><Columns2 size={16} />并排比较</button> : null}{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}><Plus size={16} />继续创建</button></div></div>
+    </div></BatchStudio> : studioMode === 'custom' && imageView === 'records' ? <ImageRecords onBack={() => navigateImageView('home')}><section className="image-results" aria-labelledby="image-results-list-title">
+      <div className="image-results-heading"><div><h2 id="image-results-list-title">任务列表</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{selectedCompareOutputs.length === 2 ? <button type="button" className="secondary-button" onClick={() => setCompareOpen(true)}><Columns2 size={16} />并排比较</button> : null}{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => navigateImageView('batch')}><Plus size={16} />继续创建</button></div></div>
       {draft.tasks.filter((task) => task.status === 'write_uncertain').map((task) => <div className="image-center-notice is-danger" key={`recovery-${task.id}`} role="status"><AlertTriangle size={16} /><span>{task.outfitName} 的提交结果未知，请先查询服务端原批次。</span><button type="button" className="secondary-button" onClick={() => void recoverUncertainTask(task)}><RotateCcw size={15} />安全查询</button></div>)}
-      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => updateDraft((current) => ({ ...current, activeTab: 'create' }))}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
+      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => navigateImageView('batch')}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
         const status = imageStatusPresentation(task.status)
         const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
         return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => void toggleOutput(output.id)} onReject={() => void rejectOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
       })}</div>}
-    </section> : null}
-    {active && studioMode === 'custom' && draft.activeTab === 'create' ? createPortal(<div className="image-center-command-bar">
+    </section></ImageRecords> : null}
+    {active && studioMode === 'custom' && imageView === 'batch' ? createPortal(<div className="image-center-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
       {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : generationBlocked ? <span id="image-generation-availability" title={generationStatusMessage}><AlertTriangle size={15} />{generationStatusMessage}</span> : <span id="image-generation-availability" className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
       <button type="button" className="primary-button" disabled={submitting || generationBlocked} onClick={submit} title={generationBlocked ? generationStatusMessage : undefined} aria-describedby="image-generation-availability">{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : generationBlocked ? '生成暂不可用' : '创建生图任务'}</button>
     </div>, document.body) : null}
-    {active && studioMode === 'custom' && draft.activeTab === 'results' && selectedIds.size ? createPortal(<SelectionWorkbench
+    {active && studioMode === 'custom' && imageView === 'records' && selectedIds.size ? createPortal(<SelectionWorkbench
       tasks={draft.tasks}
       selectedOutputIds={draft.selectedOutputIds}
       expanded={selectionBarExpanded}
