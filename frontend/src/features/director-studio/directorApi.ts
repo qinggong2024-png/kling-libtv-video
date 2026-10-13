@@ -1,5 +1,6 @@
 import { getCurrentUser, getSystemStatus } from '../../api'
 import { createUuid } from '../../uuid'
+import type { BrandDNASnapshot } from './directorBrandDNA'
 
 export type DirectorCommandAction = 'analyze' | 'select_direction' | 'authorize' | 'generate' | 'review' | 'select'
 export type DirectorWorkflowScope = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
@@ -83,6 +84,7 @@ export interface DirectorStoryboardState {
 }
 
 export interface DirectorTaskSnapshot {
+  brand_dna?: BrandDNASnapshot
   asset: { sha256: string; width: number; height: number; object_key: string; revoked?: boolean }
   trace: string[]
   candidates: DirectorCandidate[]
@@ -229,10 +231,14 @@ export async function createDirectorTask(input: {
   productId: string
   front: File
   clientKey: string
+  brandProfileId?: string
+  brandProfileVersion?: string
 }): Promise<DirectorTaskResponse> {
   const body = new FormData()
   body.append('product_id', input.productId)
   body.append('client_key', input.clientKey)
+  if (input.brandProfileId) body.append('brand_profile_id', input.brandProfileId)
+  if (input.brandProfileVersion) body.append('brand_profile_version', input.brandProfileVersion)
   body.append('front', input.front, input.front.name)
   const created = await request<DirectorTaskResponse & { snapshot?: DirectorTaskSnapshot }>(
     '/creative-workflow/tasks',

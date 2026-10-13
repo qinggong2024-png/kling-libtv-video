@@ -4,6 +4,11 @@
 日期：2026-10-08
 状态：开发顺序冻结
 
+2026-10-13 当前增量排程以 `CREATIVE_CORE_HUMAN_LOOP_20261013.md` 为准：
+Creative Package → Brand DNA → Human Review → 人工测试。
+暂停新增 Agent、State 扩展、Provider 深度改造和 CreativeTask 全量迁移；
+以下 V1 历史计划及人工检查点保留，不代表已经完成或接受。
+
 2026-10-10 Creative Workflow 增量任务书见 `CREATIVE_WORKFLOW_IMPLEMENTATION_20261010.md`。本次先冻结后端合同与开发包，不把规范更新当成功能实现或人工方向接受。
 
 2026-10-11 内部 MVP 交付策略见 `INTERNAL_MVP_DELIVERY_PROFILE_20261011.md`。该策略只降低验证复杂度和发布等待，不删减 Creative Workflow 任务书中的功能范围。

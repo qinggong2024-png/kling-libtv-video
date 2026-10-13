@@ -5,6 +5,7 @@ import type {
   DirectorProductionPackage,
   DirectorSelection,
 } from './directorApi'
+import type { DirectorSpatialPlan } from './spatialPlanning'
 
 export type DirectorDirectionId = 'A' | 'B' | 'C'
 
@@ -12,6 +13,8 @@ export interface CreativeBrief {
   productName: string
   brandMode: 'brand' | 'generic'
   brandName: string
+  material?: string
+  videoType?: string
   objective: string
   audience: string
   notes: string
@@ -62,6 +65,7 @@ export interface DirectorPlanningSnapshot {
   selectedDirectionId: DirectorDirectionId | null
   productionPackage: ProductionPackage | null
   handoff: StudioHandoffContext | null
+  spatialPlan?: DirectorSpatialPlan
   directorFixed?: {
     creativeTaskId: string
     sourceImageHash?: string

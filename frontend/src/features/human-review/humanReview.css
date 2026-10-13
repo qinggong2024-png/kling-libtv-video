@@ -1,0 +1,25 @@
+.human-review {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #e5e7eb);
+  min-width: 0;
+  color: var(--text, #111827);
+}
+.human-review summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.human-review__scope, .human-review__empty, .human-review small { font-size: 12px; color: var(--muted, #64748b); overflow-wrap: anywhere; }
+.human-review__tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.human-review__tools button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: inherit; cursor: pointer; }
+.human-review__tools button:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
+.human-review__tools button:disabled { opacity: 0.5; cursor: default; }
+.human-review fieldset { margin: 12px 0; padding: 0; border: 0; min-width: 0; }
+.human-review legend { font-size: 12px; font-weight: 600; padding: 0 0 8px; }
+.human-review__choices, .human-review__reasons { display: flex; gap: 8px 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.human-review__choices label, .human-review__reasons label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; min-height: 28px; overflow-wrap: anywhere; }
+.human-review__note { display: grid; gap: 6px; font-size: 12px; }
+.human-review textarea { box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; padding: 8px; font: inherit; border: 1px solid var(--line, #e5e7eb); border-radius: 6px; color: inherit; background: var(--surface, #fff); }
+.human-review [role="status"] { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.human-review__history { list-style: none; padding: 0; margin: 12px 0; }
+.human-review__history li { padding: 10px 0; border-top: 1px solid var(--line, #e5e7eb); overflow-wrap: anywhere; font-size: 12px; }
+.human-review__history span { margin-left: 8px; }
+.human-review__history small { display: block; margin-top: 6px; }
+.human-review__history p { margin: 6px 0; }

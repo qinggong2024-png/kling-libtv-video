@@ -27,6 +27,7 @@ import { imageTaskNotificationForTransition } from '../../browserNotifications'
 import { FoundationDrawer } from '../../shared/components/ui'
 import { imageStatusPresentation } from '../../domain/statusPresentation'
 import { DirectorStudio } from '../director-studio/DirectorStudio'
+import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 import '../image-center/imageReview.css'
 
 import type {
@@ -437,6 +438,7 @@ export function ImageOutputReview({ output, onSaved, onClose }: {
       <label htmlFor="image-review-notes">{decision === 'REJECTED' ? '退回原因（必填）' : '审核备注'}</label>
       <textarea id="image-review-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} required={decision === 'REJECTED'} />
     </fieldset>
+    <HumanReviewPanel subjectType="IMAGE_OUTPUT" subjectId={output.id} />
     {error ? <p role="alert" className="notice">{error}</p> : null}
   </FoundationDrawer>
 }

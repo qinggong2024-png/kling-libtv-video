@@ -1,5 +1,7 @@
 import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, Product, ProductVersion, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
+import type { HumanReviewExport, HumanReviewHistory, HumanReviewInput, HumanReviewQuery, HumanReviewRecord } from './features/human-review/contracts'
+import { humanReviewQueryString } from './features/human-review/humanReviewModel'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -220,6 +222,10 @@ export const blockProductVersion = (productId: string, versionId: string, reason
   `/api/v1/products/${productId}/versions/${versionId}/block`,
   { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) },
 )
+
+export const getHumanReviewHistory = (query: HumanReviewQuery) => request<HumanReviewHistory>(`/api/v1/human-reviews?${humanReviewQueryString(query)}`)
+export const submitHumanReview = (input: HumanReviewInput) => request<HumanReviewRecord>('/api/v1/human-reviews', { method: 'POST', body: JSON.stringify(input) })
+export const getHumanReviewExport = (query: HumanReviewQuery) => request<HumanReviewExport>(`/api/v1/human-reviews/export?${humanReviewQueryString(query)}`)
 export const getPersonalPromptAutoConfirmation = () => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation')
 export const setPersonalPromptAutoConfirmation = (automatic: boolean) => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation', {
   method: 'PATCH',
@@ -675,14 +681,26 @@ export function getImageGenerationBatch(batchId: string, signal?: AbortSignal): 
   return request(`/api/v1/image-generation-batches/${encodeURIComponent(batchId)}`, { signal })
 }
 
-export function setImageOutputQualityDecision(outputId: string, payload: {
-  decision: 'QUALIFIED' | 'REJECTED'
-  productFidelityPass: boolean
-  humanCriticalPass: boolean
+export function setImageOutputQualityDecision(
+  outputId: string,
+  payload: {
+    decision: 'QUALIFIED' | 'REJECTED'
+    productFidelityPass: boolean
+    humanCriticalPass: boolean
+    humanReviewSeconds: number
+    notes?: string | null
+  },
+): Promise<{
+  id: string
+  qualificationStatus: 'QUALIFIED' | 'REJECTED'
+  qualityGates: Record<string, { verification?: string; outcome?: string }>
+  reviewedAt: string
   humanReviewSeconds: number
-  notes?: string | null
-}): Promise<{ id: string; qualificationStatus: 'QUALIFIED' | 'REJECTED'; qualityGates: Record<string, { verification?: string; outcome?: string }>; reviewedAt: string; humanReviewSeconds: number }> {
-  return request(`/api/v1/image-generation-outputs/${encodeURIComponent(outputId)}/quality-decision`, { method: 'PUT', body: JSON.stringify(payload) })
+}> {
+  return request(`/api/v1/image-generation-outputs/${encodeURIComponent(outputId)}/quality-decision`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function refreshKlingCapabilities(adminId: string): Promise<KlingStatus> {

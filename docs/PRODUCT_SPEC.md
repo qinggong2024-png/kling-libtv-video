@@ -4,6 +4,10 @@
 日期：2026-10-08
 状态：产品范围冻结，作为前端开发与验收的上位约束
 
+2026-10-13 研发方向调整：当前目标为 Creative OS Core + Human Production Loop。
+执行顺序及冻结边界见 `CREATIVE_CORE_HUMAN_LOOP_20261013.md`；保留四工作区、
+既有质量门和人工接受要求，不再继续扩展完整 Creative OS。
+
 本次冻结阶段只固化规范和审查记录，不代表页面已完成。后续实际开发首先执行 Video Studio + Design System。
 
 2026-10-10 增量合同：Creative Workflow 的已确认开发规则见 `CREATIVE_WORKFLOW_IMPLEMENTATION_20261010.md`，仅定义待实现能力，不代表现有模式已改变或 Checkpoint 1 已接受。智能导演作为 Image Studio 内模式；不新增第五个产品工作区。

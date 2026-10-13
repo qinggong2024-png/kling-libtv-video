@@ -566,14 +566,6 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
         </div>
       </div>
       </div>
-    <div className="composer-submit-row" aria-live="polite">
-      <fieldset className="result-count-field composer-result-count" disabled={formLocked}><legend>每组结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
-      <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
-      {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
-        : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
-      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} disabled={formLocked || batchInvalid || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
-      {busy ? <div className="composer-submit-progress progress-track" role="progressbar" aria-label={stage} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={studio ? { transform: `scaleX(${progress / 100})` } : { width: `${progress}%` }} /></div> : null}
-    </div>
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>
         : catalogError ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{catalogError}</span><Button variant="ghost" disabled={catalogLoading} onClick={() => { setCatalogLoading(true); setCatalogReloadKey((key) => key + 1) }}>重新读取</Button></div>
@@ -589,6 +581,14 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
                   : !templateAcceptsCount ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>当前模板接受 {selectedTemplate?.minImages}–{selectedTemplate?.maxImages} 张分镜图</span></div>
                     : !customPromptReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>请输入自定义提示词，或切换到自动化生成。</span></div>
                   : null}
+    </div>
+    <div className="composer-submit-row" aria-live="polite">
+      <fieldset className="result-count-field composer-result-count" disabled={formLocked}><legend>每组结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
+      <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
+      {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
+        : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
+      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} disabled={formLocked || batchInvalid || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
+      {busy ? <div className="composer-submit-progress progress-track" role="progressbar" aria-label={stage} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={studio ? { transform: `scaleX(${progress / 100})` } : { width: `${progress}%` }} /></div> : null}
     </div>
     </div>
     {preview ? studio

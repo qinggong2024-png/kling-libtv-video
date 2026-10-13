@@ -7,6 +7,7 @@ import { GenerationFeedbackPanel } from '../../GenerationFeedback'
 import { StatusBadge } from '../../shared/components/Badges'
 import { AuthenticatedImage } from '../../shared/components/Media'
 import { formatTime, variantDisplayName, variantFileToken, variantLabelClass, variantShortLabel } from '../../domain/taskPresentation'
+import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 
 export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged, canReview = false }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
   const product = [...task.assets].sort((a, b) => a.order - b.order)[0]
@@ -113,12 +114,12 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     {ready ? <div ref={feedbackAnchorRef} className="result-feedback">
       <div className={`final-approval-status is-${variant.finalApprovalStatus?.toLowerCase() ?? 'pending'}`}>
         <ShieldCheck size={16} />
-        <span>{variant.finalApprovalStatus === 'APPROVED' ? '已批准交付' : variant.finalApprovalStatus === 'REJECTED' ? '交付已拒绝' : '等待 Required Hard Gates 人工审核'}</span>
+        <span>{variant.finalApprovalStatus === 'APPROVED' ? '已批准交付' : variant.finalApprovalStatus === 'REJECTED' ? '交付已拒绝' : '等待人工交付审核'}</span>
         {canReview && variant.finalApprovalStatus !== 'APPROVED' ? <button type="button" className="compact-button" onClick={openReview}>质量审核</button> : null}
       </div>
       {reviewOpen ? <section className="final-approval-panel" aria-label="最终视频质量审核">
         <strong>最终交付审核</strong>
-        <p>技术关键项已由系统验证；请逐项核对尚未机器验证的 Required Hard Gates。</p>
+        <p>技术关键项已由系统验证；请逐项核对以下必须人工判断的质量项。</p>
         <label><input type="checkbox" checked={productFidelityPass} onChange={(event) => setProductFidelityPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构与源素材一致</label>
         <label><input type="checkbox" checked={editingAssemblyPass} onChange={(event) => setEditingAssemblyPass(event.target.checked)} />成片已真实完成所需镜头剪辑／组装，不是单段占位结果</label>
         <label><input type="checkbox" checked={humanCriticalPass} onChange={(event) => setHumanCriticalPass(event.target.checked)} />人物、手脸、动作、镜头与成片观感无关键缺陷</label>
@@ -143,6 +144,6 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     <div className="result-actions">
       {ready ? <><button className="icon-button" onClick={onPlay} aria-label="播放视频" title="播放"><Play size={17} /></button><button className="icon-button" disabled={downloadBusy} onClick={() => void download()} aria-label="下载视频" title="下载">{downloadBusy ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}</button><button className="icon-button" onClick={onOpen} aria-label="查看任务详情" title="查看任务详情"><Eye size={17} /></button></> : <button className="compact-button" onClick={onOpen}>查看状态</button>}
       <button className="remix-button" onClick={onRemix}><RotateCcw size={15} />同素材再制作</button>
-    </div>{downloadError ? <small className="result-action-error" role="alert">{downloadError}</small> : null}</div>
+    </div>{ready ? <HumanReviewPanel subjectType="VIDEO_VARIANT" subjectId={variant.id} taskId={task.id} canWrite={canReview} /> : null}{downloadError ? <small className="result-action-error" role="alert">{downloadError}</small> : null}</div>
   </article>
 }

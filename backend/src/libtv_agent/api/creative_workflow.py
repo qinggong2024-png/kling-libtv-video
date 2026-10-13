@@ -11,6 +11,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from libtv_agent.api.dependencies import Actor, Session, require_review_write
 from libtv_agent.creative.workflow import AssetLink, Command
 from libtv_agent.domain.models import Product
+from libtv_agent.services.creative_package_export import with_creative_package_exports
 from libtv_agent.services.creative_workflow import create_task, execute, owned, reject
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
@@ -36,6 +37,8 @@ async def create(
     front: Annotated[UploadFile, File()],
     client_key: Annotated[str | None, Form()] = None,
     product_version_id: Annotated[uuid.UUID | None, Form()] = None,
+    brand_profile_id: Annotated[str | None, Form(max_length=80)] = None,
+    brand_profile_version: Annotated[str | None, Form(max_length=40)] = None,
 ) -> dict:
     offline_only(request)
     require_review_write(actor)
@@ -68,18 +71,19 @@ async def create(
         await store.put_file(local, key, "application/octet-stream")
     result = await create_task(session, actor.id, product_id, AssetLink(
         owner_id=actor.id, object_key=key, sha256=sha, width=width, height=height,
-    ), client_key=client_key, product_version_id=product_version_id)
-    return result
+    ), client_key=client_key, product_version_id=product_version_id,
+        brand_profile_id=brand_profile_id, brand_profile_version=brand_profile_version)
+    return with_creative_package_exports(result)
 
 
 @router.get("/tasks/{task_id}")
 async def read(task_id: uuid.UUID, request: Request, actor: Actor, session: Session) -> dict:
     offline_only(request)
     task = await owned(session, task_id, actor.id)
-    return {
+    return with_creative_package_exports({
         "id": str(task.id), "status": task.status, "state_version": task.state_version,
         "snapshot": task.snapshot_json, "mode": "OFFLINE_FAKE_ONLY",
-    }
+    })
 
 
 @router.post("/tasks/{task_id}/commands")
@@ -90,7 +94,10 @@ async def command(
     require_review_write(actor)
     task = await owned(session, task_id, actor.id)
     try:
-        return await execute(session, task, payload, request.app.state.object_store, actor.id)
+        result = await execute(
+            session, task, payload, request.app.state.object_store, actor.id,
+        )
+        return with_creative_package_exports(result)
     except OperationalError:
         await session.rollback()
         reject("RETRYABLE_DATABASE_CONFLICT")
