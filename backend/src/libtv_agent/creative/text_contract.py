@@ -201,6 +201,31 @@ def validate_text_contract(
                 reason = item.get("reason") or item.get("na_reason")
                 check("REALITY_NA_REASON", isinstance(reason, str) and bool(reason.strip()),
                       f"{item.get('dimension')} N/A needs a reason")
+        rule_items = [
+            item for item in reality if isinstance(item, dict)
+            and any(item.get(key) for key in ("rule_id", "rules_version", "rules_hash"))
+        ]
+        if rule_items:
+            check(
+                "REALITY_RULES_COMPLETE",
+                len(rule_items) == len(REALITY_ORDER) and all(
+                    all(isinstance(item.get(key), str) and item[key].strip() for key in (
+                        "rule_id", "rules_version", "rules_hash", "required_context",
+                        "generation_constraint",
+                        "judgment_standard", "review_axis", "revision_module",
+                        "causal_variable",
+                    ))
+                    for item in rule_items
+                ),
+                "Reality evidence rules must cover all six dimensions with usable constraints",
+            )
+            rule_versions = {item.get("rules_version") for item in rule_items}
+            rule_hashes = {item.get("rules_hash") for item in rule_items}
+            check(
+                "REALITY_RULES_CONSISTENT",
+                len(rule_versions) == 1 and len(rule_hashes) == 1,
+                "Reality evidence rules must use one version and one content hash",
+            )
 
         # ORM adapter: {prompt_key, version, content_hash, payload_json}; the
         # payload needs both the literal Prompt and a rules manifest for proof.
@@ -227,6 +252,62 @@ def validate_text_contract(
                       "Registry manifest hash is inconsistent")
             else:
                 unknown("REGISTRY_MANIFEST_MISSING", "full Registry rules version is unproven")
+            evidence_rules = (
+                manifest.get("reality_evidence_rules") if isinstance(manifest, dict) else None
+            )
+            if rule_items:
+                if isinstance(manifest, dict) and manifest:
+                    check(
+                        "REGISTRY_REALITY_RULES",
+                        isinstance(evidence_rules, dict)
+                        and evidence_rules.get("schema_version")
+                        == rule_items[0].get("rules_version")
+                        and evidence_rules.get("content_hash")
+                        == rule_items[0].get("rules_hash")
+                        and isinstance(evidence_rules.get("rules"), list)
+                        and len(evidence_rules["rules"]) == len(REALITY_ORDER),
+                        "Registry must freeze the Reality evidence rules used by the package",
+                    )
+                else:
+                    unknown(
+                        "REGISTRY_REALITY_RULES_MISSING",
+                        "legacy Registry has no manifest for the Reality evidence rules",
+                    )
+                if isinstance(evidence_rules, dict):
+                    rule_payload = {
+                        key: value for key, value in evidence_rules.items()
+                        if key != "content_hash"
+                    }
+                    check(
+                        "REGISTRY_REALITY_RULES_HASH",
+                        evidence_rules.get("content_hash") == canonical_hash(rule_payload),
+                        "Reality rule snapshot content hash is inconsistent",
+                    )
+                    rules = evidence_rules.get("rules")
+                    check(
+                        "REGISTRY_REALITY_RULES_CONTENT",
+                        isinstance(rules, list)
+                        and len(rules) == len(rule_items)
+                        and all(
+                            isinstance(rule, dict) and all(
+                                rule.get(key) == item.get(key) for key in (
+                                    "dimension", "rule_id", "generation_constraint",
+                                    "judgment_standard", "review_axis", "revision_module",
+                                    "causal_variable",
+                                )
+                            )
+                            and ", ".join(rule.get("context_fields", []))
+                            == item.get("required_context")
+                            for rule, item in zip(rules, rule_items, strict=True)
+                        ),
+                        "per-dimension rules differ from their Registry snapshot",
+                    )
+            elif evidence_rules is not None:
+                unknown(
+                    "REALITY_RULES_UNBOUND",
+                    "Registry carries Reality rules but the package has no per-dimension "
+                    "rule references",
+                )
     except (TypeError, ValueError, KeyError, OverflowError, RecursionError) as exc:
         check("INPUT_INVALID", False, str(exc))
 
