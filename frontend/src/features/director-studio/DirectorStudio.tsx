@@ -48,8 +48,8 @@ import {
 } from './directorRecovery'
 import { prepareProductionBridge } from './productionBridge'
 import { selectDirectorEvidence } from './directorEvidence'
-import { explainDirectorFailure, selectDirectorDirectionCards } from './directorPresentation'
-import { DirectorBridgeStatus, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { explainDirectorFailure } from './directorPresentation'
+import { DirectorBridgeStatus, DirectorDirectionCard, DirectorPackageEvidence } from './DirectorPlanningViews'
 import { DirectorBrandDNAView } from './DirectorBrandDNAView'
 import { selectDirectorBrandProfile } from './directorBrandDNA'
 import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
@@ -92,7 +92,6 @@ export function DirectorStudio() {
   const ready = isDirectorIntakeReady(draft.intake) && (draft.intake.brandMode !== 'brand' || Boolean(chosenBrand))
   const hasAnalysis = Boolean(workflow?.snapshot.plan)
   const selectedDirection = draft.directions.find((direction) => direction.id === draft.selectedDirectionId) ?? null
-  const directionCards = selectDirectorDirectionCards(workflow, draft)
   const confirmedDirectionId = workflow?.snapshot.package
     ? workflow.snapshot.plan?.selected_direction ?? draft.selectedDirectionId
     : null
@@ -661,55 +660,15 @@ export function DirectorStudio() {
           <span className="director-state">{workflow?.snapshot.plan ? `${draft.directions.length} 个候选` : '等待分析'}</span>
         </div>
         <div className="director-direction-list">
-          {directionCards.map((direction) => <button
+          {draft.directions.map((direction) => <DirectorDirectionCard
             key={direction.id}
-            type="button"
-            className={`director-direction${direction.selected ? ' is-selected' : ''}${direction.confirmed ? ' is-confirmed' : ''}`}
-            aria-pressed={direction.selected}
-            onClick={() => void chooseDirection(direction)}
+            direction={direction}
+            workflow={workflow}
+            selected={draft.selectedDirectionId === direction.id}
+            confirmed={confirmedDirectionId === direction.id}
+            onSelect={() => chooseDirection(direction)}
             disabled={!workflow || workflow.status !== 'AWAITING_DIRECTION' || busyAction !== null || directionConfirmed}
-          >
-            <span className="director-direction__topline">
-              <span className="director-direction__marker">{direction.id}</span>
-              <span className="director-direction__heading"><small>Direction {direction.id}</small><strong>{direction.title}</strong></span>
-            </span>
-            <span className="director-direction__body">
-              <span className="director-direction__section">
-                <span className="director-direction__label">Creative Summary <em>AI Result</em></span>
-                <span className="director-direction__value">{workflow?.snapshot.plan ? direction.summary : '本地规划参考 · 等待服务端分析'}</span>
-              </span>
-              <span className="director-direction__section">
-                <span className="director-direction__label">Execution Concept <em>AI Result</em></span>
-                <span className="director-direction__facts">
-                  <span><small>Scene</small><strong>{direction.scene || '未提供'}</strong></span>
-                  <span><small>Behavior</small><strong>{direction.behavior || '未提供'}</strong></span>
-                </span>
-              </span>
-              <span className="director-direction__section">
-                <span className="director-direction__label">Visual Proposal <em>Creative Proposal</em></span>
-                <span className="director-direction__facts">
-                  <span><small>Camera</small><strong>{direction.camera || '未提供'}</strong></span>
-                  <span><small>Emotion</small><strong>{direction.emotion || '未提供'}</strong></span>
-                </span>
-              </span>
-              <span className="director-direction__section director-direction__sources">
-                <span className="director-direction__label">Information Source</span>
-                <span className="director-direction__source-list">
-                  <span><strong>AI Result</strong><small>summary · scene · behavior</small></span>
-                  <span><strong>Creative Proposal</strong><small>camera · emotion</small></span>
-                  <span><strong>User Input</strong><small>brief 作为分析输入</small></span>
-                  <span className="is-unknown"><strong>Unknown</strong><small>受众 · 商品证据 · 取舍风险</small></span>
-                </span>
-              </span>
-            </span>
-            <span className="director-direction__check">
-              {direction.confirmed
-                ? <><Check size={17} />已确认</>
-                : direction.selected
-                  ? <><Check size={17} />已选择</>
-                  : '选择'}
-            </span>
-          </button>)}
+          />)}
         </div>
         <button
           type="button"

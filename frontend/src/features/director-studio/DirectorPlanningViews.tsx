@@ -1,7 +1,8 @@
-import { LockKeyhole } from 'lucide-react'
+import { Check, LockKeyhole } from 'lucide-react'
 import { CreativePackageExportView } from './CreativePackageExportView'
 import type { CreativeBrief } from './contracts'
 import type { DirectorTaskResponse } from './directorApi'
+import type { DirectorDirection } from './directorModel'
 import type { ProductionBridgePreparation } from './productionBridge'
 import {
   selectDirectorBriefSummary,
@@ -17,6 +18,61 @@ export function DirectorBriefSummary({ brief }: { brief: CreativeBrief }) {
     </dl>
     <p className="director-evidence__note">未纳入当前离线分析请求或服务端生产包。</p>
   </details>
+}
+
+export function DirectorDirectionCard({ direction, workflow, selected, confirmed, disabled, onSelect }: {
+  direction: DirectorDirection
+  workflow: DirectorTaskResponse | null
+  selected: boolean
+  confirmed: boolean
+  disabled: boolean
+  onSelect: () => void
+}) {
+  const result = workflow?.snapshot.plan?.directions.find((candidate) => candidate.id === direction.id)
+  const resultSource = workflow?.mode === 'OFFLINE_FAKE_ONLY' ? 'AI Result · 离线 Fake' : 'AI Result'
+  return <article
+    className={`director-direction${selected ? ' is-selected' : ''}${confirmed ? ' is-confirmed' : ''}`}
+    aria-label={`方向 ${direction.id} · ${direction.title}`}
+    onClick={(event) => {
+      if (disabled || (event.target as HTMLElement).closest('button, details')) return
+      onSelect()
+    }}
+  >
+    <button type="button" className="director-direction__select" aria-pressed={selected} disabled={disabled} onClick={onSelect}>
+      <span className="director-direction__topline">
+        <span className="director-direction__marker">{direction.id}</span>
+        <span className="director-direction__heading"><strong>{direction.title || '未提供'}</strong><small>名称 · 创意提案</small></span>
+      </span>
+      <span className="director-direction__section">
+        <span className="director-direction__label">Creative Summary <em>{result ? '结果整理' : 'Unknown'}</em></span>
+        <span className="director-direction__value">{result ? direction.summary || '未提供' : '未提供'}</span>
+      </span>
+      <span className="director-direction__check">{confirmed ? <><Check size={16} />已确认</> : selected ? <><Check size={16} />已选择</> : '选择'}</span>
+    </button>
+    <div className="director-direction__section">
+      <span className="director-direction__label">Execution Concept <em>{result ? resultSource : 'Unknown'}</em></span>
+      <dl className="director-direction__facts">
+        <div><dt>Scene · 场景</dt><dd>{result?.scene || '未提供'}</dd></div>
+        <div><dt>Behavior · 行为</dt><dd>{result?.behavior || '未提供'}</dd></div>
+      </dl>
+    </div>
+    <div className="director-direction__section">
+      <span className="director-direction__label">Visual Proposal <em>创意提案</em></span>
+      <dl className="director-direction__facts">
+        <div><dt>Camera · 镜头</dt><dd>{direction.camera || '未提供'}</dd></div>
+        <div><dt>Emotion · 情绪</dt><dd>{direction.emotion || '未提供'}</dd></div>
+      </dl>
+    </div>
+    <details className="director-direction__sources">
+      <summary>Information Source · 信息来源</summary>
+      <dl className="director-direction__source-list">
+        <div><dt>{result ? resultSource : 'Unknown'}</dt><dd>{result ? '场景 / 行为：服务端结果。摘要：前端按结果整理。' : '尚无服务端方向结果。'}</dd></div>
+        <div><dt>Creative Proposal · 创意提案</dt><dd>名称 / 镜头 / 情绪：本地规划参考，非 AI 分析结果。</dd></div>
+        <div><dt>User Input · 用户输入</dt><dd>商品图 / 品牌归属；不代表方向已验证商品证据。</dd></div>
+        <div><dt>Unknown · 未提供</dt><dd>目标受众适配 / Product Evidence / Trade-off。</dd></div>
+      </dl>
+    </details>
+  </article>
 }
 
 export function DirectorPackageEvidence({ workflow, shotId }: { workflow: DirectorTaskResponse | null; shotId: 'FIRST_FRAME' | 'SHOT_01' }) {
