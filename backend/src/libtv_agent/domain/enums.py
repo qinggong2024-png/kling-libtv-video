@@ -43,6 +43,25 @@ class ParentTaskPhase(StrEnum):
 ParentTaskStatus = ParentTaskPhase
 
 
+# Phases a task may be cancelled from.
+#
+# This lives beside the enum so the read model (services.tasks._build_task_read, which
+# decides whether the UI offers a cancel button) and the write path
+# (api.tasks.cancel_task, which decides whether the request is honoured) cannot drift
+# apart again. They previously disagreed: the read model also advertised PREPARING,
+# WAITING_FOR_SEAL and QUEUED, so the UI rendered an enabled button that always came
+# back 409. Cancelling after confirmation would additionally have to release the points
+# already reserved for each attempt, which is a deliberate behaviour change rather than
+# a whitelist edit.
+CANCELLABLE_PHASES: frozenset[ParentTaskPhase] = frozenset(
+    {
+        ParentTaskPhase.DRAFT,
+        ParentTaskPhase.ANALYZING,
+        ParentTaskPhase.AWAITING_CONFIRMATION,
+    }
+)
+
+
 class ConsistencyLevel(StrEnum):
     PASS = "PASS"
     WARNING = "WARNING"

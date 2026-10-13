@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from libtv_agent.creative.media_qualification import is_offline_synthetic_batch
 from libtv_agent.domain.contracts import sha256_json
 from libtv_agent.domain.models import (
     ImageGenerationBatch,
@@ -561,6 +562,8 @@ async def _claim_image_observation(session: AsyncSession, item: ImageGenerationI
 
 
 async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerationBatch) -> None:
+    if is_offline_synthetic_batch(batch):
+        return
     for item in batch.items:
         if item.status not in ACTIVE_ITEM_STATUSES or not item.provider_task_id:
             continue
@@ -640,6 +643,9 @@ async def refresh_active_batches(
                 select(ImageGenerationBatch)
                 .join(ImageGenerationItem)
                 .where(
+                    ImageGenerationBatch.provider.notin_(
+                        ("fake", "offline", "synthetic", "offline_synthetic")
+                    ),
                     ImageGenerationItem.status.in_(ACTIVE_ITEM_STATUSES),
                     ImageGenerationItem.provider_task_id.is_not(None),
                 )

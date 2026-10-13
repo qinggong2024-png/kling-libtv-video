@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 HANDOFF_SCHEMA_VERSION = "creative-handoff.v1"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -57,7 +56,7 @@ class HandoffAsset(HandoffModel):
     license: HandoffLicense
 
     @model_validator(mode="after")
-    def validate_sha256(self) -> "HandoffAsset":
+    def validate_sha256(self) -> HandoffAsset:
         if not SHA256_PATTERN.fullmatch(self.sha256):
             raise ValueError("sha256 must be 64 lowercase hexadecimal characters")
         if self.kind == "image" and self.duration_seconds is not None:
@@ -105,7 +104,7 @@ class CreativeHandoffManifest(HandoffModel):
     constraints: HandoffConstraints
 
     @model_validator(mode="after")
-    def validate_references(self) -> "CreativeHandoffManifest":
+    def validate_references(self) -> CreativeHandoffManifest:
         asset_ids = [asset.asset_id for asset in self.assets]
         if len(asset_ids) != len(set(asset_ids)):
             raise ValueError("handoff assets must have unique asset_id values")

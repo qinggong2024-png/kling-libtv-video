@@ -16,6 +16,8 @@ import { ProviderBadge, TaskStatusBadge } from '../../shared/components/Badges'
 import { TaskThumb } from '../../shared/components/Media'
 import { type RemixSeed } from '../production/productionTypes'
 import { TaskCard } from '../../shared/components/tasks/TaskCard'
+import { useOptionalCreativeProject } from '../../creative-project/hooks'
+import { prepareDirectorFixedOffline } from '../director-studio/productionBridge'
 
 export const DISMISSED_ATTENTION_STORAGE_KEY = 'dismissed-home-attention'
 export const DISMISSED_ATTENTION_ITEMS_STORAGE_KEY = 'dismissed-home-attention-items'
@@ -45,7 +47,7 @@ export function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen:
       ? variantExecutionMessage(unknownVariant!, task.generationProvider)
       : isAnalysisFailure(task)
         ? taskFailureMessage(task)
-        : taskFailureMessage(task)
+        : '视频生成遇到问题，需要处理'
   const action = task.phase === 'AWAITING_CONFIRMATION' ? '立即确认' : isFinalApproval ? '开始人工审核' : unknown ? '查询状态' : isAnalysisFailure(task) ? '重新分析' : '查看原因'
   return <article className="attention-item">
     <button type="button" className="attention-item-dismiss" onClick={onDismiss} aria-label={`关闭“${task.title}”的提醒`} title="关闭此提醒"><X size={16} /></button>
@@ -56,6 +58,8 @@ export function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen:
 }
 
 export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOpen, onView, onPlay, onRemix, onFeedbackChanged, canReview = false }: { active: boolean; tasks: Task[]; seed: RemixSeed | null; system: SystemStatus | null; actorId: string | null; onCreated: (task: Task, open?: boolean) => void; onOpen: (task: Task) => void; onView: (view: View) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
+  const projectContext = useOptionalCreativeProject()
+  const directorFixedPreparation = prepareDirectorFixedOffline(projectContext?.project ?? null)
   const actionableTasks = tasks.filter((task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const attentionSignatureFor = (task: Task) => [
     task.phase,
@@ -87,6 +91,7 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
   return <div className="home-view video-studio" hidden={!active}>
     <div className="home-title"><div><h1>视频制作</h1><span className="studio-kicker">Video Studio</span></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
+      {directorFixedPreparation ? <ProductionComposer key="director-fixed-offline" seed={null} directorFixedPreparation={directorFixedPreparation} onCreated={onCreated} system={system} actorId={actorId} layout="studio" /> : null}
       <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} layout="studio" />
     </div>
     {showAttention ? <section className="attention-panel" aria-label="待处理任务">

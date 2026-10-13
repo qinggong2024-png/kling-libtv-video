@@ -12,6 +12,7 @@ export function Modal({ labelledBy, onClose, className = '', children }: {
     const dialog = ref.current
     if (!dialog) return
     const previous = document.activeElement as HTMLElement | null
+    dialog.dataset.motion = previous?.matches(':focus-visible') ? 'none' : 'enter'
     const alreadyLocked = document.body.classList.contains('overlay-open')
     document.body.classList.add('overlay-open')
     dialog.showModal()

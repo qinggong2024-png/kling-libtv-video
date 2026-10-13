@@ -83,13 +83,18 @@ export interface DirectorStoryboardState {
 }
 
 export interface DirectorTaskSnapshot {
-  asset: { sha256: string; width: number; height: number; object_key: string }
+  asset: { sha256: string; width: number; height: number; object_key: string; revoked?: boolean }
   trace: string[]
   candidates: DirectorCandidate[]
   calls: number
   cost_micros: number
   total_calls: number
   total_cost_micros: number
+  product_version?: {
+    product_id: string
+    product_version_id: string
+    facts_revision?: number
+  }
   plan?: {
     directions: Array<{ id: 'A' | 'B' | 'C'; scene: string; behavior: string }>
     selected_direction?: 'A' | 'B' | 'C' | null
@@ -125,6 +130,11 @@ export interface DirectorTaskResponse {
   state_version: number
   snapshot: DirectorTaskSnapshot
   mode: 'OFFLINE_FAKE_ONLY' | string
+}
+
+export interface DirectorProductResponse {
+  id: string
+  current_version_id?: string | null
 }
 
 export interface DirectorCommandInput {
@@ -215,7 +225,7 @@ export function createDirectorProduct(internalSkuId: string): Promise<{ id: stri
   })
 }
 
-export function createDirectorTask(input: {
+export async function createDirectorTask(input: {
   productId: string
   front: File
   clientKey: string
@@ -224,11 +234,19 @@ export function createDirectorTask(input: {
   body.append('product_id', input.productId)
   body.append('client_key', input.clientKey)
   body.append('front', input.front, input.front.name)
-  return request<DirectorTaskResponse>('/creative-workflow/tasks', { method: 'POST', body })
+  const created = await request<DirectorTaskResponse & { snapshot?: DirectorTaskSnapshot }>(
+    '/creative-workflow/tasks',
+    { method: 'POST', body },
+  )
+  return created.snapshot ? created as DirectorTaskResponse : getDirectorTask(created.id)
 }
 
 export function getDirectorTask(taskId: string): Promise<DirectorTaskResponse> {
   return request<DirectorTaskResponse>(`/creative-workflow/tasks/${encodeURIComponent(taskId)}`)
+}
+
+export function getDirectorProduct(productId: string): Promise<DirectorProductResponse> {
+  return request<DirectorProductResponse>(`/products/${encodeURIComponent(productId)}`)
 }
 
 export function sendDirectorCommand(

@@ -44,7 +44,9 @@ class ProductRead(ApiModel):
 
 class ProductVersionCreate(ApiModel):
     product_id: uuid.UUID | None = None
-    product_page_url: str = Field(min_length=1, max_length=1000)
+    product_page_url: str | None = Field(default=None, min_length=1, max_length=1000)
+    source_type: Literal["PRODUCT_PAGE", "USER_UPLOAD"] = "PRODUCT_PAGE"
+    client_request_key: str | None = Field(default=None, min_length=1, max_length=120)
     page_title: str | None = Field(default=None, max_length=500)
     candidate_names: list[str] = Field(default_factory=list, max_length=30)
     truth_fields: dict[str, Any] = Field(default_factory=dict)
@@ -53,12 +55,21 @@ class ProductVersionCreate(ApiModel):
     source_asset_references: list[str] = Field(default_factory=list, max_length=50)
     license_status: ProductLicenseStatus = ProductLicenseStatus.UNKNOWN
 
+    @model_validator(mode="after")
+    def source_required(self):
+        if self.source_type == "PRODUCT_PAGE" and not self.product_page_url:
+            raise ValueError("PRODUCT_PAGE requires product_page_url")
+        if self.source_type == "USER_UPLOAD" and not self.source_asset_references:
+            raise ValueError("USER_UPLOAD requires source_asset_references")
+        return self
+
 
 class ProductVersionRead(ApiModel):
     id: uuid.UUID
     product_id: uuid.UUID
     version_number: int
-    product_page_url: str
+    product_page_url: str | None
+    source_type: str = "PRODUCT_PAGE"
     page_title: str | None = None
     candidate_names: list[str]
     truth_fields: dict[str, Any]
@@ -412,11 +423,19 @@ class FinalApprovalRequest(ApiModel):
 
 
 class PointsQuotaRead(ApiModel):
-    daily_limit: int = 5000
+    """Per-user daily generation quota.
+
+    Field names keep the historical "points" wording so the API contract stays
+    compatible, but the unit is now *video generations per day* (configured by
+    DAILY_USER_POINTS_LIMIT / GENERATION_ESTIMATED_POINTS). Image generation does
+    not consume this quota. See services/points.py for the enforcement rule.
+    """
+
+    daily_limit: int = 100
     consumed: int = 0
     reserved: int = 0
     uncertain: int = 0
-    remaining: int = 5000
+    remaining: int = 100
     team_limit: int | None = None
 
 

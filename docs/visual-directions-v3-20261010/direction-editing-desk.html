@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>方向 B · 镜头编辑台</title>
+  <style>
+    :root { --bg:#202328; --panel:#2b3036; --panel2:#343a42; --ink:#f3f5f7; --muted:#a4adb6; --line:#454d56; --blue:#6d9eff; --green:#62c6a0; font-family:Inter,"Noto Sans SC","Microsoft YaHei",sans-serif; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink)} .app{min-height:100vh;display:grid;grid-template-rows:58px 1fr 152px}
+    header{display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid var(--line);background:#252a30} .brand{display:flex;align-items:center;gap:10px;font-weight:700}.brand i{width:30px;height:30px;display:grid;place-items:center;border-radius:6px;background:#111;color:#fff;font-style:normal}.crumb{color:var(--muted);font-size:12px}.header-actions{display:flex;gap:8px}.header-actions button{height:34px;padding:0 12px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink)}
+    .workspace{display:grid;grid-template-columns:220px minmax(0,1fr) 280px;min-height:0}.left,.right{padding:18px;background:#252a30}.left{border-right:1px solid var(--line)}.right{border-left:1px solid var(--line)}h2{margin:0 0 14px;font-size:14px}.muted{color:var(--muted);font-size:12px}
+    .asset{display:grid;grid-template-columns:52px 1fr;gap:9px;align-items:center;padding:8px;border:1px solid transparent;border-radius:6px}.asset.active{border-color:#5e84d0;background:#303b4a}.asset img{width:52px;height:62px;object-fit:cover;border-radius:4px}.asset strong{display:block;font-size:12px}.asset small{color:var(--muted);font-size:11px}
+    .canvas{display:grid;place-items:center;padding:30px;background:#191c20}.frame{width:min(420px,70%);aspect-ratio:9/14;background:#0f1114;border:1px solid #535d67;box-shadow:0 20px 44px #0008;display:grid;place-items:center;position:relative;overflow:hidden}.frame img{width:100%;height:100%;object-fit:cover;opacity:.9}.frame .badge{position:absolute;left:12px;top:12px;padding:5px 8px;border-radius:4px;background:#111b;color:#d7e3ff;font-size:11px}.timeline{display:flex;gap:8px;padding:14px 22px;background:#252a30;border-top:1px solid var(--line)}.clip{width:118px;height:104px;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--panel2)}.clip.active{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}.clip img{width:100%;height:72px;object-fit:cover}.clip span{display:block;padding:6px 7px;color:var(--muted);font-size:11px}
+    label{display:grid;gap:6px;margin-bottom:14px;color:var(--muted);font-size:11px}select,textarea{width:100%;padding:9px;border:1px solid var(--line);border-radius:5px;background:var(--panel2);color:var(--ink);font:inherit}textarea{min-height:100px;resize:vertical}.action{width:100%;min-height:42px;border:0;border-radius:5px;background:var(--blue);color:#10151e;font-weight:800}.status{display:flex;gap:7px;align-items:center;margin-top:16px;color:var(--green);font-size:12px}.status i{width:7px;height:7px;border-radius:50%;background:var(--green)}
+    @media(max-width:900px){.workspace{grid-template-columns:180px minmax(0,1fr)}.right{display:none}} @media(max-width:640px){.app{grid-template-rows:58px 1fr 120px}.workspace{grid-template-columns:1fr}.left{display:none}.canvas{padding:20px}.frame{width:min(330px,90%)}.timeline{overflow:auto;padding:12px 16px}.clip{flex:0 0 100px}}
+  </style>
+</head>
+<body><div class="app">
+  <header><div class="brand"><i>衣</i><span>衣影工坊</span><span class="crumb">/ 视频制作 / 镜头 01</span></div><div class="header-actions"><button>任务</button><button>导出</button></div></header>
+  <div class="workspace"><aside class="left"><h2>素材</h2><div class="asset active"><img src="media/look-01.jpg" alt=""><span><strong>正面轮廓</strong><small>镜头 01 · 已选</small></span></div><div class="asset"><img src="media/look-02.jpg" alt=""><span><strong>面料细节</strong><small>镜头 02</small></span></div><p class="muted">拖动调整镜头顺序</p></aside><main class="canvas"><div class="frame"><img src="media/look-01.jpg" alt="当前镜头预览"><span class="badge">9:16 · 预览</span></div></main><aside class="right"><h2>镜头配置</h2><label>镜头意图<select><option>展示完整服装轮廓</option><option>突出面料细节</option></select></label><label>动作要求<textarea>缓慢侧身，结束时保持服装完整可见。</textarea></label><button class="action">生成当前镜头</button><div class="status"><i></i>模板与素材可用</div></aside></div>
+  <div class="timeline"><div class="clip active"><img src="media/look-01.jpg" alt=""><span>01 · 正面轮廓</span></div><div class="clip"><img src="media/look-02.jpg" alt=""><span>02 · 面料细节</span></div><div class="clip"><span>＋ 添加镜头</span></div></div>
+</div></body>
+</html>

@@ -1,4 +1,10 @@
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
+import type {
+  DirectorCandidate,
+  DirectorLatestReview,
+  DirectorProductionPackage,
+  DirectorSelection,
+} from './directorApi'
 
 export type DirectorDirectionId = 'A' | 'B' | 'C'
 
@@ -56,4 +62,18 @@ export interface DirectorPlanningSnapshot {
   selectedDirectionId: DirectorDirectionId | null
   productionPackage: ProductionPackage | null
   handoff: StudioHandoffContext | null
+  directorFixed?: {
+    creativeTaskId: string
+    sourceImageHash?: string
+    package?: DirectorProductionPackage
+    selection?: DirectorSelection
+    shotMapping?: unknown
+    storyboard?: {
+      packages: Record<string, DirectorProductionPackage>
+      candidates: DirectorCandidate[]
+      selections: Record<string, DirectorSelection>
+      latest_reviews: Record<string, DirectorLatestReview>
+      shotMappings?: Record<string, unknown>
+    }
+  }
 }

@@ -1,0 +1,246 @@
+{
+  "schema_version": "creative-workflow-preflight.v1",
+  "purpose": "OFFLINE_DESIGN_CONTRACT_NOT_RUNTIME_SCHEMA",
+  "approval": {
+    "full_cw_1_acceptance": false,
+    "paid_calls": false,
+    "production_migration": false,
+    "frontend_checkpoint_1": false,
+    "live_max_calls": 0,
+    "live_max_cost_micros": 0
+  },
+  "development_gate": {
+    "decision": "AUTHORIZED_OFFLINE_CW1_SKELETON",
+    "basis": "User accepted skeleton plus front-only Fake closure on 2026-10-10",
+    "runtime_scope": "app_env=test; local store; fake/replay only",
+    "real_validation": "PENDING",
+    "launch": "PENDING"
+  },
+  "plugin": {
+    "id": "ai-fashion-creative-director",
+    "version": "1.13.5",
+    "archive_sha256": "ce3bac935cae0c45479afa68e948004bc9c08b4b862a7c74ec4959f122828f67",
+    "precedence": [27, 26, 24, 23],
+    "private_material_copied": false,
+    "reference_base": "skills/fashion-creative-director/references/",
+    "source_manifest": [
+      {"path": "27_Reality_Reference_Evidence_Priority_v1.13.5.md", "sha256": "6f349479f633ed47a2051ab244042f1f38da928f58f1f1323a38e8704fc223ac"},
+      {"path": "26_Reality_100_Runtime_Evidence_Gate_v1.13.4.md", "sha256": "30351bbec84a0b3389b9b0d2e3ba61efe6874a2b98c5e094443d23b42fe5ef51"},
+      {"path": "24_Canonical_Product_and_Reference_Display_Gate_v1.13.2.md", "sha256": "07c49148ec7763acf8c538b4784dc83646d9ac76e02c4bdae3898c5d75b3fc20"},
+      {"path": "23_Pre_Image_Creative_Gate_v1.13.1.md", "sha256": "613325944d2623277d24f753cb867050d56cce0dd591affd90f6f6a578ad7c90"},
+      {"path": "02_Reality_DNA.md", "sha256": "6663114b044c8d29b15e7d2353f2024bfca3372d28596d82bfe3d249f3e8f73c"},
+      {"path": "08_Creative_Diversity_Controller.md", "sha256": "08253c72d1a4e681a169f61ddd3b1eb114862c9d7b74eeac689d7dea86d394b9"},
+      {"path": "15_Reference_Safety_and_DNA_Fallback_v1.12.1.md", "sha256": "883dc3f3600f215bab17cd71a8411b9fa22793403d4d94e202304d6d7ca959be"},
+      {"path": "18_Image_Reality_Critic.md", "sha256": "9494cefac7faddd5f67c8c59efc5032b3fc3803c53d085b11c8c388e2f0f6c87"},
+      {"path": "12_Storyboard_Continuity_v1.12.md", "sha256": "23624e14924be7de80cb614d7927382fe1ce8668ddf829d1179550f42282e4fd"},
+      {"path": "25_Storyboard_Dialogue_Handoff_v1.13.3.md", "sha256": "2ecd3afce9e85002935258fd961efd445cd2e2d1fa7b4cafbdbac0ce03392849"},
+      {"path": "Reality_DNA/Compact_Reality_Compiler_v1.9.md", "sha256": "f32bff0f6822323e4099baaccb650e1cb7559eccd740908182fd8660407fe2af"},
+      {"path": "Reality_DNA/Prompt_Preservation_Gate_v1.11.2.md", "sha256": "d901b5407439a288c36f117a70417bf3f2afaeca63c31067d5e4587e9799cacc"},
+      {"path": "Creative_Reference_Layer/Human_DNA_Lite_v1.11.md", "sha256": "260d733668ebe32bacf273854195ae40616a960791f008727c54ac765383bb6e"}
+    ]
+  },
+  "pipeline": ["G0", "D1", "D2", "D3", "D4", "H1", "E1", "E2", "E3"],
+  "revision_pipeline": ["D3", "D4", "E1", "E2", "E3"],
+  "reality_dimensions": [
+    "Camera", "Lighting", "Composition", "Human Behavior", "Environment", "Imperfection"
+  ],
+  "loop": {
+    "enabled_by_default": false,
+    "default_max_revisions": 1,
+    "hard_max_revisions": 2,
+    "no_progress_limit": 2,
+    "real_critic_capability": "UNVERIFIED",
+    "stop_reasons": [
+      "QUALITY_TARGET_MET", "LIMIT_REACHED", "BUDGET_EXHAUSTED", "AUTH_EXPIRED",
+      "USER_STOPPED", "NO_PROGRESS", "LOCK_CONFLICT", "UNVERIFIED_PIXELS",
+      "EXECUTION_UNKNOWN", "DEPENDENCY_BLOCKED"
+    ]
+  },
+  "authority": {
+    "CreativeTask": "stage_summary_and_version",
+    "ParentTask": "video_execution_delivery",
+    "ImageGenerationBatch": "image_items_outputs_execution",
+    "StageAttempt": "claim_run_id_authorization_input_output_cost",
+    "RealityReviewRecord": "model_observation_not_human_qualification",
+    "QualityDecision": "human_only"
+  },
+  "state_actions": {
+    "DRAFT": ["edit", "authorize_analysis", "cancel"],
+    "ANALYZING": ["query", "request_stop"],
+    "AWAITING_DIRECTION": ["select_direction", "authorize_plan", "cancel"],
+    "PLAN_READY": ["confirm_package", "authorize_first_frame", "cancel"],
+    "IMAGE_GENERATING": ["query", "request_stop"],
+    "IMAGE_REVIEW": ["human_review", "select_first_frame", "confirm_back", "authorize_storyboard", "authorize_revision"],
+    "STORYBOARD_GENERATING": ["query", "request_stop"],
+    "STORYBOARD_REVIEW": ["human_review", "select_order", "authorize_video", "authorize_revision"],
+    "VIDEO_GENERATING": ["query", "request_stop", "recover_download"],
+    "VIDEO_REVIEW": ["technical_review", "human_review", "recover_download", "complete"],
+    "ACTION_REQUIRED": ["resolve", "reconcile", "cancel"],
+    "BLOCKED": ["resolve_dependency", "cancel"],
+    "CANCELLED": ["query", "reconcile"],
+    "COMPLETED": ["query", "deliver", "derive_revision"]
+  },
+  "uncertain_actions": ["query", "reconcile"],
+  "asset_required": [
+    "asset_id", "owner_id", "source_type", "source_id", "object_key", "sha256",
+    "mime_type", "width", "height", "role", "view", "order", "canonical",
+    "evidence_status", "access_status", "qualification_status", "license_status",
+    "license_evidence_id", "revoked", "expired", "materialized",
+    "retention_policy", "source_task_id", "upload_session_id"
+  ],
+  "claim_required": [
+    "claim_id", "value", "source_fact_keys", "facts_revision", "evidence_kind",
+    "confidence_basis", "unknown_or_assumption"
+  ],
+  "prompt_required": [
+    "key", "version", "schema_version", "ruleset_version", "ruleset_hash",
+    "model", "input_hash", "output_hash", "content_hash", "activation_status", "activated_at"
+  ],
+  "review_axes": [
+    "product_fidelity", "human_capture", "spatial_light_integration", "ad_goal_visibility"
+  ],
+  "reference_evidence_axes": ["retrieved", "displayed", "materialized", "submitted", "accepted"],
+  "budget_design": {
+    "unit": "integer_micros_single_authorization_currency",
+    "reserve_basis": "documented_worst_case_including_upload_and_implicit_retries",
+    "sdk_submit_retries": 0,
+    "unknown_cost": "hold_reservation_until_reconciled",
+    "shared_task_cap": true,
+    "currency_conversion": "not_allowed_without_new_quote",
+    "stages": [
+      {"id": "analysis", "max_calls_design": 1, "timeout_seconds_design": 180},
+      {"id": "plan", "max_calls_design": 1, "timeout_seconds_design": 180},
+      {"id": "first_frame", "max_calls_design": "drafts*(1+max_revisions)", "timeout_seconds_design": 1800},
+      {"id": "storyboard", "max_calls_design": "authorized_shots*drafts_per_shot*(1+max_revisions)", "timeout_seconds_design": 1800},
+      {"id": "critic", "max_calls_design": "one_per_materialized_candidate", "timeout_seconds_design": 180},
+      {"id": "revision_compile", "max_calls_design": "one_per_revision_if_paid_not_one_per_module", "timeout_seconds_design": 180},
+      {"id": "video", "max_calls_design": "separate_authorization", "timeout_seconds_design": 1800}
+    ]
+  },
+  "decision_items": [
+    {"id": "D01", "owner": "engineering", "status": "PENDING", "topic": "narrow_product_foundation_backport_and_migration_alignment"},
+    {"id": "D02", "owner": "product", "status": "PENDING", "topic": "model_price_currency_total_stage_caps_and_expiry"},
+    {"id": "D03", "owner": "asset_owner", "status": "PENDING", "topic": "sku_brand_identity_reference_rights_and_retention"},
+    {"id": "D04", "owner": "product", "status": "PENDING", "topic": "baseline_samples_metric_thresholds_and_measurement_window"},
+    {"id": "D05", "owner": "engineering", "status": "PENDING", "topic": "pixel_critic_capability_and_region_schema"},
+    {"id": "D06", "owner": "engineering", "status": "PENDING", "topic": "legacy_regression_gaps_and_isolated_postgres_upgrade"}
+  ],
+  "source_evidence": [
+    {"id": "image_batches", "path": "backend/src/libtv_agent/services/image_generations.py", "symbol": "submit_batch", "testing": "EXISTS", "main": "EXISTS"},
+    {"id": "image_quota", "path": "backend/src/libtv_agent/services/image_quota.py", "symbol": "reserve_image_quota", "testing": "EXISTS", "main": "EXISTS"},
+    {"id": "object_store", "path": "backend/src/libtv_agent/adapters/object_store.py", "symbol": "LocalObjectStore", "testing": "EXISTS", "main": "EXISTS"},
+    {"id": "pixel_input_transport", "path": "backend/src/libtv_agent/adapters/openai_analysis.py", "symbol": "OpenAIAnalysisAdapter", "testing": "ADAPTER_REQUIRED", "main": "ADAPTER_REQUIRED"},
+    {"id": "analysis_claim", "path": "backend/src/libtv_agent/services/analysis_lifecycle.py", "symbol": "claim_analysis_run", "testing": "EXISTS", "main": "EXISTS"},
+    {"id": "catalog_style", "path": "backend/src/libtv_agent/services/content_catalog.py", "symbol": "site_style_profile_library", "testing": "EXISTS", "main": "EXISTS"},
+    {"id": "fixed_video", "path": "backend/src/libtv_agent/services/fixed_video_tasks.py", "symbol": "create_fixed_video_task", "testing": "ADAPTER_REQUIRED", "main": "ADAPTER_REQUIRED"},
+    {"id": "product", "path": "backend/src/libtv_agent/api/products.py", "symbol": null, "testing": "ADAPTER_REQUIRED", "main": "ADAPTER_REQUIRED"},
+    {"id": "handoff", "path": "backend/src/libtv_agent/creative/handoff.py", "symbol": "CreativeHandoffManifest", "testing": "EXISTS", "main": "EXISTS"}
+  ],
+  "expected_migrations": {
+    "testing": {"count": 29, "heads": ["d1e2f3a4b506"]},
+    "main": {"count": 29, "heads": ["d1e2f3a4b506"]}
+  },
+  "fake_fixture": {
+    "synthetic": true,
+    "task_id": "fake-task-1",
+    "owner_id": "fake-user-1",
+    "state_version": 4,
+    "package_id": "fake-package-r1",
+    "locks_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ruleset_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "asset": {
+      "asset_id": "fake-original",
+      "owner_id": "fake-user-1",
+      "source_type": "USER_UPLOAD",
+      "source_id": "fake-upload-1",
+      "object_key": "creative/fake-user-1/original.png",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "mime_type": "image/png",
+      "width": 1024,
+      "height": 1536,
+      "role": "PRODUCT",
+      "view": "front",
+      "order": 1,
+      "canonical": true,
+      "evidence_status": "OBSERVED_REFERENCE",
+      "access_status": "AVAILABLE",
+      "qualification_status": "SOURCE_VALIDATED",
+      "license_status": "VERIFIED",
+      "license_evidence_id": "SYNTHETIC_NOT_REAL_LICENSE",
+      "revoked": false,
+      "expired": false,
+      "materialized": true,
+      "retention_policy": "PIN_UNTIL_REFERENCES_RELEASED",
+      "source_task_id": null,
+      "upload_session_id": "fake-session-1"
+    },
+    "authorization": {
+      "authorization_id": "fake-auth-1",
+      "owner_id": "fake-user-1",
+      "task_id": "fake-task-1",
+      "package_id": "fake-package-r1",
+      "locks_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ruleset_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "STORYBOARD",
+      "shot_ids": ["S01", "S02"],
+      "loop_enabled": true,
+      "max_revisions": 1,
+      "allowed_modules": ["Scene", "Reality", "Composition"],
+      "expires_at": "2026-10-11T00:00:00+00:00",
+      "currency": "FAKE",
+      "max_total_cost_micros": 100,
+      "stage_caps_micros": {"storyboard": 80, "critic": 20},
+      "model_call_caps": {"fake-image": 4, "fake-critic": 4}
+    },
+    "request": {
+      "command_id": "fake-cmd-1",
+      "request_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "owner_id": "fake-user-1",
+      "task_id": "fake-task-1",
+      "package_id": "fake-package-r1",
+      "state_version": 4,
+      "locks_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ruleset_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scope": "STORYBOARD",
+      "shot_id": "S01",
+      "stage": "storyboard",
+      "model": "fake-image",
+      "revision_index": 1,
+      "changed_modules": ["Reality"],
+      "modules_run": ["D3", "D4", "E1"],
+      "pixels_verified": true,
+      "critic_capability_verified": true,
+      "failed_region_evidence": true,
+      "no_progress_count": 0,
+      "back_required": false,
+      "back_evidence": "UNDECIDED",
+      "back_confirmation_id": null,
+      "user_stopped": false,
+      "execution_state": "NOT_SUBMITTED",
+      "now": "2026-10-10T12:00:00+00:00",
+      "reserved_cost_micros": 30
+    },
+    "selections": [
+      {
+        "owner_id": "fake-user-1", "task_id": "fake-task-1",
+        "package_id": "fake-package-r1", "shot_id": "S01",
+        "output_shot_id": "S01", "output_id": "fake-output-1",
+        "item_id": "fake-item-1", "batch_id": "fake-batch-1",
+        "order": 1, "qualification_status": "QUALIFIED",
+        "reviewer_kind": "HUMAN", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "materialized_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "revoked": false, "materialized": true
+      },
+      {
+        "owner_id": "fake-user-1", "task_id": "fake-task-1",
+        "package_id": "fake-package-r1", "shot_id": "S02",
+        "output_shot_id": "S02", "output_id": "fake-output-2",
+        "item_id": "fake-item-2", "batch_id": "fake-batch-1",
+        "order": 2, "qualification_status": "QUALIFIED",
+        "reviewer_kind": "HUMAN", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "materialized_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "revoked": false, "materialized": true
+      }
+    ]
+  }
+}

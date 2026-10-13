@@ -12,8 +12,9 @@ from libtv_agent.domain.schemas import (
     ProductVersionDecision,
     ProductVersionRead,
 )
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from libtv_agent.services.product_versions import append_version
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -123,21 +124,12 @@ async def create_product_version(
     await _owned_product(product_id, actor, session)
     if payload.product_id is not None and payload.product_id != product_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "product id does not match path")
-    version_number = (
-        await session.scalar(
-            select(func.coalesce(func.max(ProductVersion.version_number), 0)).where(
-                ProductVersion.product_id == product_id
-            )
-        )
-        or 0
-    ) + 1
-    value = ProductVersion(
-        product_id=product_id,
-        version_number=version_number,
-        **payload.model_dump(exclude={"product_id"}, by_alias=False),
-    )
-    session.add(value)
-    await session.commit()
+    try:
+        value = await append_version(session, product_id, payload)
+        await session.commit()
+    except (IntegrityError, OperationalError) as exc:
+        await session.rollback()
+        raise HTTPException(409, {"code": "RETRYABLE_PRODUCT_VERSION_CONFLICT"}) from exc
     await session.refresh(value)
     return _version_read(value)
 

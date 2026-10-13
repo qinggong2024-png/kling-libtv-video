@@ -108,6 +108,7 @@ class ProductVersion(Base):
     __tablename__ = "product_version"
     __table_args__ = (
         UniqueConstraint("product_id", "version_number", name="uq_product_version_number"),
+        UniqueConstraint("product_id", "request_key", name="uq_product_version_request_key"),
         Index("ix_product_version_product_created", "product_id", "created_at", "id"),
     )
 
@@ -116,7 +117,10 @@ class ProductVersion(Base):
         ForeignKey("product.id", ondelete="CASCADE"), index=True
     )
     version_number: Mapped[int] = mapped_column(Integer)
-    product_page_url: Mapped[str] = mapped_column(String(1000))
+    product_page_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    source_type: Mapped[str] = mapped_column(String(32), default="PRODUCT_PAGE")
+    request_key: Mapped[str | None] = mapped_column(String(120))
+    request_hash: Mapped[str | None] = mapped_column(String(64))
     page_title: Mapped[str | None] = mapped_column(String(500))
     candidate_names: Mapped[list[str]] = mapped_column(JSON, default=list)
     truth_fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -133,6 +137,68 @@ class ProductVersion(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     product: Mapped["Product"] = relationship(back_populates="versions")
+
+
+class CreativeTask(Base):
+    __tablename__ = "creative_task"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id"), index=True)
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product.id"))
+    status: Mapped[str] = mapped_column(String(40), default="DRAFT")
+    state_version: Mapped[int] = mapped_column(Integer, default=0)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class CreativeCreation(Base):
+    __tablename__ = "creative_creation"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_key", name="uq_creative_creation_owner_key"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("app_user.id"), index=True)
+    client_key: Mapped[str] = mapped_column(String(120))
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("creative_task.id"), unique=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class CreativePromptRegistry(Base):
+    __tablename__ = "creative_prompt_registry"
+    __table_args__ = (
+        UniqueConstraint("prompt_key", "version", name="uq_creative_prompt_registry_version"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    prompt_key: Mapped[str] = mapped_column(String(80))
+    version: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class CreativeRecord(Base):
+    """Append-only typed snapshots; the task owns the authoritative current pointers."""
+
+    __tablename__ = "creative_record"
+    __table_args__ = (
+        UniqueConstraint("task_id", "kind", "record_key", name="uq_creative_record_key"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("creative_task.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    record_key: Mapped[str] = mapped_column(String(160))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class CreativeCommand(Base):
+    __tablename__ = "creative_command"
+    __table_args__ = (
+        UniqueConstraint("task_id", "command_key", name="uq_creative_command_key"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("creative_task.id"), index=True)
+    command_key: Mapped[str] = mapped_column(String(120))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
 class PromptPreset(Base):

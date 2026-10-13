@@ -3,6 +3,7 @@ from libtv_agent.api.admin import router as admin_router
 from libtv_agent.api.auth import router as auth_router
 from libtv_agent.api.confirmations import router as confirmations_router
 from libtv_agent.api.controlled_image_bridge import router as controlled_image_bridge_router
+from libtv_agent.api.creative_workflow import router as creative_workflow_router
 from libtv_agent.api.downloads import router as downloads_router
 from libtv_agent.api.events import router as events_router
 from libtv_agent.api.health import router as health_router
@@ -36,8 +37,9 @@ api_router.include_router(confirmations_router)
 api_router.include_router(video_templates_router)
 api_router.include_router(motion_actions_router)
 api_router.include_router(prompt_presets_router)
-api_router.include_router(products_router)
 api_router.include_router(site_style_profiles_router)
 api_router.include_router(video_tasks_router)
 api_router.include_router(submission_recovery_router)
+api_router.include_router(products_router)
+api_router.include_router(creative_workflow_router)
 api_router.include_router(controlled_image_bridge_router)

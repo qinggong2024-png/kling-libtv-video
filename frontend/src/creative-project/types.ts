@@ -35,7 +35,26 @@ export interface AssetReference {
 export interface CreativeWorkflowContext {
   activeView?: string
   activeTaskId?: string
+  creativeTaskId?: string
+  activeProductId?: string
+  activeProductVersionId?: string
+  planningSnapshotRevision?: number
   currentStage?: string
+}
+
+export interface CreativeTaskRecoveryReference {
+  schemaVersion: 1
+  creative_task_id: string
+  product_reference: {
+    product_id?: string
+    product_version_id?: string
+    source_sha256?: string
+  }
+  planning_snapshot_index: {
+    state_version: number
+    package_revision?: number
+    saved_at: string
+  }
 }
 
 export interface CreativeIntelligenceSnapshot {

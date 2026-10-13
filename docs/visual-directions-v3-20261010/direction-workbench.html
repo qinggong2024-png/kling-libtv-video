@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>方向 A · 制作工作台</title>
+  <style>
+    :root { --ink:#202832; --muted:#6d7884; --line:#dce2e8; --paper:#fff; --page:#edf0f3; --blue:#235fce; --blue-soft:#eaf1ff; font-family:Inter,"Noto Sans SC","Microsoft YaHei",sans-serif; }
+    * { box-sizing:border-box; } body { margin:0; color:var(--ink); background:var(--page); }
+    .shell { display:grid; grid-template-columns:190px minmax(0,1fr); min-height:100vh; }
+    aside { padding:24px 16px; border-right:1px solid var(--line); background:#f7f8fa; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; } .brand i { width:34px; height:34px; display:grid; place-items:center; border-radius:8px; background:#202832; color:#fff; font-style:normal; }
+    .sub { margin:4px 0 28px 44px; color:var(--muted); font-size:11px; }
+    nav { display:grid; gap:5px; } nav a { padding:11px 12px; border-radius:7px; color:#53606d; text-decoration:none; font-size:13px; } nav a.active { color:var(--blue); background:var(--blue-soft); font-weight:700; }
+    main { width:min(1120px,100%); margin:auto; padding:28px 32px 56px; background:var(--paper); min-height:100vh; }
+    .top { display:flex; justify-content:space-between; align-items:end; padding-bottom:18px; border-bottom:1px solid var(--line); } h1 { margin:0; font-size:25px; } .eyebrow { margin-bottom:6px; color:var(--blue); font-size:12px; font-weight:700; }
+    .top button,.primary { min-height:42px; padding:0 16px; border:0; border-radius:7px; background:var(--blue); color:#fff; font-weight:700; }
+    section { padding:24px 0; border-bottom:1px solid var(--line); } h2 { margin:0 0 16px; font-size:17px; } .hint { color:var(--muted); font-size:12px; }
+    .asset-row { display:flex; gap:12px; align-items:start; flex-wrap:wrap; } .thumb { width:112px; } .thumb img { display:block; width:112px; aspect-ratio:4/3; object-fit:cover; border-radius:6px; background:#e7ebef; } .thumb span { display:block; margin-top:6px; overflow:hidden; color:#53606d; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+    .upload { min-height:112px; width:180px; display:grid; place-items:center; border:1px dashed #9aa7b4; border-radius:7px; color:var(--blue); background:#f6f8fb; font-size:13px; }
+    .grid { display:grid; grid-template-columns:260px minmax(0,1fr); gap:28px; } label { display:grid; gap:7px; color:#53606d; font-size:12px; font-weight:700; } select, textarea { width:100%; min-height:42px; padding:0 11px; border:1px solid var(--line); border-radius:7px; background:#f8f9fb; color:var(--ink); font:inherit; } textarea { min-height:112px; padding-top:10px; resize:vertical; }
+    .modes { display:flex; gap:0; margin-bottom:14px; } .modes button { min-height:42px; padding:0 15px; border:1px solid var(--line); background:#f5f7f9; color:#65717d; } .modes button:first-child { border-radius:7px 0 0 7px; } .modes button:last-child { border-radius:0 7px 7px 0; } .modes .on { color:var(--blue); background:var(--blue-soft); border-color:#a9c4f5; font-weight:700; }
+    .submit { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-top:22px; } .cost { color:var(--muted); font-size:12px; } .cost strong { display:block; margin-bottom:3px; color:var(--ink); font-size:14px; }
+    @media(max-width:760px){ .shell{display:block} aside{padding:14px 16px;border-right:0;border-bottom:1px solid var(--line)} nav{display:flex;overflow:auto} nav a{white-space:nowrap} main{padding:20px 16px 80px}.top{align-items:start;gap:16px}.top button{white-space:nowrap}.grid{grid-template-columns:1fr}.submit{align-items:stretch;flex-direction:column}.primary{width:100%} }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside><div class="brand"><i>衣</i><span>衣影工坊</span></div><div class="sub">AI Creative Studio</div><nav><a class="active" href="#">视频制作</a><a href="#">图片中心</a><a href="#">任务</a><a href="#">内容库</a></nav></aside>
+    <main>
+      <div class="top"><div><div class="eyebrow">制作工作台</div><h1>视频制作</h1></div><button>保存草稿</button></div>
+      <section><h2>1. 准备素材 <span class="hint">2 / 7 张分镜</span></h2><div class="asset-row"><div class="thumb"><img src="media/look-01.jpg" alt="服装素材"><span>look-front.jpg</span></div><div class="thumb"><img src="media/look-02.jpg" alt="服装细节"><span>look-detail.jpg</span></div><div class="upload">＋ 添加分镜</div></div></section>
+      <section><h2>2. 配置创意</h2><div class="grid"><label>视频模板<select><option>服装多镜头展示</option><option>细节展示</option></select></label><div><div class="modes"><button class="on">自动化生成</button><button>自定义提示词</button></div><label>站点风格<select><option>克制清晰 · 商品轮廓优先</option></select></label></div></div></section>
+      <section><h2>3. 提交生产</h2><div class="grid"><label>结果数量<select><option>1 个结果</option><option>2 个结果</option></select></label><label>动作与镜头要求<textarea placeholder="保持服装轮廓，缓慢展示细节。"></textarea></label></div><div class="submit"><div class="cost"><strong>1 组 · 1 个结果</strong>提交前会进行素材和模板校验</div><button class="primary">开始生成 →</button></div></section>
+    </main>
+  </div>
+</body>
+</html>

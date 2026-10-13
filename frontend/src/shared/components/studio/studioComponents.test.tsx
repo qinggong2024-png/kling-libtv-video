@@ -73,7 +73,8 @@ describe('studio shared components', () => {
     const materials = [{ id: 'a', file: { name: 'a.png' } as File }]
     const markup = renderToStaticMarkup(<Storyboard materials={materials} disabled onSelect={() => {}} onMove={() => {}} onRemove={() => {}} onDropAt={() => {}} onPreview={() => {}} />)
     expect(markup).toContain('draggable="false"')
-    expect(markup).toContain('tabindex="0"')
+    // Native preview button remains keyboard reachable while mutations are locked.
+    expect(markup).toContain('<button type="button" class="material-preview-trigger"')
     expect(markup.match(/disabled=""/g)).toHaveLength(3)
   })
   it('does not reserve a large empty source preview', () => {

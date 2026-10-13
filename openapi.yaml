@@ -5627,6 +5627,316 @@
         }
       }
     },
+    "/api/v1/site-style-profiles": {
+      "get": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Get Site Style Profiles",
+        "operationId": "get_site_style_profiles_api_v1_site_style_profiles_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Site Style Profiles Api V1 Site Style Profiles Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Create Site Style Profile",
+        "operationId": "create_site_style_profile_api_v1_site_style_profiles_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Site Style Profile Api V1 Site Style Profiles Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-style-profiles/{profile_id}": {
+      "put": {
+        "tags": [
+          "site-style-profiles"
+        ],
+        "summary": "Update Site Style Profile",
+        "operationId": "update_site_style_profile_api_v1_site_style_profiles__profile_id__put",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Site Style Profile Api V1 Site Style Profiles  Profile Id  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/video-tasks": {
+      "post": {
+        "tags": [
+          "video-tasks"
+        ],
+        "summary": "Create Video Task",
+        "operationId": "create_video_task_api_v1_video_tasks_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VideoTaskCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submission-recovery/query": {
+      "post": {
+        "tags": [
+          "submission-recovery"
+        ],
+        "summary": "Query Submission",
+        "operationId": "query_submission_api_v1_submission_recovery_query_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/products": {
       "post": {
         "tags": [
@@ -6285,65 +6595,13 @@
         }
       }
     },
-    "/api/v1/site-style-profiles": {
-      "get": {
-        "tags": [
-          "site-style-profiles"
-        ],
-        "summary": "Get Site Style Profiles",
-        "operationId": "get_site_style_profiles_api_v1_site_style_profiles_get",
-        "parameters": [
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": true
-                  },
-                  "title": "Response Get Site Style Profiles Api V1 Site Style Profiles Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
+    "/api/v1/creative-workflow/tasks": {
       "post": {
         "tags": [
-          "site-style-profiles"
+          "creative-workflow-offline"
         ],
-        "summary": "Create Site Style Profile",
-        "operationId": "create_site_style_profile_api_v1_site_style_profiles_post",
+        "summary": "Create",
+        "operationId": "create_api_v1_creative_workflow_tasks_post",
         "parameters": [
           {
             "name": "X-User-Id",
@@ -6365,9 +6623,9 @@
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+                "$ref": "#/components/schemas/Body_create_api_v1_creative_workflow_tasks_post"
               }
             }
           }
@@ -6380,7 +6638,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Create Site Style Profile Api V1 Site Style Profiles Post"
+                  "title": "Response Create Api V1 Creative Workflow Tasks Post"
                 }
               }
             }
@@ -6398,21 +6656,83 @@
         }
       }
     },
-    "/api/v1/site-style-profiles/{profile_id}": {
-      "put": {
+    "/api/v1/creative-workflow/tasks/{task_id}": {
+      "get": {
         "tags": [
-          "site-style-profiles"
+          "creative-workflow-offline"
         ],
-        "summary": "Update Site Style Profile",
-        "operationId": "update_site_style_profile_api_v1_site_style_profiles__profile_id__put",
+        "summary": "Read",
+        "operationId": "read_api_v1_creative_workflow_tasks__task_id__get",
         "parameters": [
           {
-            "name": "profile_id",
+            "name": "task_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Profile Id"
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Read Api V1 Creative Workflow Tasks  Task Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/creative-workflow/tasks/{task_id}/commands": {
+      "post": {
+        "tags": [
+          "creative-workflow-offline"
+        ],
+        "summary": "Command",
+        "operationId": "command_api_v1_creative_workflow_tasks__task_id__commands_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
             }
           },
           {
@@ -6437,7 +6757,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SiteStyleProfileWrite"
+                "$ref": "#/components/schemas/Command"
               }
             }
           }
@@ -6450,7 +6770,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Update Site Style Profile Api V1 Site Style Profiles  Profile Id  Put"
+                  "title": "Response Command Api V1 Creative Workflow Tasks  Task Id  Commands Post"
                 }
               }
             }
@@ -6468,21 +6788,22 @@
         }
       }
     },
-    "/api/v1/video-tasks": {
+    "/api/v1/creative-production-bridge/tasks/{task_id}/preflight": {
       "post": {
         "tags": [
-          "video-tasks"
+          "controlled-image-bridge"
         ],
-        "summary": "Create Video Task",
-        "operationId": "create_video_task_api_v1_video_tasks_post",
+        "summary": "Preflight",
+        "operationId": "preflight_api_v1_creative_production_bridge_tasks__task_id__preflight_post",
         "parameters": [
           {
-            "name": "Idempotency-Key",
-            "in": "header",
+            "name": "task_id",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Idempotency-Key"
+              "format": "uuid",
+              "title": "Task Id"
             }
           },
           {
@@ -6507,66 +6828,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/VideoTaskCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TaskRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/submission-recovery/query": {
-      "post": {
-        "tags": [
-          "submission-recovery"
-        ],
-        "summary": "Query Submission",
-        "operationId": "query_submission_api_v1_submission_recovery_query_post",
-        "parameters": [
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecoveryQuery"
+                "$ref": "#/components/schemas/ControlledImageBridgePreflightRequest"
               }
             }
           }
@@ -6577,7 +6839,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RecoveryRead"
+                  "$ref": "#/components/schemas/ControlledImageBridgePreflight"
                 }
               }
             }
@@ -6678,7 +6940,20 @@
           "handheld_unworn_product",
           "packaging_or_product_surface",
           "existing_prop",
-          "prop_pickup_safe"
+          "prop_pickup_safe",
+          "garment_fastener_visible",
+          "waistline_visible",
+          "lower_garment_visible",
+          "trouser_cuff_reachable",
+          "skirt_slit_visible",
+          "footwear_visible",
+          "stair_visible",
+          "stair_path_clear",
+          "seat_approach_clear",
+          "companion_present",
+          "shared_movement_space",
+          "doorway_visible",
+          "doorway_path_clear"
         ],
         "title": "ActionCapability",
         "description": "Facts that must be confirmed from the input before an action is safe."
@@ -6810,6 +7085,120 @@
           "thumbnailUrl"
         ],
         "title": "AssetRead"
+      },
+      "Authorization": {
+        "properties": {
+          "authorization_id": {
+            "type": "string",
+            "title": "Authorization Id"
+          },
+          "package_id": {
+            "type": "string",
+            "title": "Package Id"
+          },
+          "locks_hash": {
+            "type": "string",
+            "title": "Locks Hash"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "FIRST_FRAME",
+              "VIDEO_STORYBOARD"
+            ],
+            "title": "Scope",
+            "default": "FIRST_FRAME"
+          },
+          "shot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Shot Ids"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "loop_enabled": {
+            "type": "boolean",
+            "title": "Loop Enabled",
+            "default": false
+          },
+          "max_revisions": {
+            "type": "integer",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Max Revisions",
+            "default": 1
+          },
+          "max_calls": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Max Calls"
+          },
+          "max_cost_micros": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Max Cost Micros"
+          },
+          "currency": {
+            "type": "string",
+            "const": "FAKE",
+            "title": "Currency",
+            "default": "FAKE"
+          },
+          "allowed_modules": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "Scene",
+                "Reality",
+                "Composition"
+              ]
+            },
+            "type": "array",
+            "title": "Allowed Modules"
+          },
+          "parent_authorization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Authorization Id"
+          },
+          "total_task_cap_micros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Task Cap Micros"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "authorization_id",
+          "package_id",
+          "locks_hash",
+          "expires_at",
+          "max_calls",
+          "max_cost_micros"
+        ],
+        "title": "Authorization"
       },
       "BachConfigResponse": {
         "properties": {
@@ -7182,6 +7571,49 @@
         ],
         "title": "BatchConfirmationResult"
       },
+      "Body_create_api_v1_creative_workflow_tasks_post": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "front": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Front"
+          },
+          "client_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Key"
+          },
+          "product_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Version Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "front"
+        ],
+        "title": "Body_create_api_v1_creative_workflow_tasks_post"
+      },
       "Body_create_image_generation_batch_api_v1_image_generation_batches_post": {
         "properties": {
           "clientManifest": {
@@ -7246,6 +7678,211 @@
         ],
         "title": "ChangePasswordRequest"
       },
+      "Command": {
+        "properties": {
+          "command_key": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Command Key"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "analyze",
+              "select_direction",
+              "authorize",
+              "generate",
+              "review",
+              "select",
+              "revise",
+              "stop",
+              "revoke_asset",
+              "reconcile"
+            ],
+            "title": "Action"
+          },
+          "direction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "A",
+                  "B",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction Id"
+          },
+          "authorization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Authorization"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "package_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "shot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shot Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "QUALIFIED",
+                  "REJECTED"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "changed_modules": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "Scene",
+                "Reality",
+                "Composition"
+              ]
+            },
+            "type": "array",
+            "title": "Changed Modules"
+          },
+          "fix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix"
+          },
+          "failure_region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Region"
+          },
+          "fake_outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCEEDED",
+              "UNKNOWN",
+              "WRITE_UNCERTAIN"
+            ],
+            "title": "Fake Outcome",
+            "default": "SUCCEEDED"
+          },
+          "reconcile_not_submitted": {
+            "type": "boolean",
+            "title": "Reconcile Not Submitted",
+            "default": false
+          },
+          "client_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Key"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "impact_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Scope"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_key",
+          "expected_version",
+          "action"
+        ],
+        "title": "Command"
+      },
       "ConfirmRequest": {
         "properties": {
           "expectedStateVersion": {
@@ -7289,6 +7926,136 @@
           "SYSTEM_BLOCK"
         ],
         "title": "ConsistencyLevel"
+      },
+      "ControlledImageBridgePreflight": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "controlled-image-bridge-preflight.v1",
+            "title": "Schema Version",
+            "default": "controlled-image-bridge-preflight.v1"
+          },
+          "status": {
+            "type": "string",
+            "const": "READY_FOR_HUMAN_SUBMIT",
+            "title": "Status",
+            "default": "READY_FOR_HUMAN_SUBMIT"
+          },
+          "execution_mode": {
+            "type": "string",
+            "const": "PREFLIGHT_ONLY",
+            "title": "Execution Mode",
+            "default": "PREFLIGHT_ONLY"
+          },
+          "creative_task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Creative Task Id"
+          },
+          "state_version": {
+            "type": "integer",
+            "title": "State Version"
+          },
+          "package_revision_id": {
+            "type": "string",
+            "title": "Package Revision Id"
+          },
+          "shot_id": {
+            "type": "string",
+            "const": "FIRST_FRAME",
+            "title": "Shot Id",
+            "default": "FIRST_FRAME"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "request_hash": {
+            "type": "string",
+            "title": "Request Hash"
+          },
+          "evidence_hash": {
+            "type": "string",
+            "title": "Evidence Hash"
+          },
+          "preflight_hash": {
+            "type": "string",
+            "title": "Preflight Hash"
+          },
+          "reference_count": {
+            "type": "integer",
+            "title": "Reference Count"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "actual_submitted": {
+            "type": "boolean",
+            "const": false,
+            "title": "Actual Submitted",
+            "default": false
+          },
+          "provider_submission_allowed": {
+            "type": "boolean",
+            "const": false,
+            "title": "Provider Submission Allowed",
+            "default": false
+          },
+          "provider_capabilities_verified": {
+            "type": "boolean",
+            "const": false,
+            "title": "Provider Capabilities Verified",
+            "default": false
+          },
+          "qualification_scope": {
+            "type": "string",
+            "const": "OFFLINE_SYNTHETIC_ONLY",
+            "title": "Qualification Scope",
+            "default": "OFFLINE_SYNTHETIC_ONLY"
+          },
+          "deliverable_eligible": {
+            "type": "boolean",
+            "const": false,
+            "title": "Deliverable Eligible",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "creative_task_id",
+          "state_version",
+          "package_revision_id",
+          "provider",
+          "model",
+          "request_hash",
+          "evidence_hash",
+          "preflight_hash",
+          "reference_count",
+          "expires_at"
+        ],
+        "title": "ControlledImageBridgePreflight"
+      },
+      "ControlledImageBridgePreflightRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "ControlledImageBridgePreflightRequest"
       },
       "CreateUserRequest": {
         "properties": {
@@ -8447,6 +9214,22 @@
               }
             ],
             "title": "Baseactionid"
+          },
+          "productFocus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "upper_garment",
+                  "lower_garment",
+                  "footwear"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productfocus"
           }
         },
         "type": "object",
@@ -8517,7 +9300,7 @@
           "dailyLimit": {
             "type": "integer",
             "title": "Dailylimit",
-            "default": 5000
+            "default": 100
           },
           "consumed": {
             "type": "integer",
@@ -8537,7 +9320,7 @@
           "remaining": {
             "type": "integer",
             "title": "Remaining",
-            "default": 5000
+            "default": 100
           },
           "teamLimit": {
             "anyOf": [
@@ -8552,7 +9335,8 @@
           }
         },
         "type": "object",
-        "title": "PointsQuotaRead"
+        "title": "PointsQuotaRead",
+        "description": "Per-user daily generation quota.\n\nField names keep the historical \"points\" wording so the API contract stays\ncompatible, but the unit is now *video generations per day* (configured by\nDAILY_USER_POINTS_LIMIT / GENERATION_ESTIMATED_POINTS). Image generation does\nnot consume this quota. See services/points.py for the enforcement rule."
       },
       "ProductCreate": {
         "properties": {
@@ -8675,10 +9459,39 @@
             "title": "Productid"
           },
           "productPageUrl": {
-            "type": "string",
-            "maxLength": 1000,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Productpageurl"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "PRODUCT_PAGE",
+              "USER_UPLOAD"
+            ],
+            "title": "Sourcetype",
+            "default": "PRODUCT_PAGE"
+          },
+          "clientRequestKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientrequestkey"
           },
           "pageTitle": {
             "anyOf": [
@@ -8732,9 +9545,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "productPageUrl"
-        ],
         "title": "ProductVersionCreate"
       },
       "ProductVersionDecision": {
@@ -8772,8 +9582,20 @@
             "title": "Versionnumber"
           },
           "productPageUrl": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Productpageurl"
+          },
+          "sourceType": {
+            "type": "string",
+            "title": "Sourcetype",
+            "default": "PRODUCT_PAGE"
           },
           "pageTitle": {
             "anyOf": [

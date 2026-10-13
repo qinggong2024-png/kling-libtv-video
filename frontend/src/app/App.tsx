@@ -10,7 +10,7 @@
 //   因此它被包在 <Suspense fallback={null}> 里且不放进任何条件分支；
 //   一旦改成 {view === 'images' ? <ImageStudio/> : null}，非激活期轮询与通知会直接丢失。
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Bell, Clapperboard, Images, Library, ListVideo, LoaderCircle, RefreshCw, Settings, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Bell, Clapperboard, Images, Library, ListVideo, LoaderCircle, RefreshCw, Settings, ShieldCheck, WandSparkles, X } from 'lucide-react'
 import { logout } from '../api'
 import { ACTIVE_PHASES } from '../domain/workflowStates'
 import { LoginScreen } from '../features/auth/LoginScreen'
@@ -154,12 +154,13 @@ function App() {
     ? providerPresentation(currentVideoGeneration?.provider).displayLabel
     : 'AI 视频生产'
   const nav: NavItem[] = [
-    { value: 'images', label: '图片工作室', icon: <Images size={18} /> },
-    { value: 'make', label: '视频工作室', icon: <Clapperboard size={18} /> },
-    { value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
-    { value: 'library', label: '素材库', icon: <Library size={18} /> },
-    ...(canOperate ? [{ value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
-    { value: 'settings', label: '设置', icon: <Settings size={18} /> },
+    { id: 'image-studio', value: 'images', label: '图片工作室', icon: <Images size={18} />, surface: 'image' },
+    { id: 'director-studio', value: 'images', label: '导演台', icon: <WandSparkles size={18} />, surface: 'director' },
+    { id: 'video-studio', value: 'make', label: '视频工作室', icon: <Clapperboard size={18} />, surface: 'video' },
+    { id: 'task-center', value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
+    { id: 'library', value: 'library', label: '素材库', icon: <Library size={18} />, surface: 'assets' },
+    ...(canOperate ? [{ id: 'admin', value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
+    { id: 'settings', value: 'settings', label: '设置', icon: <Settings size={18} /> },
   ]
   const actorId = system?.sharedAuthentication ? null : actor?.userId ?? null
   const isCreativeWorkspaceSurface = surface === 'workspace' || surface === 'projects' || surface === 'memory'
@@ -183,6 +184,7 @@ function App() {
     nav={nav}
     view={view}
     onSwitchView={switchView}
+    onSwitchSurface={navigateSurface}
     actor={actor}
     system={system}
     error={error}
