@@ -129,10 +129,31 @@ All checks passed
 
 ## testing/main 同步
 
-主报告创建后，将只同步本 Sprint 白名单文件到实际生产工作树
-`C:\Users\Reel\Documents\libtv-auto-main-sync` 的 `main` 分支，并在 main
-独立运行同一组测试、Ruff 和 diff 检查。同步结果将在本节更新；未同步用户未跟踪
-ZIP、缓存、运行时状态、真实 `.env` 或生成产物。
+已完成逐文件同步到实际生产工作树
+`C:\Users\Reel\Documents\libtv-auto-main-sync` 的 `main` 分支。
+
+同步文件：
+
+- `backend/tests/test_runtime_stability_recovery.py`
+- `docs/SPRINT6_HEALTH_CHECK_EVIDENCE_20261013.md`
+- `docs/SPRINT_REPORT_RUNTIME_STABILITY_20261013.md`
+- `backend/src/libtv_agent/api/system.py`：补齐 main 尚未包含的既有
+  system-status runtime contract，使已同步健康测试与运行实现一致
+
+`backend/tests/test_health.py` 与 `backend/tests/test_runtime_workflow_integration.py`
+在 testing/main 工作树内容已一致，因此未覆盖 main 的前序未提交文件。
+
+main 独立验收结果：
+
+```text
+107 passed
+Ruff: All checks passed
+git diff --check: passed
+```
+
+main 工作树保留原有未提交改动；本轮没有覆盖、回滚或提交这些改动。未同步用户未
+跟踪 ZIP、缓存、运行时状态、真实 `.env` 或生成产物。testing/main 白名单文件
+SHA-256 已核对一致。
 
 ## 下一步
 
