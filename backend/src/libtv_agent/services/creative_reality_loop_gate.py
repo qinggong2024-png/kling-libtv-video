@@ -185,6 +185,15 @@ class RealityDimensionEvidence:
     evidence_status: EvidenceStatus
     evidence: str
     na_reason: str | None = None
+    rule_id: str | None = None
+    rules_version: str | None = None
+    rules_hash: str | None = None
+    required_context: str | None = None
+    generation_constraint: str | None = None
+    judgment_standard: str | None = None
+    review_axis: str | None = None
+    revision_module: str | None = None
+    causal_variable: str | None = None
 
     def __post_init__(self) -> None:
         if self.dimension not in REALITY_ORDER:
@@ -195,6 +204,16 @@ class RealityDimensionEvidence:
         _require_text(self.evidence, "evidence")
         if self.decision.strip().upper() in {"N/A", "NA"}:
             _require_text(self.na_reason or "", "na_reason")
+        rule_values = (
+            self.rule_id, self.rules_version, self.rules_hash, self.required_context,
+            self.generation_constraint, self.judgment_standard, self.review_axis,
+            self.revision_module, self.causal_variable,
+        )
+        if any(value is not None for value in rule_values):
+            for value in rule_values:
+                _require_text(value or "", "Reality rule field")
+            if self.revision_module not in REVISION_MODULES:
+                raise ValueError("Reality rule revision module is unsupported")
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +236,13 @@ class RealityEvidence:
                     "evidence_status": item.evidence_status,
                     "evidence": item.evidence,
                     "na_reason": item.na_reason,
+                    **{
+                        key: getattr(item, key) for key in (
+                            "rule_id", "rules_version", "rules_hash", "required_context",
+                            "generation_constraint", "judgment_standard", "review_axis",
+                            "revision_module", "causal_variable",
+                        ) if getattr(item, key) is not None
+                    },
                 }
                 for item in self.dimensions
             ]

@@ -9,6 +9,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from libtv_agent.creative.reality_evidence import (
+    compile_reality_decisions,
+    render_reality_constraints,
+)
+
 PIPELINE = ("G0", "D1", "D2", "D3", "D4", "H1", "E1", "E2", "E3")
 REALITY = (
     "Camera", "Lighting", "Composition", "Human Behavior", "Environment", "Imperfection",
@@ -64,6 +69,7 @@ class PlanRevision(Contract):
     directions: list[dict[str, str]]
     selected_direction: str | None = None
     evidence: Literal["FAKE_NOT_IMAGE_ANALYSIS"] = "FAKE_NOT_IMAGE_ANALYSIS"
+    brand_dna: dict[str, Any] | None = None
 
 
 class PackageRevision(Contract):
@@ -212,19 +218,24 @@ class Command(Contract):
 def compile_package(
     task_id: uuid.UUID, plan: dict, locks_hash: str, revision: int,
     parent: str | None = None, fix: str | None = None,
+    *, inherited_reality: list[dict[str, str]] | None = None,
 ) -> PackageRevision:
     direction = next(
         value for value in plan["directions"] if value["id"] == plan["selected_direction"]
     )
-    decisions = (
-        "eye-level medium frame", "single soft side light", "garment fully readable",
-        direction["behavior"], direction["scene"], "none",
+    reality = (
+        [dict(item) for item in inherited_reality]
+        if inherited_reality is not None else compile_reality_decisions(direction)
     )
+    decisions = tuple(item["decision"] for item in reality)
     prompt = (
         f"FAKE ONLY. Preserve canonical garment SHA {plan['source_hash']}. "
-        f"{direction['scene']}; {direction['behavior']}; eye-level medium frame, "
+        f"{direction['scene']}; {direction['behavior']}; {decisions[0]}, "
         f"single soft side light, no added garment details. {fix or ''}"
     )
+    constraints = render_reality_constraints(reality)
+    if constraints:
+        prompt += f"\nReality generation constraints (proposed guidance):\n{constraints}"
     preservation = digest({
         "product_version_id": plan["product_version_id"],
         "source_hash": plan["source_hash"],
@@ -236,10 +247,7 @@ def compile_package(
         package_id=f"{task_id}:package:{revision}", revision=revision, parent_package_id=parent,
         locks_hash=locks_hash,
         facts_revision=plan["facts_revision"], preservation_hash=preservation, prompt=prompt,
-        reality=[
-            {"dimension": dimension, "decision": decision, "evidence": "PROPOSED_FAKE"}
-            for dimension, decision in zip(REALITY, decisions, strict=True)
-        ],
+        reality=reality,
     )
 
 
@@ -255,16 +263,17 @@ def compile_storyboard_package(
     direction = next(
         value for value in plan["directions"] if value["id"] == plan["selected_direction"]
     )
+    reality = [dict(item) for item in first_frame_package["reality"]]
+    decisions = tuple(item["decision"] for item in reality)
     prompt = (
         f"FAKE ONLY. Preserve canonical garment SHA {plan['source_hash']}. "
         f"Continue selected FIRST_FRAME candidate {first_frame_candidate_id}; "
         f"render {shot_id} as a single storyboard moment in {direction['scene']}; "
         f"{direction['behavior']}; preserve garment locks and do not add garment details."
     )
-    decisions = (
-        "eye-level medium frame", "single soft side light", "garment fully readable",
-        direction["behavior"], direction["scene"], "none",
-    )
+    constraints = render_reality_constraints(reality)
+    if constraints:
+        prompt += f"\nReality generation constraints (proposed guidance):\n{constraints}"
     return PackageRevision(
         package_id=f"{task_id}:storyboard:{shot_id}:1",
         revision=1,
@@ -284,10 +293,7 @@ def compile_storyboard_package(
         shot_id=shot_id,
         source_first_frame_candidate_id=first_frame_candidate_id,
         prompt=prompt,
-        reality=[
-            {"dimension": dimension, "decision": decision, "evidence": "PROPOSED_FAKE"}
-            for dimension, decision in zip(REALITY, decisions, strict=True)
-        ],
+        reality=reality,
     )
 
 

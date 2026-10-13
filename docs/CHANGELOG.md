@@ -1,5 +1,89 @@
 # Changelog
 
+## 2026-10-13
+
+### Reality Evidence Rules
+
+- 保留现有 Reality 六维与 Reality Loop，不新增 Reality Layer。
+- 新增版本化 `reality-evidence.v1` 知识库，把人物行动因果、摄影者意图、
+  主体/环境空间关系、环境使用痕迹和四类可解释 Imperfection 规则吸收到六维。
+- 新 Package 冻结规则快照、版本与内容哈希，并将生成约束和判断标准带入
+  Prompt 与人工 `qualityChecklist`；旧包保持原冻结合同。
+- `imperfection=none` 继续有效，不默认改商品颜色、印花、文字、轮廓或状态。
+- 修复 E1 Preservation 校验重建默认 Reality 决策而丢失已冻结 Camera/Reality
+  意图的问题。没有 Provider、付费调用、生产写入或自动质量结论。
+- 详细范围、测试和限制见 `SPRINT_REPORT_REALITY_EVIDENCE_20261013.md`。
+
+### Canonical Provider Adapter Boundary
+
+- 新增只读 Provider adapter，将 `ImageGenerationRequest` 编译为 `ProviderRequestPreview`，保留 creative state identity、shot、prompt、preservation/locks hash 与 Product/Character/Scene/Spatial/Camera references。
+- 提供显式 execution context 时可生成现有 `CreativeImageProviderRequest`；task、source mapping、evidence、text contract 和幂等字段必须由执行层提供，adapter 不猜测、不伪造。
+- 没有 context 时只输出 dry-run preview；Spatial blocked、manifest 不一致或 Character/Scene reference 缺失会明确返回 `BLOCKED` / `UNRESOLVED`。
+- 未调用 Provider、Kling、billing、task execution，未修改 Provider contract、数据库或前端；详细结果见 `SPRINT_REPORT_CANONICAL_PROVIDER_ADAPTER_BOUNDARY_20261013.md`。
+
+### Creative Core / Sprint 4 Isolated Acceptance
+
+- 合成球衣 HTTP 整合验收覆盖 Brand DNA、三个 Fake 方向、Package、
+  旧图片记录关联及追加人工评价，两侧各 3 项通过。
+- 两侧 Package 与导演交付准备浏览器回归通过；Fake 不提升为真实生产。
+- 真实产品理解、图片/视频执行与正式人工验收仍未完成；按用户要求停在
+  生产流程边界，具体下一包见 `SPRINT_REPORT_HUMAN_LOOP_ACCEPTANCE_20261013.md`。
+
+### Creative Core / Sprint 3 Human Review
+
+- 新增图片 PASS/REWORK/FAIL、视频 PASS/FAIL 及媒介原因码，人工记录与
+  QUALIFIED、最终批准、计费、交付和自动学习保持独立。
+- 复用 AuditEvent 与已有幂等事务；保存不确定时保留原请求，支持刷新核对
+  和同键重试，默认训练导出排除 Fake/Replay。
+- 增加图片、视频与导演候选评价入口，无数据库迁移或 Provider 改造。
+- testing/main 独立测试及四视口真实评价 API 浏览器通过，报告见
+  `SPRINT_REPORT_HUMAN_REVIEW_20261013.md`；源码已同步，未部署。
+- 旧 Canonical Image Generation Adapter 扩展任务已停止，未同步产物
+  保留待审，不计入当前 Creative Core 主线完成项。
+
+### Canonical Image Generation Adapter
+
+- 新增 provider-neutral image adapter，将 validated `CreativeStateRevision` 与选定 `ShotState` 编译为 `ImageGenerationRequest`。
+- Image request 保留 Product/Character/Scene/Spatial/Camera/Shot canonical 内容，并附带 `creative_state_id`、revision、shot ID、source reference manifest 和 preservation hash。
+- 编译前校验 revision integrity、shot identity、继承 revision、素材引用、action capability、prompt revision 和 Spatial submission gate；缺失状态明确返回 `UNRESOLVED` 或 `BLOCKED`，不填充虚构事实。
+- 保持 `provider_submission_allowed=false`；没有修改 Provider contract/execution、Kling、数据库、前端或 Quality 自动审核。
+- 详细结果见 `SPRINT_REPORT_CANONICAL_IMAGE_GENERATION_ADAPTER_20261013.md`。
+
+### Creative Core / Sprint 2 Brand DNA
+
+- 复用现有品牌目录配置，新增稳定 ID、版本和内容哈希的只读 Brand DNA 投影。
+- 新导演任务可绑定品牌目录快照；分析及 Package 读取冻结建议，目录后续
+  修改或退役不改变旧任务与旧包。通用模式和无品牌旧请求保持兼容。
+- 新任务拒绝未知、过期、draft/retired 目录；前端按 ID 选择同名品牌，
+  展示目录建议与任务绑定状态，不推断人物身份。
+- 无数据库迁移、新 Agent 或 Provider 改造；Fake 分析仍不是产品真实理解。
+- 验收见 `SPRINT_REPORT_BRAND_DNA_20261013.md`。
+
+### Creative Core Human Loop / Sprint 1
+
+- 研发主线调整为 Creative OS Core + Human Production Loop，严格按 Package、
+  Brand DNA、Human Review、人工测试顺序收敛；保留现有 State 与执行层边界。
+- 新增 Creative Package 只读导出投影，在已有导演任务响应中附加九字段、
+  来源与字段状态；不新增持久化字段或迁移，不改写原生产 Prompt。
+- 新增团队文本复制、图片/视频 Prompt 复制和 JSON 下载；从冻结方向派生
+  待人工确认的视频交接草案，保留其与原执行 Prompt 的区别。缺失视频
+  Prompt 不显示复制操作；Fake、模板建议、待补充和不可交付状态保持可见。
+- 验证结果与交付限制见 `SPRINT_REPORT_CREATIVE_PACKAGE_20261013.md`。
+
+### Canonical Storyboard Integration
+
+- 将 Director snapshot 编译为结构化 `StoryboardState` 与显式有序 `ShotState[]`，保留 campaign intent、hook、情绪推进、商品证据、CTA 和选定方向。
+- Shot 适配器保留旧 storyboard 的时长、镜头语言、entry/exit state、动作和 source binding，并记录动作能力检查与连续性锁。
+- 新增 unresolved validation；缺失 Character/Scene/Camera 会显式保留 unresolved，缺失或未验证 Spatial 会将 canonical state 标记为 `BLOCKED`，不创建虚构创意事实。
+- 未修改 Kling、Provider request/execution、数据库迁移、前端页面或质量自动审核。
+
+### Canonical Creative State Foundation
+
+- 新增 `creative-state.v1` 后端不可变状态模型，覆盖 Product、Character、Scene、Spatial、Camera、Storyboard、Shot 和 Quality。
+- 新增只读投影，将现有 `CreativeTask`、ProductVersion、Director snapshot、CreativeRecord 和质量记录组合为统一 CreativeState。
+- 新增 revision/content/locks/source snapshot 哈希与篡改检测；保留现有任务、Provider、计费、配额和交付边界。
+- 新增 Phase 1 专项测试；未新增 API、迁移、Provider 调用或前端状态写入。
+
 ## 2026-10-12
 
 ### Creative Workflow MVP-4A

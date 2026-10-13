@@ -8,6 +8,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import HTTPException
+from libtv_agent.creative.brand_dna import project_brand_dna, validate_brand_dna
+from libtv_agent.creative.reality_evidence import registry_evidence_rules
 from libtv_agent.creative.text_contract import (
     freeze_text_contract,
     validate_text_contract,
@@ -42,6 +44,7 @@ from libtv_agent.domain.models import (
     ProductVersion,
 )
 from libtv_agent.domain.schemas import ProductVersionCreate
+from libtv_agent.services.content_catalog import get_merged_site_style_profile
 from libtv_agent.services.product_versions import append_version, version_content
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -86,6 +89,9 @@ def registry_snapshot(task_id: uuid.UUID, plan: dict, package: dict) -> dict:
         "reality_order": list(REALITY),
         "preservation": "canonical-product-prompt-and-reality",
     }
+    evidence_rules = registry_evidence_rules(package["reality"])
+    if evidence_rules is not None:
+        manifest["reality_evidence_rules"] = evidence_rules
     payload = {
         "schema_version": "creative-prompt.v1",
         "ruleset_version": package["ruleset"],
@@ -246,6 +252,7 @@ def storyboard_package(
 async def create_task(
     session: AsyncSession, owner_id: uuid.UUID, product_id: uuid.UUID, asset: AssetLink,
     *, client_key: str | None = None, product_version_id: uuid.UUID | None = None,
+    brand_profile_id: str | None = None, brand_profile_version: str | None = None,
 ) -> dict:
     product = await session.scalar(select(Product).where(
         Product.id == product_id, Product.user_id == owner_id,
@@ -254,11 +261,17 @@ async def create_task(
         reject("PRODUCT_NOT_FOUND", 404)
     if asset.owner_id != owner_id:
         reject("OWNER_MISMATCH")
-    request_hash = digest({
+    request_input = {
         "product_id": str(product_id), "front_sha": asset.sha256,
         "product_version_id": str(product_version_id) if product_version_id else None,
         "settings": {"mode": "OFFLINE_FAKE_ONLY", "role": asset.role, "view": asset.view},
-    })
+    }
+    if brand_profile_id is not None:
+        request_input["brand_profile_id"] = brand_profile_id
+        request_input["brand_profile_version"] = brand_profile_version
+    elif brand_profile_version is not None:
+        reject("BRAND_PROFILE_ID_REQUIRED", 422)
+    request_hash = digest(request_input)
     if client_key:
         prior = await session.scalar(select(CreativeCreation).where(
             CreativeCreation.user_id == owner_id, CreativeCreation.client_key == client_key,
@@ -267,6 +280,19 @@ async def create_task(
             if prior.request_hash != request_hash:
                 reject("TASK_IDEMPOTENCY_CONFLICT")
             return prior.result_json
+    brand_dna = None
+    if brand_profile_id is not None:
+        try:
+            profile = await get_merged_site_style_profile(
+                session, brand_profile_id, require_active=True,
+            )
+        except ValueError:
+            reject("BRAND_PROFILE_UNAVAILABLE", 422)
+        if profile.library_scope != "brand":
+            reject("BRAND_PROFILE_REQUIRED", 422)
+        if brand_profile_version is not None and profile.version != brand_profile_version:
+            reject("BRAND_PROFILE_STALE")
+        brand_dna = project_brand_dna(profile)
     if product_version_id:
         version = await session.scalar(select(ProductVersion).join(Product).where(
             ProductVersion.id == product_version_id, ProductVersion.product_id == product_id,
@@ -287,6 +313,7 @@ async def create_task(
             "asset": asset.model_dump(mode="json"), "trace": ["G0"], "candidates": [],
             "calls": 0, "cost_micros": 0, "total_calls": 0, "total_cost_micros": 0,
             "stopped": False, "product_version": facts,
+            **({"brand_dna": brand_dna} if brand_dna is not None else {}),
             "storyboard": {
                 "packages": {}, "candidates": [], "selections": {}, "shot_mappings": {},
             },
@@ -417,16 +444,26 @@ async def execute(
         if stage != "DRAFT":
             reject("STAGE_INVALID")
         facts_revision = snapshot["product_version"]["facts_revision"]
+        brand = snapshot.get("brand_dna")
+        if brand is not None and not validate_brand_dna(brand):
+            reject("BRAND_DNA_HASH_MISMATCH")
+        environments = (brand or {}).get("sceneDNA", {}).get("preferredEnvironment", [])
+        default_scenes = ["plain studio", "indoor room", "outdoor walkway"]
+        scenes = [
+            environments[index] if index < len(environments) else default
+            for index, default in enumerate(default_scenes)
+        ]
         plan = PlanRevision(
             revision=1, facts_revision=facts_revision, product_id=task.product_id,
             source_hash=snapshot["asset"]["sha256"],
             product_version_id=uuid.UUID(snapshot["product_version"]["product_version_id"]),
             facts_snapshot_hash=digest(facts_snapshot(snapshot)),
             directions=[
-                {"id": "A", "scene": "plain studio", "behavior": "standing still"},
-                {"id": "B", "scene": "indoor room", "behavior": "seated casually"},
-                {"id": "C", "scene": "outdoor walkway", "behavior": "walking slowly"},
+                {"id": "A", "scene": scenes[0], "behavior": "standing still"},
+                {"id": "B", "scene": scenes[1], "behavior": "seated casually"},
+                {"id": "C", "scene": scenes[2], "behavior": "walking slowly"},
             ],
+            brand_dna=deepcopy(brand),
             claims=[{
                 "claim_id": "front-source", "value": "front image available",
                 "source_fact_keys": ["source_asset_references"],
@@ -540,14 +577,9 @@ async def execute(
         validate_package_contract(snapshot, package, command.command_key)
         auth_scope = "VIDEO_STORYBOARD" if storyboard_mode else "FIRST_FRAME"
         auth = authorization(snapshot, now, scope=auth_scope, shot_id=shot_id)
-        direction = next(
-            value for value in snapshot["plan"]["directions"]
-            if value["id"] == snapshot["plan"]["selected_direction"]
-        )
-        decisions = (
-            "eye-level medium frame", "single soft side light", "garment fully readable",
-            direction["behavior"], direction["scene"], "none",
-        )
+        # D4 already froze these exact decisions. Reconstructing defaults here
+        # discards camera intent and breaks historical/new rule compatibility.
+        decisions = tuple(item["decision"] for item in package["reality"])
         expected_preservation = preservation_input(
             snapshot["plan"], package["locks_hash"], package["prompt"], decisions,
         )
@@ -600,6 +632,7 @@ async def execute(
             package_model = compile_package(
                 task.id, snapshot["plan"], package["locks_hash"], package["revision"] + 1,
                 package["package_id"], command.fix,
+                inherited_reality=package["reality"],
             )
             snapshot["package"] = package_model.model_dump(mode="json")
             package = snapshot["package"]
