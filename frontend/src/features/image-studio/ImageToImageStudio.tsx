@@ -1,15 +1,13 @@
-import { ArrowLeft, History, ImagePlus } from 'lucide-react'
+import { ImagePlus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { ImageCenterConfig } from '../../imageCenterModel'
 import { Button } from '../../shared/components/ui/Button'
 import { GenerationConfig } from './shared/GenerationConfig'
 
-export function ImageToImageStudio({ references, config, onChangeConfig, onBack, onRecords, onGenerate, busy, blocked, reason, error, count, saveState }: {
+export function ImageToImageStudio({ references, config, onChangeConfig, onGenerate, busy, blocked, reason, error, count, saveState }: {
   references: ReactNode
   config: ImageCenterConfig
   onChangeConfig: (config: Partial<ImageCenterConfig>) => void
-  onBack: () => void
-  onRecords: () => void
   onGenerate: () => void
   busy: boolean
   blocked: boolean
@@ -19,12 +17,10 @@ export function ImageToImageStudio({ references, config, onChangeConfig, onBack,
   saveState: 'saved' | 'saving' | 'error'
 }) {
   return <section className="image-quick-studio" aria-labelledby="image-to-image-title">
-    <button type="button" className="image-studio-back" onClick={onBack}><ArrowLeft size={16} />图片工作室</button>
     <header className="image-quick-studio__header">
-      <div><h1 id="image-to-image-title">图生图</h1><small className="image-quick-save" role="status">{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</small></div>
-      <Button icon={<History size={16} />} onClick={onRecords}>生图记录</Button>
+      <h2 id="image-to-image-title">图生图</h2><small className="image-quick-save" role="status">{saveState === 'saved' ? '草稿已保存' : saveState === 'saving' ? '正在保存' : '草稿保存失败'}</small>
     </header>
-    <div className="image-simple-references" aria-label="参考图片">{references}</div>
+    {references}
     <div className="image-text-brief">
       <label htmlFor="image-edit-prompt">提示词</label>
       <textarea id="image-edit-prompt" rows={4} maxLength={2800} value={config.fusionPrompt}
