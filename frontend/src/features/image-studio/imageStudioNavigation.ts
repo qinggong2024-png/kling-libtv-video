@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { preserveProjectQuery } from '../../app/productNavigation'
 
-export type ImageStudioView = 'home' | 'image-to-image' | 'text-to-image' | 'batch' | 'batch-create' | 'batch-products' | 'batch-storyboard' | 'records'
+export type ImageStudioView = 'image-to-image' | 'text-to-image' | 'batch-create' | 'batch-products' | 'batch-storyboard' | 'records'
 
 export function readImageStudioView(search: string): ImageStudioView {
   const value = new URLSearchParams(search).get('imageMode')
-  return value === 'image-to-image' || value === 'text-to-image' || value === 'batch'
+  if (value === 'batch') return 'batch-create'
+  return value === 'image-to-image' || value === 'text-to-image'
     || value === 'batch-create' || value === 'batch-products' || value === 'batch-storyboard' || value === 'records'
     ? value
-    : 'home'
+    : 'image-to-image'
 }
 
 export function useImageStudioNavigation(): {
@@ -29,7 +30,7 @@ export function useImageStudioNavigation(): {
 
   const navigate = useCallback((next: ImageStudioView, replace = false) => {
     const params = preserveProjectQuery(new URLSearchParams({ view: 'images', pane: 'image' }))
-    if (next !== 'home') params.set('imageMode', next)
+    if (next !== 'image-to-image') params.set('imageMode', next)
     window.history[replace ? 'replaceState' : 'pushState'](null, '', `${window.location.pathname}?${params.toString()}`)
     window.dispatchEvent(new Event('app:navigation'))
     setView(next)

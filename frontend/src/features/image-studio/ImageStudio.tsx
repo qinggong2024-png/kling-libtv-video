@@ -6,7 +6,7 @@ import { ApiError, createImageGenerationBatch, getImageGenerationBatch, querySub
 import {
   MAX_IMAGE_CENTER_OUTFITS,
   buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
-  createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getOrderedSelectedTasks,
+  createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getOrderedImageReferences, getOrderedSelectedTasks,
   normalizeImageGenerationModes, normalizeImageGenerationQuality, parseStoryboardPrompt, validateImageCenterDraft,
 } from '../../imageCenterModel'
 import type { ImageGenerationBatch, ImageGenerationBatchItem } from '../../types'
@@ -21,12 +21,13 @@ import { DirectorStudio } from '../director-studio/DirectorStudio'
 import '../image-center/imageReview.css'
 import { BatchStudio } from './BatchStudio'
 import { ImageRecords } from './ImageRecords'
-import { ImageStudioHome } from './ImageStudioHome'
+import { ImageStudioHeader } from './ImageStudioHeader'
 import { ImageToImageStudio } from './ImageToImageStudio'
 import { TextToImageStudio } from './TextToImageStudio'
 import { useImageStudioNavigation } from './imageStudioNavigation'
 import { BatchCreationView } from './BatchCreationView'
-import { OrderedAssetUpload } from './shared/ImageAssets'
+import { ReferenceImageUpload } from './shared/ReferenceImageUpload'
+import { bindImageReferenceSequence } from './imageReferenceSequence'
 import { AssetPreviewDialog, BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputPreview, SelectionWorkbench } from './ImageResultTools'
 
 export { BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputCard } from './ImageResultTools'
@@ -288,13 +289,18 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   }, [draft.selectedOutputIds.length])
   const activeOutfit = draft.outfits.find((outfit) => outfit.id === activeOutfitId) ?? draft.outfits[0]
   const activeOutfitIndex = Math.max(0, draft.outfits.findIndex((outfit) => outfit.id === activeOutfit.id))
+  const referenceFiles = getOrderedImageReferences(draft.model, activeOutfit).map(({ file }) => file)
+  const referenceLimit = draft.config.provider === 'nanobanana' ? 4 : 6
   const simpleDraft = {
     ...draft,
     outfits: [activeOutfit],
     config: { ...draft.config, modes: ['fusion'] as ImageGenerationMode[] },
   }
   const simpleSummary = calculateImageTaskSummary(simpleDraft)
-  const simpleErrors = validateImageCenterDraft(simpleDraft)
+  const simpleErrors = referenceFiles.length < 2 || !draft.model.front || !activeOutfit.front
+    ? ['请至少上传 2 张参考图片。']
+    : referenceFiles.length > referenceLimit ? [`当前模型最多支持 ${referenceLimit} 张参考图，请减少图片或切换模型。`]
+      : validateImageCenterDraft(simpleDraft).map(error => error === '请填写多图融合提示词。' ? '请填写提示词。' : error)
   const batchEditor = imageView === 'batch-create' || imageView === 'batch-products' || imageView === 'batch-storyboard'
   const errorTarget = errors[0]?.includes('上传') ? '#asset-composer-title' : '#generation-config-title'
   const updateOutfit = (changed: OutfitDraft) => updateDraft((current) => ({ ...current, outfits: current.outfits.map((item) => item.id === changed.id ? changed : item) }))
@@ -478,32 +484,39 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
     {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
 
     {studioMode === 'director' ? <DirectorStudio /> : null}
-    {studioMode === 'custom' && imageView === 'home' ? <ImageStudioHome taskCount={draft.tasks.length} onOpen={navigateImageView} /> : null}
+    {studioMode === 'custom' ? <ImageStudioHeader view={imageView} taskCount={draft.tasks.length}
+      onOpen={(next) => { if (next === 'batch-create') selectMode('fusion'); navigateImageView(next) }} /> : null}
+    <div id="image-studio-panel" role={studioMode === 'custom' && imageView !== 'records' ? 'tabpanel' : undefined}
+      aria-labelledby={studioMode === 'custom' && imageView !== 'records' ? `image-mode-${batchEditor ? 'batch-create' : imageView}` : undefined}>
     {studioMode === 'custom' && imageView === 'image-to-image' ? <ImageToImageStudio
-      onBack={() => navigateImageView('home')} onRecords={() => navigateImageView('records')}
       config={draft.config} onChangeConfig={updateConfig} busy={submitting} blocked={generationBlocked} saveState={saveState}
       reason={generationStatusMessage} error={simpleErrors[0]} count={simpleSummary.totalImages}
       onGenerate={() => submit(simpleDraft)}
-      references={<>
-        <OrderedAssetUpload idPrefix="image-quick-product" title="商品图" description="商品正面必填" assets={activeOutfit} onChange={(assets) => updateOutfit({ ...activeOutfit, ...assets })} />
-        <OrderedAssetUpload idPrefix="image-quick-person" title="人物图" description="人物正面必填，保留人物和环境" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
-      </>}
+      references={<ReferenceImageUpload files={referenceFiles} maxFiles={referenceLimit} onPreview={previewSourceImage}
+        onChange={(files) => {
+          const { model, product } = bindImageReferenceSequence(files)
+          updateDraft((current) => ({
+            ...current, model,
+            outfits: current.outfits.map((outfit) => outfit.id === activeOutfit.id ? { ...outfit, ...product } : outfit),
+          }))
+        }} />}
     /> : null}
     {studioMode === 'custom' && imageView === 'text-to-image' ? <TextToImageStudio
-      onBack={() => navigateImageView('home')} prompt={textPrompt} saved={textSaved}
+      prompt={textPrompt} saved={textSaved}
       onChange={(prompt) => { setTextPrompt(prompt); setTextSaved(writeStorage('local', textDraftKey, prompt)) }}
     /> : null}
-    {studioMode === 'custom' && (imageView === 'batch' || batchEditor) ? <BatchStudio
-      view={imageView} saveState={saveState} onBack={() => navigateImageView(imageView === 'batch' ? 'home' : 'batch')}
+    {studioMode === 'custom' && batchEditor ? <BatchStudio
+      view={imageView} saveState={saveState}
       onOpen={(next) => { if (next === 'batch-storyboard') selectMode('storyboard'); if (next === 'batch-create') selectMode('fusion'); navigateImageView(next) }}
     >{batchEditor ? <BatchCreationView assetsOnly={imageView === 'batch-products'} draft={draft} summary={summary} activeOutfit={activeOutfit} activeOutfitIndex={activeOutfitIndex} generationStatusMessage={generationStatusMessage} errors={errors} updateDraft={updateDraft} updateConfig={updateConfig} selectMode={selectMode} addOutfit={addOutfit} removeOutfit={removeOutfit} setActiveOutfitId={setActiveOutfitId} updateOutfit={updateOutfit} /> : null}</BatchStudio> : null}
     {studioMode === 'custom' && imageView === 'records' ? <ImageRecords tasks={draft.tasks} selectedIds={selectedIds}
       selectedCompareOutputs={selectedCompareOutputs} pendingReviewOutputs={pendingReviewOutputs}
-      onBack={() => navigateImageView('home')} onCreate={() => navigateImageView('image-to-image')}
+      onBack={() => navigateImageView('image-to-image')} onCreate={() => navigateImageView('image-to-image')}
       onCompare={() => setCompareOpen(true)} onBatchReview={() => setBatchReviewOpen(true)}
       recoverUncertainTask={recoverUncertainTask} prepareRegeneration={prepareRegeneration} previewSourceImage={previewSourceImage}
       toggleOutput={toggleOutput} rejectOutput={rejectOutput} onPreviewOutput={(id) => { setPreviewSource(null); setPreviewOutputId(id) }}
     /> : null}
+    </div>
     {active && studioMode === 'custom' && batchEditor && imageView !== 'batch-products' ? createPortal(<div className="image-center-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
       {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : generationBlocked ? <span id="image-generation-availability" title={generationStatusMessage}><AlertTriangle size={15} />{generationStatusMessage}</span> : <span id="image-generation-availability" className="is-ready"><CheckCircle2 size={15} />配置完整</span>}

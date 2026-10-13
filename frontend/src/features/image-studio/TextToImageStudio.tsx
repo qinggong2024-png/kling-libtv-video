@@ -1,15 +1,13 @@
-import { ArrowLeft, ImagePlus } from 'lucide-react'
+import { ImagePlus } from 'lucide-react'
 import { Button } from '../../shared/components/ui/Button'
 
-export function TextToImageStudio({ onBack, prompt, onChange, saved }: {
-  onBack: () => void
+export function TextToImageStudio({ prompt, onChange, saved }: {
   prompt: string
   onChange: (prompt: string) => void
   saved: boolean
 }) {
   return <section className="image-quick-studio" aria-labelledby="text-to-image-title">
-    <button type="button" className="image-studio-back" onClick={onBack}><ArrowLeft size={16} />图片工作室</button>
-    <header className="image-quick-studio__header"><h1 id="text-to-image-title">文生图</h1></header>
+    <header className="image-quick-studio__header"><h2 id="text-to-image-title">文生图</h2></header>
     <div className="image-text-brief">
       <label htmlFor="image-text-brief-input">提示词</label>
       <textarea id="image-text-brief-input" rows={5} maxLength={2800} value={prompt} onChange={event => onChange(event.target.value)}
