@@ -185,7 +185,7 @@ async def test_admin_edits_style_with_version_increment_and_cannot_activate_rest
         json=restricted_active_profile_payload(),
     )
     assert restricted.status_code == 422
-    assert "verified site evidence" in restricted.json()["detail"]
+    assert "verified site evidence" in restricted.json()["detail"]["message"]
 
 
 @pytest.mark.asyncio
@@ -222,7 +222,7 @@ async def test_brand_action_requires_a_brand_and_cannot_leak_into_another_brand_
         json=payload,
     )
     assert missing_brand.status_code == 422
-    assert "require a brand id" in missing_brand.json()["detail"]
+    assert "require a brand id" in missing_brand.json()["detail"]["message"]
 
     payload["brandId"] = "geeksoutfit"
     missing_base = await client.post(
@@ -231,7 +231,7 @@ async def test_brand_action_requires_a_brand_and_cannot_leak_into_another_brand_
         json=payload,
     )
     assert missing_base.status_code == 422
-    assert "general base action id" in missing_base.json()["detail"]
+    assert "general base action id" in missing_base.json()["detail"]["message"]
 
     payload["baseActionId"] = "stance_shift"
     created = await client.post(
@@ -255,4 +255,4 @@ async def test_brand_action_requires_a_brand_and_cannot_leak_into_another_brand_
         json=guidingcross,
     )
     assert cross_brand.status_code == 422
-    assert "another brand" in cross_brand.json()["detail"]
+    assert "another brand" in cross_brand.json()["detail"]["message"]

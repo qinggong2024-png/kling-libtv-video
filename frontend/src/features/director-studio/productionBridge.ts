@@ -1,15 +1,19 @@
 import type { StudioHandoffContext } from './contracts'
+import type { CreativeProject } from '../../creative-project/types'
+import { readDirectorPlanningSnapshot } from './directorHandoff'
 import { mapCreativeIntelligenceSnapshotToReality } from '../../creative-project/realityAdapters'
 import type { RealityEngineExecutionMode, RealitySnapshotMapping } from '../../creative-project/reality'
 
 export const PRODUCTION_BRIDGE_PREFLIGHT_SCHEMA_VERSION = 'production-bridge-preflight.v1' as const
 export const PRODUCTION_BRIDGE_QUALIFICATION_SCOPE = 'OFFLINE_SYNTHETIC_ONLY' as const
+export const DIRECTOR_FIXED_OFFLINE_INPUT_SCHEMA_VERSION = 'director-fixed-offline.v1' as const
 
 export type ProductionBridgePurpose = 'IMAGE_FIRST_FRAME' | 'VIDEO_DIRECTOR_FIXED'
 export type ProductionBridgePreparationStatus = 'PLANNING_ONLY' | 'PREFLIGHT_REQUIRED'
 export type ProductionBridgeCheckStatus = 'UNVERIFIED' | 'PASS' | 'BLOCKED'
 export type ProductionBridgeReadinessState = 'NOT_READY' | 'READY_FOR_HUMAN_CHECKPOINT'
 export type ProductionBridgeApprovalStatus = 'REQUIRED' | 'ACCEPTED' | 'REJECTED'
+export type DirectorFixedOfflinePreparationStatus = 'READY' | 'BLOCKED'
 
 export type ProductionBridgeCheckKey =
   | 'ownerValidated'
@@ -130,6 +134,60 @@ export interface ProductionBridgePreparation {
     'MATERIALIZED_SOURCE_MAPPING_REQUIRED',
     'HUMAN_PROVIDER_AUTHORIZATION_REQUIRED',
   ]
+}
+
+export interface DirectorFixedShotMapping {
+  shotId: 'SHOT_01'
+  order: 1
+  packageId: string
+  candidateId: string
+  sourceImageHash: string
+  batchId?: string
+  itemId?: string
+  outputId?: string
+  outputImageHash?: string
+  objectKey?: string
+}
+
+export interface DirectorFixedOfflineInput {
+  schemaVersion: typeof DIRECTOR_FIXED_OFFLINE_INPUT_SCHEMA_VERSION
+  source: 'director-studio'
+  executionMode: 'director_fixed'
+  qualificationScope: typeof PRODUCTION_BRIDGE_QUALIFICATION_SCOPE
+  providerSubmissionAllowed: false
+  deliverableEligible: false
+  offlineSyntheticOnly: true
+  creativeTaskId: string
+  packageId: string
+  packageRevision: number
+  shotId: 'SHOT_01'
+  candidateId: string
+  sourceImageHash: string
+  shotMapping: DirectorFixedShotMapping
+  immutableSummary: {
+    directionId: StudioHandoffContext['directionId']
+    locksHash?: string
+    preservationHash?: string
+    factsRevision?: number
+  }
+}
+
+export interface DirectorFixedOfflinePreparation {
+  schemaVersion: typeof DIRECTOR_FIXED_OFFLINE_INPUT_SCHEMA_VERSION
+  mode: 'READ_ONLY'
+  status: DirectorFixedOfflinePreparationStatus
+  providerSubmissionAllowed: false
+  qualificationScope: typeof PRODUCTION_BRIDGE_QUALIFICATION_SCOPE
+  input: DirectorFixedOfflineInput | null
+  creativeTaskId: string | null
+  packageId: string | null
+  packageRevision: number | null
+  shotId: 'SHOT_01' | null
+  candidateId: string | null
+  sourceImageHash: string | null
+  shotMapping: DirectorFixedShotMapping | null
+  missingFields: string[]
+  preflight: ProductionBridgePreflightResult | null
 }
 
 const checkDefinitions: ReadonlyArray<{
@@ -292,6 +350,218 @@ function createPreflightResult(
       },
     },
     blockingReasons,
+  }
+}
+
+type UnknownRecord = Record<string, unknown>
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return typeof value === 'object' && value !== null ? value as UnknownRecord : null
+}
+
+function nonEmptyString(...values: unknown[]): string | null {
+  return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim() ?? null
+}
+
+function positiveNumber(...values: unknown[]): number | null {
+  return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0) ?? null
+}
+
+function sha256(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value) ? value.toLowerCase() : null
+}
+
+function sourceImageIdentifier(value: unknown): string | null {
+  return nonEmptyString(value)
+}
+
+function freezeDirectorFixedInput(input: DirectorFixedOfflineInput): DirectorFixedOfflineInput {
+  Object.freeze(input.immutableSummary)
+  Object.freeze(input.shotMapping)
+  return Object.freeze(input)
+}
+
+function directorFixedPlanningRecords(project: CreativeProject): {
+  planning: UnknownRecord
+  handoff: UnknownRecord
+  fixed: UnknownRecord
+  storyboard: UnknownRecord
+  selection: UnknownRecord
+  mapping: UnknownRecord
+} | null {
+  const planning = asRecord(project.metadata?.directorPlanning)
+  if (!planning) return null
+  const persistedHandoff = asRecord(planning.handoff)
+  const fixedMetadata = asRecord(planning.directorFixed)
+    ?? asRecord(planning.videoHandoff)
+    ?? asRecord(persistedHandoff?.directorFixed)
+  if (persistedHandoff && persistedHandoff.source !== 'director-studio') return null
+  if (!persistedHandoff && !fixedMetadata) return null
+  const handoff = persistedHandoff ?? {}
+  const fixed = fixedMetadata ?? {}
+  const storyboard = asRecord(fixed.storyboard)
+    ?? asRecord(planning.storyboard)
+    ?? {}
+  const selections = asRecord(storyboard.selections)
+  const selection = asRecord(fixed.selection)
+    ?? asRecord(selections?.SHOT_01)
+    ?? asRecord(planning.selection)
+    ?? {}
+  const mappings = asRecord(storyboard.shotMappings)
+    ?? asRecord(storyboard.shot_mappings)
+    ?? asRecord(fixed.shotMappings)
+    ?? asRecord(fixed.shot_mappings)
+  const mapping = asRecord(fixed.shotMapping)
+    ?? asRecord(handoff.shotMapping)
+    ?? asRecord(planning.shotMapping)
+    ?? asRecord(mappings?.SHOT_01)
+    ?? {}
+  return { planning, handoff, fixed, storyboard, selection, mapping }
+}
+
+export function prepareDirectorFixedOffline(
+  project: CreativeProject | null,
+): DirectorFixedOfflinePreparation | null {
+  if (!project) return null
+  const records = directorFixedPlanningRecords(project)
+  if (!records) return null
+  const { planning, handoff, fixed, storyboard, selection, mapping } = records
+  const snapshot = readDirectorPlanningSnapshot(project)
+  const rootPackage = asRecord(planning.productionPackage)
+  const storyboardPackage = asRecord(fixed.package)
+    ?? asRecord(fixed.packageRevision)
+    ?? asRecord(storyboard.package)
+    ?? asRecord(asRecord(storyboard.packages)?.SHOT_01)
+    ?? (handoff.packageId
+      ? {
+          packageId: handoff.packageId,
+          packageRevision: handoff.packageRevision,
+          shotId: handoff.shotId,
+        }
+      : null)
+  const creativeTaskId = nonEmptyString(
+    fixed.creativeTaskId,
+    fixed.creative_task_id,
+    handoff.creativeTaskId,
+    handoff.creative_task_id,
+    planning.creativeTaskId,
+    planning.creative_task_id,
+    project.metadata?.creativeTaskId,
+    project.workflowContext?.activeTaskId,
+    project.workflowContext?.creativeTaskId,
+  )
+  const packageId = nonEmptyString(
+    fixed.packageId,
+    fixed.package_id,
+    storyboardPackage?.packageId,
+    storyboardPackage?.package_id,
+    handoff.packageId,
+    handoff.package_id,
+  )
+  const packageRevision = positiveNumber(
+    fixed.packageRevision,
+    fixed.package_revision,
+    storyboardPackage?.revision,
+    handoff.packageRevision,
+    handoff.package_revision,
+  )
+  const shotId = nonEmptyString(
+    fixed.shotId,
+    fixed.shot_id,
+    storyboardPackage?.shotId,
+    storyboardPackage?.shot_id,
+    mapping.shotId,
+    mapping.shot_id,
+  ) === 'SHOT_01' ? 'SHOT_01' as const : null
+  const candidateId = nonEmptyString(
+    fixed.candidateId,
+    fixed.candidate_id,
+    fixed.selectedCandidateId,
+    fixed.selected_candidate_id,
+    selection.candidateId,
+    selection.candidate_id,
+    mapping.candidateId,
+    mapping.candidate_id,
+  )
+  const sourceImageHash = sourceImageIdentifier(
+    fixed.sourceImageHash
+      ?? fixed.source_image_hash
+      ?? fixed.source_sha256
+      ?? mapping.sourceImageHash
+      ?? mapping.source_image_hash
+      ?? mapping.source_sha256
+      ?? planning.sourceImageHash
+      ?? planning.source_image_hash
+      ?? planning.source_sha256
+      ?? asRecord(planning.asset)?.sha256
+      ?? asRecord(planning.asset)?.source_image_hash
+      ?? asRecord(asRecord(project.metadata?.directorRecovery)?.product_reference)?.source_sha256
+      ?? project.assets.find((asset) => asset.kind === 'product')?.metadata?.sha256,
+  )
+  const normalizedMapping = packageId && candidateId && sourceImageHash
+    ? {
+        shotId: 'SHOT_01' as const,
+        order: 1 as const,
+        packageId,
+        candidateId,
+        sourceImageHash,
+        ...(nonEmptyString(mapping.batchId, mapping.batch_id) ? { batchId: nonEmptyString(mapping.batchId, mapping.batch_id)! } : {}),
+        ...(nonEmptyString(mapping.itemId, mapping.item_id) ? { itemId: nonEmptyString(mapping.itemId, mapping.item_id)! } : {}),
+        ...(nonEmptyString(mapping.outputId, mapping.output_id) ? { outputId: nonEmptyString(mapping.outputId, mapping.output_id)! } : {}),
+        ...(sha256(mapping.outputImageHash ?? mapping.output_sha256) ? { outputImageHash: sha256(mapping.outputImageHash ?? mapping.output_sha256)! } : {}),
+        ...(nonEmptyString(mapping.objectKey, mapping.object_key) ? { objectKey: nonEmptyString(mapping.objectKey, mapping.object_key)! } : {}),
+      }
+    : null
+  const missingFields = [
+    !creativeTaskId ? 'creative_task_id' : '',
+    !packageId ? 'package_id' : '',
+    !packageRevision ? 'package_revision' : '',
+    !shotId ? 'shot_id=SHOT_01' : '',
+    !candidateId ? 'candidate_id' : '',
+    !sourceImageHash ? 'source_image_hash' : '',
+    !normalizedMapping ? 'shot_mapping' : '',
+  ].filter(Boolean)
+  const input = !missingFields.length && normalizedMapping
+    ? freezeDirectorFixedInput({
+        schemaVersion: DIRECTOR_FIXED_OFFLINE_INPUT_SCHEMA_VERSION,
+        source: 'director-studio',
+        executionMode: 'director_fixed',
+        qualificationScope: PRODUCTION_BRIDGE_QUALIFICATION_SCOPE,
+        providerSubmissionAllowed: false,
+        deliverableEligible: false,
+        offlineSyntheticOnly: true,
+        creativeTaskId: creativeTaskId!,
+        packageId: packageId!,
+        packageRevision: packageRevision!,
+        shotId: 'SHOT_01',
+        candidateId: candidateId!,
+        sourceImageHash: sourceImageHash!,
+        shotMapping: normalizedMapping,
+        immutableSummary: {
+          directionId: snapshot?.selectedDirectionId ?? (handoff.directionId as StudioHandoffContext['directionId']),
+          ...(nonEmptyString(storyboardPackage?.locksHash, storyboardPackage?.locks_hash, rootPackage?.locksHash, rootPackage?.locks_hash) ? { locksHash: nonEmptyString(storyboardPackage?.locksHash, storyboardPackage?.locks_hash, rootPackage?.locksHash, rootPackage?.locks_hash)! } : {}),
+          ...(nonEmptyString(storyboardPackage?.preservationHash, storyboardPackage?.preservation_hash, rootPackage?.preservationHash, rootPackage?.preservation_hash) ? { preservationHash: nonEmptyString(storyboardPackage?.preservationHash, storyboardPackage?.preservation_hash, rootPackage?.preservationHash, rootPackage?.preservation_hash)! } : {}),
+          ...(positiveNumber(storyboardPackage?.factsRevision, storyboardPackage?.facts_revision, rootPackage?.factsRevision, rootPackage?.facts_revision) ? { factsRevision: positiveNumber(storyboardPackage?.factsRevision, storyboardPackage?.facts_revision, rootPackage?.factsRevision, rootPackage?.facts_revision)! } : {}),
+        },
+      })
+    : null
+  const basePreflight = snapshot?.handoff ? prepareProductionBridge(snapshot.handoff, 'VIDEO_DIRECTOR_FIXED') : null
+  return {
+    schemaVersion: DIRECTOR_FIXED_OFFLINE_INPUT_SCHEMA_VERSION,
+    mode: 'READ_ONLY',
+    status: input ? 'READY' : 'BLOCKED',
+    providerSubmissionAllowed: false,
+    qualificationScope: PRODUCTION_BRIDGE_QUALIFICATION_SCOPE,
+    input,
+    creativeTaskId,
+    packageId,
+    packageRevision,
+    shotId,
+    candidateId,
+    sourceImageHash,
+    shotMapping: normalizedMapping,
+    missingFields,
+    preflight: basePreflight?.preflight ?? null,
   }
 }
 

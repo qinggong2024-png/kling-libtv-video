@@ -4,6 +4,10 @@
 日期：2026-10-08
 状态：开发顺序冻结
 
+2026-10-10 Creative Workflow 增量任务书见 `CREATIVE_WORKFLOW_IMPLEMENTATION_20261010.md`。本次先冻结后端合同与开发包，不把规范更新当成功能实现或人工方向接受。
+
+2026-10-11 内部 MVP 交付策略见 `INTERNAL_MVP_DELIVERY_PROFILE_20261011.md`。该策略只降低验证复杂度和发布等待，不删减 Creative Workflow 任务书中的功能范围。
+
 ## 1. 当前技术审查摘要
 
 审查分支：`codex/testing`
@@ -232,3 +236,42 @@ frontend/src/features/library/
 ## 7. Stop Rule
 
 当当前 Sprint 验收通过、没有更高价值的主线阻塞项，且继续增加组件、模型或 QA 不会明显改善生产效率或关键质量时停止扩展，进入人工检查点。
+
+## 8. Creative Workflow 开发包
+
+2026-10-10 后续用户决定：先整体骨架，再单正面 Fake 闭环逐段测试。前置门分为隔离开发/真实验证/上线，批准 CW-1 离线首包；下文旧的“未通过不推进 CW-1”是前置调查时点记录，不阻塞已授权的隔离实现。真实调用/预算/许可/Critic/质量目标仍待独立验证，前端仍等待 Checkpoint 1。
+
+不重构既有生产系统，采用以下依赖顺序：
+
+```text
+CW-0.5 八项立项前置评审 / 基线及采样计划
+→ CW-1 持久素材 / Grounded DNA / 状态与 attempt / 循环授权 / shot_id / 隔离迁移
+→ CW-2 按模块分析 / A-B-C 差异 / 内容库快照 / Prompt Registry / Preservation / 生产包
+→ CW-3 首帧 / 像素 Critic / 有界真实性循环 / 背面确认 / 分镜 / 人工审核选择
+→ CW-4 director_fixed 视频两模式 / 服务端素材复用 / 子任务恢复与兼容证明
+→ CW-5 导演前端与隔离浏览器闭环
+```
+
+后端合同与隔离验证先行，不代表获准扩展前端。CW-5 及其他工作区的前端扩展仍等待 Checkpoint 1 接受；智能导演在 Image Studio 内，不新增 `/director`。
+
+每包开工前给出实际文件、API、两侧迁移基线和回归范围。CW-3 必须适配商品单图输入，不绕过旧 model.front 约束；CW-4 必须绕开现有自动 Prompt 重新规划，但保留旧客户端及已提交任务恢复。
+
+缺背面使用用户确认的无印花纯色假设，人工品牌选择覆盖模型猜测。内容库、原商品图及已审核分镜采用服务端持久引用，不能依赖重复用户上传。
+
+每包在 testing 验证后推广同一局部改动至实际 main，迁移只验证隔离数据库，不自动发布服务或调用付费 Provider。预算、生成命令路由和历史 API 兼容策略前移到 CW-0.5 冻结，不边接 Provider 边猜合同。
+
+CW-0.5 的 CW-P01 至 CW-P08 分别交付：两侧能力矩阵、持久素材/镜号映射、完整状态/动作/恢复合同、分析/规划/复核/媒体预算与循环授权、事实/方向/Prompt 真源、许可/降级表、迁移 heads/旧模式隔离计划、指标阈值/基线/独立授权采样计划。2026-10-10 已形成 `CREATIVE_WORKFLOW_PREFLIGHT_20261010.md` 与离线检查证据，实际立项评审未通过。
+
+入场 testing HEAD `a9db2d6` / head `c8d4e6f1a203`，实际 main HEAD `4cc509f` / head `c9f0a1b2c304`。main 已有商品基础与两个额外迁移；先评审窄范围回移/对齐，再在统一 head 上增加 Creative 迁移。禁止重复建 Product 或从 testing 旧 head 直接推广新迁移。
+
+前置待决 D01 至 D06 包含 Product 对齐、真实价格/预算、许可/SKU、质量目标、Critic 能力及 PG/带数据兼容验证；详细责任和候选目标见评审包。现有 SQLite 空库升级与 Fake PASS 不替代它们，不推进 CW-1。
+
+插件规则按 v1.13.5 归一化，27 > 26 > 24 > 23 的解释优先级覆盖旧比例和先图后方案顺序；执行阶段按任务书 12.2 顺序，Reality 内部按 Camera→Lighting→Composition→Human Behavior→Environment→Imperfection。不是机械按文件编号运行，也不是每模块都必须独立付费调用。
+
+CW-2 用 Fake/Replay 验证六维具体工件、锁项优先、参考安全/证据、Prompt Preservation 和不可变版本；CW-3 验证真实像素复核 schema、失败定向修订、新包/候选和人工资格分离。循环默认关闭，启用默认每稿 1 次修订、首版硬上限 2 次，总任务预算/授权有效期/停止规则逐调用检查，多 worker 不重复提交。
+
+循环修改走导演新版本编译，不在图片/视频提交时改 Prompt；只回失败涉及模块并重检下游，不重做方向或改变锁项。缺原图/输出像素、模型不能复核、UNKNOWN/WRITE_UNCERTAIN、连续无改善或预算耗尽时停止；已提交调用继续查询/结算。外部摄影自动检索是可选适配，首版可用已授权素材及 DNA_only，不另建站点分析系统。
+
+CW-4 必须以 spy/负断言证明 director_fixed 不调用 compile_video_plan/apply_video_learning；关联断裂、一次性上传桥接、哈希/审核撤回、shot_id 排序及崩溃恢复覆盖后才能开放入口。CW-A01 至 CW-A30 是待执行标准，不继承既有 Studio 通过结果。
+
+工程 Fake/Replay 与真实质量 A/B 分开。至少一个有权 SKU 设计对照，真实调用单独授权；记录首帧/分镜合格率、真实性缺陷率、人工分钟、重复上传/提交、总成本、循环次数/停止原因及未核验比例，阈值由产品负责人在 CW-P08 接受，不用小样本承诺所有商品改善。

@@ -2,6 +2,8 @@ import type { DirectorCandidate, DirectorTaskResponse } from './directorApi'
 import type { DirectorDraft } from './directorModel'
 import type { DirectorPlanningSnapshot, ProductionPackage, StudioHandoffContext } from './contracts'
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
+import type { CreativeProject, CreativeTaskRecoveryReference } from '../../creative-project/types'
+import { readDirectorTaskRecovery } from './directorRecovery'
 import { toCreativeBrief, toDirectionCandidates, toProductionPackage } from './directorAdapters'
 
 export function selectDirectorProductionPackage(
@@ -72,11 +74,39 @@ export function selectDirectorPlanningSnapshot(
   projectId?: string,
   intelligenceSnapshot?: CreativeIntelligenceSnapshot,
 ): DirectorPlanningSnapshot {
+  const storyboard = workflow?.snapshot.storyboard
+  const storyboardPackage = storyboard?.packages?.SHOT_01
+  const storyboardSelection = storyboard?.selections?.SHOT_01
+  const storyboardShotMapping = storyboard?.shot_mappings?.SHOT_01
   return {
     brief: toCreativeBrief(draft.intake),
     candidates: toDirectionCandidates(draft.directions),
     selectedDirectionId: draft.selectedDirectionId,
     productionPackage: selectDirectorProductionPackage(workflow),
     handoff: selectDirectorHandoff(workflow, draft, projectId, intelligenceSnapshot),
+    ...(workflow ? {
+      directorFixed: {
+        creativeTaskId: workflow.id,
+        ...(workflow.snapshot.asset?.sha256 ? { sourceImageHash: workflow.snapshot.asset.sha256 } : {}),
+        ...(storyboardPackage ? { package: storyboardPackage } : {}),
+        ...(storyboardSelection ? { selection: storyboardSelection } : {}),
+        ...(storyboardShotMapping ? { shotMapping: storyboardShotMapping } : {}),
+        ...(storyboard ? {
+          storyboard: {
+            packages: storyboard.packages,
+            candidates: storyboard.candidates,
+            selections: storyboard.selections,
+            latest_reviews: storyboard.latest_reviews,
+            ...(storyboard.shot_mappings ? { shotMappings: storyboard.shot_mappings } : {}),
+          },
+        } : {}),
+      },
+    } : {}),
   }
+}
+
+export function selectDirectorTaskRecovery(
+  project: CreativeProject,
+): CreativeTaskRecoveryReference | null {
+  return readDirectorTaskRecovery(project)
 }

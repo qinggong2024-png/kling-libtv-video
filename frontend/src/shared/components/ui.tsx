@@ -68,6 +68,7 @@ export function FoundationDrawer({ open, title, eyebrow, onClose, children, foot
     const dialog = dialogRef.current
     if (!dialog) return
     const previous = document.activeElement as HTMLElement | null
+    dialog.dataset.motion = previous?.matches(':focus-visible') ? 'none' : 'enter'
     const wasLocked = document.body.classList.contains('overlay-open')
     document.body.classList.add('overlay-open')
     dialog.showModal()

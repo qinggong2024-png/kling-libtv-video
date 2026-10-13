@@ -41,23 +41,17 @@ export function MaterialCard({ material, bucket, index, readOnly = false, onRemo
     onDrop={(event) => { if (!readOnly) onDropAt(event, index) }}
   >
     <div className="material-preview">
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         className="material-preview-trigger"
         onClick={() => {
-          if (!dragStartedRef.current) onPreview()
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return
-          event.preventDefault()
           if (!dragStartedRef.current) onPreview()
         }}
         aria-label={`查看图片 ${index + 1} 大图`}
         title="点击查看大图，长按拖拽排序"
       >
         <LocalImage file={material.file} alt={material.file.name} />
-      </div>
+      </button>
       <span className="order-index">{index + 1}</span>
       <button
         type="button"
@@ -71,7 +65,7 @@ export function MaterialCard({ material, bucket, index, readOnly = false, onRemo
         aria-label={`删除图片 ${index + 1}`}
         title="删除图片"
       >
-        <X size={14} strokeWidth={2.25} />
+        <X size={14} strokeWidth={2.25} aria-hidden="true" />
       </button>
     </div>
   </article>

@@ -50,6 +50,10 @@ for (const file of ['frontend/src/features/production/ProductionComposer.tsx', '
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
 }
 
+for (const file of ['frontend/src/features/production/studioRefinement.css', 'frontend/src/styles.css', 'frontend/src/CustomPromptField.tsx', 'frontend/src/app/AppShell.tsx', 'frontend/src/shared/components/ui.tsx', 'frontend/src/shared/components/ui/Modal.tsx', 'frontend/src/shared/components/ui/Button.tsx']) {
+  report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
+}
+
 async function run(width, mode = 'success') {
   fixture.state.mode = mode
   fixture.state.phase = 'QUEUED'
@@ -149,8 +153,45 @@ async function run(width, mode = 'success') {
     assert.equal(await page.getByRole('button', { name: '人物参考', exact: true }).getAttribute('aria-pressed'), 'true', 'Collapsing preserves selected subject')
     await subjectSummary.click()
     result.subjectDisclosureKeepsSelection = true
+    if (width <= 768) {
+      await page.getByRole('button', { name: '帮助', exact: true }).filter({ visible: true }).click()
+      await page.getByRole('region', { name: '制作帮助' }).waitFor()
+      await page.getByRole('region', { name: '制作帮助' }).getByRole('button', { name: '关闭' }).click()
+    }
     await page.getByRole('radio', { name: '自定义提示词', exact: true }).click()
     await page.getByPlaceholder('输入画面动作、镜头和节奏要求').fill('保持服装轮廓，缓慢转身，镜头稳定。')
+    await page.evaluate(() => scrollTo(0, 0))
+    const customMode = page.getByRole('radio', { name: '自定义提示词', exact: true })
+    await customMode.focus()
+    await page.keyboard.press('ArrowRight')
+    assert.equal(await page.getByRole('radio', { name: '自动化生成', exact: true }).getAttribute('aria-checked'), 'true')
+    await page.keyboard.press('Home')
+    assert.equal(await customMode.getAttribute('aria-checked'), 'true')
+    assert.equal(await page.getByRole('radio', { name: '自动化生成', exact: true }).getAttribute('tabindex'), '-1')
+    const savePrompt = page.getByRole('button', { name: '保存当前方案', exact: true })
+    await savePrompt.focus()
+    await page.keyboard.press('Enter')
+    const presetDialog = page.getByRole('dialog', { name: '保存为新方案' })
+    await presetDialog.waitFor()
+    assert.equal(await presetDialog.getAttribute('data-motion'), 'none', 'Keyboard dialog has no entrance motion')
+    assert.equal(await page.evaluate(() => document.activeElement.tagName), 'BUTTON', 'Opening on mobile does not focus a text input/keyboard')
+    for (let count = 0; count < 8; count += 1) await page.keyboard.press('Tab')
+    assert(await presetDialog.evaluate((el) => el.contains(document.activeElement)), 'Native modal contains keyboard focus')
+    await page.screenshot({ path: resolve(reportDir, `prompt-modal-${width}.png`) })
+    await page.keyboard.press('Escape')
+    assert(await savePrompt.evaluate((el) => el === document.activeElement))
+    result.promptModalKeyboardAndFocus = true
+    for (const target of await page.locator('.studio-shot .material-remove, .studio-shot-actions button').all()) {
+      const size = await target.boundingBox()
+      assert(size.width >= 44 && size.height >= 44, 'Shot controls have 44px touch targets')
+    }
+    const resultRadio = page.locator('.composer-result-count input').first()
+    await resultRadio.focus()
+    assert(await resultRadio.evaluate((input) => {
+      const label = input.closest('label')
+      return getComputedStyle(label).outlineStyle === 'solid' && parseFloat(getComputedStyle(label).outlineWidth) >= 2
+    }), 'Keyboard focus remains visible on hidden native result radios')
+    result.modeKeyboardAndTouchTargets = true
     await page.evaluate(() => scrollTo(0, 0))
     await page.screenshot({ path: resolve(reportDir, `custom-config-${width}.png`), fullPage: true })
     await page.getByRole('radio', { name: '自动化生成', exact: true }).click()
@@ -203,6 +244,7 @@ async function run(width, mode = 'success') {
     if (mode === 'unknown') {
       await page.getByText('提交结果未知', { exact: true }).waitFor()
       assert(await generate.isDisabled())
+      assert(await page.getByRole('button', { name: '安全核对', exact: true }).evaluate((el) => getComputedStyle(el).whiteSpace === 'nowrap' && el.getBoundingClientRect().width >= 96), 'Recovery action is readable on narrow screens')
       await page.getByRole('button', { name: '安全核对', exact: true }).click()
       await page.getByText('仍无法安全判断结果', { exact: false }).waitFor()
       assert(await generate.isDisabled())

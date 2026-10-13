@@ -2,6 +2,7 @@ import { AlertTriangle, Check, LoaderCircle, Pencil, Plus, X } from 'lucide-reac
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { Modal } from './shared/components/ui/Modal'
 
 import {
   createPromptPreset,
@@ -24,11 +25,6 @@ function PromptPresetDialog({ scope, target, initialContent, onClose, onSave, on
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-
-  useEffect(() => {
-    document.body.classList.add('modal-open')
-    return () => document.body.classList.remove('modal-open')
-  }, [])
 
   const save = async (event: FormEvent) => {
     event.preventDefault()
@@ -62,11 +58,11 @@ function PromptPresetDialog({ scope, target, initialContent, onClose, onSave, on
     }
   }
 
-  return createPortal(<div className="prompt-preset-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
-    <form className="prompt-preset-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-preset-title" onSubmit={(event) => void save(event)}>
+  return createPortal(<Modal className="prompt-preset-overlay" labelledBy="prompt-preset-title" onClose={() => { if (!busy) onClose() }}>
+    <form className="prompt-preset-dialog" onSubmit={(event) => void save(event)}>
       <header><div><span>提示词方案</span><h2 id="prompt-preset-title">{target ? '编辑方案' : '保存为新方案'}</h2></div><button type="button" className="icon-button" disabled={busy} onClick={onClose} aria-label="关闭" title="关闭"><X size={18} /></button></header>
-      <label><span>方案名称</span><input autoFocus value={name} maxLength={80} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：自然走动展示" /></label>
-      <label><span>提示词内容</span><textarea value={content} maxLength={2800} disabled={busy} onChange={(event) => setContent(event.target.value)} /></label>
+      <label><span>方案名称</span><input name="preset-name" autoComplete="off" value={name} maxLength={80} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="例如：自然走动展示" /></label>
+      <label><span>提示词内容</span><textarea name="preset-content" autoComplete="off" value={content} maxLength={2800} disabled={busy} onChange={(event) => setContent(event.target.value)} /></label>
       <div className="prompt-preset-counter">{content.length} / 2800</div>
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{error}</span></div> : null}
       <footer>
@@ -74,7 +70,7 @@ function PromptPresetDialog({ scope, target, initialContent, onClose, onSave, on
         <div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy || !name.trim() || !content.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}保存</button></div>
       </footer>
     </form>
-  </div>, document.body)
+  </Modal>, document.body)
 }
 
 export function CustomPromptField({ scope, label, value, disabled = false, placeholder, onChange }: {
@@ -132,7 +128,7 @@ export function CustomPromptField({ scope, label, value, disabled = false, place
   }
 
   return <>
-    <label className="custom-prompt-field"><span>{label}</span><textarea value={value} maxLength={2800} disabled={disabled} onChange={(event) => { onChange(event.target.value); setSelectedPresetId('') }} placeholder={placeholder} /></label>
+    <label className="custom-prompt-field"><span>{label}</span><textarea name={`${scope}-prompt`} autoComplete="off" value={value} maxLength={2800} disabled={disabled} onChange={(event) => { onChange(event.target.value); setSelectedPresetId('') }} placeholder={placeholder} /></label>
     <div className="custom-prompt-meta"><span>{value.length} / 2800</span><span>{selectedPresetId ? `已载入：${presets.find((item) => item.id === selectedPresetId)?.name ?? ''}` : '临时草稿'}</span></div>
     <div className="prompt-preset-toolbar">
       <div className="prompt-preset-heading"><span>提示词方案</span><button type="button" className="compact-button" disabled={disabled || !value.trim()} onClick={() => setEditorTarget(null)}><Plus size={15} />保存当前方案</button></div>

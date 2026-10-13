@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>衣影工坊 · 三套视觉方向</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif; background:#eef1f5; color:#1f2732; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:320px; }
+    header { padding:28px clamp(20px, 5vw, 72px) 20px; background:#17212b; color:#f5f7f9; }
+    header p { margin:6px 0 0; max-width:720px; color:#b9c4ce; line-height:1.6; }
+    nav { display:flex; flex-wrap:wrap; gap:8px; padding:16px clamp(20px, 5vw, 72px); background:#fff; border-bottom:1px solid #d9e0e7; }
+    nav a { color:#52606d; text-decoration:none; padding:10px 14px; border:1px solid #d9e0e7; border-radius:8px; font-size:14px; }
+    nav a:hover, nav a:focus { color:#155bd7; border-color:#8db4f6; outline:0; }
+    main { padding:20px clamp(20px, 5vw, 72px) 40px; }
+    iframe { width:100%; height:clamp(640px, 78vh, 900px); border:1px solid #d2dae3; border-radius:12px; background:#fff; box-shadow:0 16px 44px #26374a16; }
+    .note { margin-top:14px; color:#667483; font-size:13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>衣影工坊 · 视觉方向选择</strong>
+    <p>三套方向使用同一组生产语义：素材、生成、任务、内容库。差异只体现在信息主次、工作流组织和视觉气质。</p>
+  </header>
+  <nav aria-label="视觉方向">
+    <a href="direction-workbench.html" target="preview">A · 制作工作台</a>
+    <a href="direction-editing-desk.html" target="preview">B · 镜头编辑台</a>
+    <a href="direction-review-suite.html" target="preview">C · 审片交付台</a>
+  </nav>
+  <main>
+    <iframe name="preview" src="direction-workbench.html" title="视觉方向预览"></iframe>
+    <div class="note">可分别打开三个 HTML 文件查看；本原型不连接 API，不代表正式页面已修改。</div>
+  </main>
+</body>
+</html>

@@ -66,6 +66,7 @@ try {
       assert(!(await page.locator('.home-view').isVisible()), 'Workspace does not stack above a visible Video Studio')
       const nav = page.getByRole('navigation', { name: width > 820 ? '制作导航' : '移动端主导航', exact: true })
       assert.equal(await nav.getByRole('button', { name: '图片工作室', exact: true }).count(), 1)
+      assert.equal(await nav.getByRole('button', { name: '导演台', exact: true }).count(), 1)
       assert.equal(await page.locator('.product-nav, .mobile-product-nav, .legacy-nav').count(), 0)
       await layout('workspace')
       const next = page.getByRole('button', { name: '开始导演规划', exact: true })
@@ -111,7 +112,9 @@ try {
       }
       await page.goto(`${fixture.origin}/?view=images&pane=director`)
       await director.waitFor()
-      assert.equal(await nav.getByRole('button', { name: '图片工作室', exact: true }).getAttribute('aria-current'), 'page', 'Director remains an Image Studio mode')
+      assert.equal(await nav.getByRole('button', { name: '导演台', exact: true }).getAttribute('aria-current'), 'page', 'Director has its own navigation state')
+      assert.equal(await page.getByRole('button', { name: '智能导演', exact: true }).count(), 0, 'Image Studio tabs do not duplicate Director Studio')
+      await nav.getByRole('button', { name: '图片工作室', exact: true }).click()
       await page.getByRole('button', { name: '批量创作', exact: true }).click()
       await page.locator('.image-center-create').waitFor({ state: 'visible' })
       await layout('image')

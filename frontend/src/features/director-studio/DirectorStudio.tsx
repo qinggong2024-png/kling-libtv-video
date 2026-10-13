@@ -1,11 +1,12 @@
 import { Check, FileImage, LockKeyhole, RefreshCw, Sparkles, WandSparkles, X } from 'lucide-react'
-import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useOptionalCreativeProject } from '../../creative-project/hooks'
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
 import { createUuid } from '../../uuid'
 import {
   createDirectorProduct,
   createDirectorTask,
+  getDirectorProduct,
   getDirectorTask,
   sendDirectorCommand,
   type DirectorCommandInput,
@@ -33,11 +34,20 @@ import {
   selectDirectorStoryboardPackage,
   selectDirectorStoryboardReview,
   selectDirectorStoryboardSelection,
+  selectDirectorTaskRecovery,
 } from './directorSelectors'
+import {
+  classifyDirectorRecoveryError,
+  createDirectorTaskRecovery,
+  directorRecoveryMessage,
+  draftFromPersistedDirectorProject,
+  validateDirectorProductReference,
+  validateDirectorTaskRecovery,
+} from './directorRecovery'
 import { prepareProductionBridge } from './productionBridge'
-import { toCreativeBrief } from './directorAdapters'
+import { selectDirectorEvidence } from './directorEvidence'
 import { explainDirectorFailure } from './directorPresentation'
-import { DirectorBriefSummary, DirectorBridgeStatus, DirectorDirectionComparison, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { DirectorBridgeStatus, DirectorDirectionComparison, DirectorPackageEvidence } from './DirectorPlanningViews'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -54,6 +64,8 @@ export function DirectorStudio() {
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
   const clientKeyRef = useRef(createUuid())
+  const productIdRef = useRef<string | undefined>(undefined)
+  const recoveryAttemptRef = useRef<string | null>(null)
   const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
   const authorizationRef = useRef<{
     fingerprint: string
@@ -82,11 +94,27 @@ export function DirectorStudio() {
   const bridgePreparation = prepareProductionBridge(
     workflow ? selectDirectorPlanningSnapshot(workflow, draft, projectContext?.project.id, snapshot).handoff : null,
   )
+  const evidence = selectDirectorEvidence(workflow)
 
   const persistPlanningSnapshot = (nextWorkflow: DirectorTaskResponse | null, nextDraft: DirectorDraft = draft) => {
     if (!projectContext) return
+    const recovery = nextWorkflow
+      ? createDirectorTaskRecovery(nextWorkflow, productIdRef.current)
+      : null
+    const workflowContext = {
+      ...projectContext.project.workflowContext,
+      ...(nextWorkflow ? {
+        activeTaskId: nextWorkflow.id,
+        creativeTaskId: nextWorkflow.id,
+        planningSnapshotRevision: nextWorkflow.state_version,
+        ...(recovery?.product_reference.product_id ? { activeProductId: recovery.product_reference.product_id } : {}),
+        ...(recovery?.product_reference.product_version_id ? { activeProductVersionId: recovery.product_reference.product_version_id } : {}),
+      } : {}),
+      currentStage: nextDraft.phase,
+    }
     projectContext.updateProject({
       currentStage: nextDraft.phase === 'package' ? 'production-package' : nextDraft.phase,
+      workflowContext,
       metadata: {
         directorPlanning: selectDirectorPlanningSnapshot(
           nextWorkflow,
@@ -94,6 +122,7 @@ export function DirectorStudio() {
           projectContext.project.id,
           snapshot,
         ),
+        ...(recovery ? { directorRecovery: recovery } : {}),
       },
     })
   }
@@ -115,16 +144,19 @@ export function DirectorStudio() {
     })
   }
 
-  const applyWorkflow = (next: DirectorTaskResponse) => {
+  const applyWorkflow = (
+    next: DirectorTaskResponse,
+    baseDraft: DirectorDraft = draft,
+  ) => {
     setWorkflow(next)
     const nextDraft = {
-      ...draft,
+      ...baseDraft,
       ...({
         phase: next.snapshot.package ? 'package' : next.snapshot.plan ? 'directions' : draft.phase,
         directions: next.snapshot.plan?.directions
           ? directionsFromAnalysis(next.snapshot.plan.directions)
-          : draft.directions,
-        selectedDirectionId: next.snapshot.plan?.selected_direction ?? draft.selectedDirectionId,
+          : baseDraft.directions,
+        selectedDirectionId: next.snapshot.plan?.selected_direction ?? baseDraft.selectedDirectionId,
       }),
     } as DirectorDraft
     setDraft((current) => ({
@@ -137,6 +169,62 @@ export function DirectorStudio() {
     }))
     persistPlanningSnapshot(next, nextDraft)
   }
+
+  useEffect(() => {
+    const recovery = projectContext ? selectDirectorTaskRecovery(projectContext.project) : null
+    if (!recovery || workflow || recoveryAttemptRef.current === recovery.creative_task_id) return
+    recoveryAttemptRef.current = recovery.creative_task_id
+    const restoredDraft = projectContext
+      ? draftFromPersistedDirectorProject(projectContext.project, recovery)
+      : createDirectorDraft()
+    setDraft(restoredDraft)
+    setBusyAction('refresh')
+    let active = true
+    void getDirectorTask(recovery.creative_task_id)
+      .then(async (next) => {
+        if (!active) return
+        const validation = validateDirectorTaskRecovery(recovery, next)
+        if (!validation.valid) {
+          projectContext?.clearProjectRecovery()
+          setWorkflow(null)
+          setDraft(createDirectorDraft())
+          setNotice(directorRecoveryMessage(validation.reason ?? 'RECOVERY_REFERENCE_INVALID'))
+          return
+        }
+        if (recovery.product_reference.product_id) {
+          const product = await getDirectorProduct(recovery.product_reference.product_id)
+          const productValidation = validateDirectorProductReference(recovery, product)
+          if (!productValidation.valid) {
+            projectContext?.clearProjectRecovery()
+            setWorkflow(null)
+            setDraft(createDirectorDraft())
+            setNotice(directorRecoveryMessage(productValidation.reason ?? 'PRODUCT_VERSION_STALE'))
+            return
+          }
+        }
+        applyWorkflow(next, restoredDraft)
+        setNotice('已恢复服务端导演任务，审核、选择和当前版本来自服务端。')
+      })
+      .catch((cause) => {
+        if (!active) return
+        const kind = classifyDirectorRecoveryError(cause)
+        if (kind !== 'NETWORK_ERROR') {
+          projectContext?.clearProjectRecovery()
+          setWorkflow(null)
+          setDraft(createDirectorDraft())
+        }
+        setNotice(directorRecoveryMessage(kind))
+      })
+      .finally(() => {
+        if (active) setBusyAction(null)
+      })
+    return () => {
+      active = false
+    }
+  // applyWorkflow intentionally stays local so it can use the current draft/project snapshot.
+  // The recovery id guard makes this one-shot effect safe across provider persistence updates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectContext, workflow])
 
   const runCommand = async (
     action: DirectorCommandInput['action'],
@@ -196,6 +284,7 @@ export function DirectorStudio() {
         || draft.intake.productFrontName.replace(/\.[^.]+$/, '')
         || 'product'
       const product = await createDirectorProduct(`director-${label}-${createUuid().slice(0, 8)}`)
+      productIdRef.current = product.id
       const created = await createDirectorTask({
         productId: product.id,
         front: draft.intake.productFrontFile,
@@ -363,7 +452,30 @@ export function DirectorStudio() {
     setBusyAction('refresh')
     setNotice('')
     try {
-      applyWorkflow(await getDirectorTask(workflow.id))
+      const next = await getDirectorTask(workflow.id)
+      const recovery = projectContext ? selectDirectorTaskRecovery(projectContext.project) : null
+      if (recovery) {
+        const validation = validateDirectorTaskRecovery(recovery, next)
+        if (!validation.valid) {
+          projectContext?.clearProjectRecovery()
+          setWorkflow(null)
+          setDraft(createDirectorDraft())
+          setNotice(directorRecoveryMessage(validation.reason ?? 'RECOVERY_REFERENCE_INVALID'))
+          return
+        }
+        if (recovery.product_reference.product_id) {
+          const product = await getDirectorProduct(recovery.product_reference.product_id)
+          const productValidation = validateDirectorProductReference(recovery, product)
+          if (!productValidation.valid) {
+            projectContext?.clearProjectRecovery()
+            setWorkflow(null)
+            setDraft(createDirectorDraft())
+            setNotice(directorRecoveryMessage(productValidation.reason ?? 'PRODUCT_VERSION_STALE'))
+            return
+          }
+        }
+      }
+      applyWorkflow(next)
       setNotice('已读取服务端状态，审核决定和理由来自最新服务端记录。')
     } catch (cause) {
       setNotice(explainDirectorFailure(cause, '任务状态刷新失败，请重试。'))
@@ -375,9 +487,9 @@ export function DirectorStudio() {
   return <section className="director-studio page-view" aria-label="智能导演">
     <header className="director-studio__header">
       <div>
-        <span className="director-studio__eyebrow"><Sparkles size={14} />Image Studio / Director</span>
+        <span className="director-studio__eyebrow"><Sparkles size={14} />Creative OS / Director Studio</span>
         <h1>智能导演</h1>
-        <p>从真实商品输入开始，整理方向、锁定判断，再交给现有生产流程执行。</p>
+        <p>整理创作方向、生产包和后续生产输入。</p>
       </div>
       <span className="director-studio__contract"><LockKeyhole size={14} />离线 Fake 模式 · 不可交付</span>
     </header>
@@ -391,7 +503,7 @@ export function DirectorStudio() {
     <div className="director-studio__grid">
       <section className="director-panel director-panel--intake" aria-labelledby="director-intake-title">
         <div className="director-panel__heading">
-          <div><span className="director-panel__index">01</span><div><h2 id="director-intake-title">Product Intake</h2><p>商品正面是最低输入，背面和详情图后续按合同补充。</p></div></div>
+          <div><span className="director-panel__index">01</span><div><h2 id="director-intake-title">Product Intake</h2><p>商品正面是最低输入。</p></div></div>
           <span className={ready ? 'director-state is-ready' : 'director-state'}>{ready ? '已就绪' : '待输入'}</span>
         </div>
         <label className="director-upload">
@@ -415,7 +527,6 @@ export function DirectorStudio() {
         <label className="director-field"><span>目标受众 <small>可选</small></span><input value={draft.intake.audience} onChange={(event) => updateIntake({ audience: event.target.value })} placeholder="例如：关注通勤穿搭的成年用户" /></label>
         <label className="director-field"><span>创作备注 <small>可选</small></span><textarea value={draft.intake.notes} onChange={(event) => updateIntake({ notes: event.target.value })} rows={3} placeholder="记录用户锁定项或需要保留的商品细节" /></label>
         </fieldset>
-        <DirectorBriefSummary brief={toCreativeBrief(draft.intake)} />
         <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={!ready || busyAction !== null || workflow !== null}>
           <WandSparkles size={16} />{busyAction === 'analyze' ? '正在创建并分析' : workflow ? '已创建任务' : '创建任务并分析'}
         </button>
@@ -423,7 +534,7 @@ export function DirectorStudio() {
 
       <section className="director-panel director-panel--directions" aria-labelledby="director-directions-title">
         <div className="director-panel__heading">
-          <div><span className="director-panel__index">02</span><div><h2 id="director-directions-title">Direction Candidates</h2><p>候选只表达创意差异，不代表已经分析或获得生成授权。</p></div></div>
+          <div><span className="director-panel__index">02</span><div><h2 id="director-directions-title">Direction Candidates</h2><p>选择方向；生成授权在下一步确认。</p></div></div>
           <span className="director-state">{workflow?.snapshot.plan ? `${draft.directions.length} 个候选` : '等待分析'}</span>
         </div>
         <div className="director-direction-list">
@@ -443,14 +554,14 @@ export function DirectorStudio() {
         <DirectorDirectionComparison workflow={workflow} draft={draft} />
         <div className="director-summary">
           <div><span>DNA / Reality Summary</span><strong>{selectedDirection ? selectedDirection.title : '等待方向选择'}</strong></div>
-          <p>{selectedDirection ? selectedDirection.summary : '上传正面图并完成分析后，服务端会返回 A、B、C 三个离线方向候选。'}</p>
+          <p>{selectedDirection ? selectedDirection.summary : '完成商品分析后查看方向候选。'}</p>
           {snapshot?.referenceStrength !== undefined ? <small>已有参考强度：{snapshot.referenceStrength}</small> : <small>尚未关联 Reality、Spatial 或 Video DNA</small>}
         </div>
       </section>
 
       <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
-        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">Production Package</h2><p>生产包由后端版本化合同提供，前端不复制 Prompt 真源。</p></div></div></div>
-        <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>此闭环只调用离线 Fake 接口。候选沿用商品正面图作为占位，不能作为真实首帧、审核合格或交付素材。</span></div></div>
+        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">Production Package</h2><p>查看已锁定生产包和当前阶段。</p></div></div></div>
+        <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>当前为离线 Fake 流程，候选仅用于验证，不可交付。</span></div></div>
         <dl className="director-package-list">
           <div><dt>商品事实</dt><dd>{ready ? '正面已提供' : '未提供'}</dd></div>
           <div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div>
@@ -492,7 +603,9 @@ export function DirectorStudio() {
                   : '离线审核：待人工审核'
             return <section key={candidate.candidate_id} className="director-candidate" aria-label={`首帧候选 ${index + 1}`} style={{ marginTop: 16, overflowWrap: 'anywhere' }}>
               <div className="director-candidate__heading"><strong>首帧候选 {index + 1}</strong><p>OFFLINE_SYNTHETIC_ONLY · 不可交付</p></div>
-              <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 首帧占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+              {draft.intake.productFrontPreviewUrl
+                ? <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 首帧占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                : <div role="img" aria-label="商品正面由服务端引用恢复" style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>商品正面已由服务端引用恢复</div>}
               <p>候选 ID：{candidate.candidate_id}</p>
               <p role="status">{reviewLabel}</p>
               <p>{selected ? '首帧选择：已选择（仅离线）' : '首帧选择：未选择'}</p>
@@ -525,7 +638,7 @@ export function DirectorStudio() {
               <span className="director-panel__index">04</span>
               <div>
                 <h2 id="director-storyboard-title">Storyboard / SHOT_01</h2>
-                <p>首帧选择后，单独授权并验证第一镜头的离线分镜候选。</p>
+                <p>首帧选择后，单独处理 SHOT_01。</p>
               </div>
             </div>
             <span className="director-state">
@@ -540,7 +653,7 @@ export function DirectorStudio() {
             <LockKeyhole size={18} />
             <div>
               <strong>{storyboardPackage ? 'SHOT_01 分镜包已建立' : 'SHOT_01 分镜包未建立'}</strong>
-              <span>分镜包继承已选离线首帧的服务端合同。Fake 分镜仅用于验证 workflow，不具备真实视频生产或交付资格。</span>
+              <span>Fake 分镜仅用于验证 workflow，不可用于视频生产或交付。</span>
             </div>
           </div>
           <DirectorPackageEvidence workflow={workflow} shotId="SHOT_01" />
@@ -580,7 +693,9 @@ export function DirectorStudio() {
               const reason = rejectionReasons[candidate.candidate_id] ?? ''
               return <section key={candidate.candidate_id} className="director-candidate" aria-label={`分镜候选 ${index + 1}`} style={{ marginTop: 16, overflowWrap: 'anywhere' }}>
                 <div className="director-candidate__heading"><strong>SHOT_01 分镜候选 {index + 1}</strong><p>OFFLINE_SYNTHETIC_ONLY · 不可交付</p></div>
-                <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 分镜占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                {draft.intake.productFrontPreviewUrl
+                  ? <img src={draft.intake.productFrontPreviewUrl} alt="离线 Fake 分镜占位，沿用商品正面图" style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                  : <div role="img" aria-label="商品正面由服务端引用恢复" style={{ minHeight: 180, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>商品正面已由服务端引用恢复</div>}
                 <p>候选 ID：{candidate.candidate_id}</p>
                 <p>{selected ? '分镜选择：已选择（仅离线）' : '分镜选择：未选择'}</p>
                 {latestReview?.decision === 'REJECTED' && latestReview.reason
@@ -613,7 +728,7 @@ export function DirectorStudio() {
               <span className="director-panel__index">05</span>
               <div>
                 <h2 id="director-bridge-title">Production Bridge Preparation</h2>
-                <p>整理未来生产桥接所需的服务端校验边界，当前不提交 Provider。</p>
+                <p>查看提交前的只读校验边界。</p>
               </div>
             </div>
             <span className="director-state">{bridgePreparation?.status ?? '等待 handoff'}</span>
@@ -622,7 +737,7 @@ export function DirectorStudio() {
             <LockKeyhole size={18} />
             <div>
               <strong>只读桥接上下文 · Provider submission disabled</strong>
-              <span>package、授权、来源哈希、许可、预算和 execution state 必须在服务端提交前重新验证。</span>
+              <span>提交前会再次校验 package、授权、来源、许可和预算。</span>
             </div>
           </div> : <p className="director-storyboard__status">完成首帧生产包和方向选择后，才会生成桥接准备上下文。</p>}
           {bridgePreparation ? <dl className="director-package-list">
@@ -654,6 +769,40 @@ export function DirectorStudio() {
           </div> : null}
           <DirectorBridgeStatus preparation={bridgePreparation} workflow={workflow} />
         </section>
+        {evidence ? <section className="director-storyboard" aria-labelledby="director-evidence-title">
+          <div className="director-panel__heading">
+            <div>
+              <span className="director-panel__index">06</span>
+              <div>
+                <h2 id="director-evidence-title">Evidence Summary</h2>
+                <p>查看事实、Reality 与 Prompt 版本证据。</p>
+              </div>
+            </div>
+            <span className="director-state">只读证据</span>
+          </div>
+          <dl className="director-package-list">
+            <div><dt>Canonical Product</dt><dd><code>{evidence.canonicalProduct.sourceHash ?? '未提供源哈希'}</code></dd></div>
+            <div><dt>背面状态</dt><dd>{evidence.backAssumption.value} · {evidence.backAssumption.availability === 'available' ? '已有记录' : '未核验'}</dd></div>
+            <div><dt>Grounded Claims</dt><dd>{evidence.groundedClaims.length ? `${evidence.groundedClaims.length} 条事实声明` : '未提供'}</dd></div>
+            <div><dt>Prompt / Preservation</dt><dd>{evidence.textPackage.availability === 'available' ? '已提供版本化摘要' : '证据不完整'}</dd></div>
+          </dl>
+          <details className="technical-details">
+            <summary><span>查看 Reality 六维与哈希</span><RefreshCw size={16} /></summary>
+            <div>
+              <ul className="director-bridge-reasons">
+                {evidence.reality.map((item) => <li key={item.dimension}>
+                  <span className="director-bridge-reason__category">{item.dimension}</span>
+                  <span>{item.decision || '未提供'} · {item.evidence || '未提供证据'}</span>
+                </li>)}
+              </ul>
+              <dl className="director-package-list">
+                <div><dt>locks hash</dt><dd><code>{evidence.textPackage.locksHash ?? '未提供'}</code></dd></div>
+                <div><dt>preservation hash</dt><dd><code>{evidence.textPackage.preservationHash ?? '未提供'}</code></dd></div>
+                <div><dt>contract / registry</dt><dd>{evidence.textPackage.contractHash ?? '未提供'}{evidence.textPackage.registryVersion === null ? '' : ` · v${evidence.textPackage.registryVersion}`}</dd></div>
+              </dl>
+            </div>
+          </details>
+        </section> : null}
       </section>
     </div>
     {notice ? <div className="director-notice" role="status">{notice}</div> : null}

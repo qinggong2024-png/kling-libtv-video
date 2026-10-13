@@ -8,7 +8,7 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 }
 
 export function Button({ variant = 'secondary', busy = false, icon, children, className = '', disabled, type = 'button', ...props }: Props) {
-  return <button {...props} type={type} disabled={disabled || busy} aria-busy={busy || undefined} className={`studio-button studio-button--${variant} ${className}`}>
+  return <button {...props} type={type} disabled={disabled || busy} aria-busy={busy || props['aria-busy'] || undefined} className={`studio-button studio-button--${variant} ${className}`}>
     {busy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : icon}
     {children}
   </button>

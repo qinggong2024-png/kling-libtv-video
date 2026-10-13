@@ -9,13 +9,21 @@ import type { AuthUser, SystemStatus } from '../types'
 import type { View } from './appTypes'
 import type { ProductSurface } from './productNavigation'
 
-export type NavItem = { value: View; label: string; icon: ReactNode; badge?: number }
+export type NavItem = {
+  id: string
+  value: View
+  label: string
+  icon: ReactNode
+  badge?: number
+  surface?: ProductSurface
+}
 
 type Props = {
   nav: NavItem[]
   surface: ProductSurface | null
   view: View
   onSwitchView: (next: View) => void
+  onSwitchSurface: (next: ProductSurface) => void
   actor: AuthUser | null
   system: SystemStatus | null
   error: string
@@ -37,6 +45,7 @@ export function AppShell({
   surface,
   view,
   onSwitchView,
+  onSwitchSurface,
   actor,
   system,
   error,
@@ -56,16 +65,24 @@ export function AppShell({
   const primaryNav = nav.filter((item) => item.value !== 'admin' && item.value !== 'settings')
   const activeView = surface === 'workspace' || surface === 'projects' || surface === 'memory' ? null : view
   const roleLabel = actor?.role === 'ADMIN' ? '管理员' : actor?.role === 'OPERATOR' ? '运营人员' : '普通用户'
+  const isActive = (item: NavItem) => item.surface
+    ? surface === item.surface || (
+      surface === null
+      && ((item.surface === 'image' && view === 'images')
+        || (item.surface === 'video' && view === 'make')
+        || (item.surface === 'assets' && view === 'library'))
+    )
+    : surface === null && activeView === item.value
 
   return <div className={`app-shell${view === 'make' ? ' app-shell--video' : ''}`}>
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     <aside className="sidebar">
       <ProductLogo subtitle={currentProviderLabel} />
       <nav className="sidebar-main-nav" aria-label="制作导航">
-        {primaryNav.map((item) => <button key={item.value} type="button" aria-current={activeView === item.value ? 'page' : undefined} onClick={() => onSwitchView(item.value)} className={activeView === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}
+        {primaryNav.map((item) => <button key={item.id} type="button" aria-current={isActive(item) ? 'page' : undefined} onClick={() => item.surface ? onSwitchSurface(item.surface) : onSwitchView(item.value)} className={isActive(item) ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}
       </nav>
       <div className="sidebar-bottom">
-        {nav.filter((item) => item.value === 'admin').map((item) => <button key={item.value} type="button" className={`sidebar-settings ${view === item.value ? 'is-active' : ''}`} aria-current={view === item.value ? 'page' : undefined} onClick={() => onSwitchView(item.value)}>{item.icon}<span>{item.label}</span></button>)}
+        {nav.filter((item) => item.value === 'admin').map((item) => <button key={item.id} type="button" className={`sidebar-settings ${isActive(item) ? 'is-active' : ''}`} aria-current={isActive(item) ? 'page' : undefined} onClick={() => onSwitchView(item.value)}>{item.icon}<span>{item.label}</span></button>)}
         <div className="sidebar-status"><span className={error ? 'is-offline' : ''} /><span>{error ? '服务连接异常' : system?.environment === 'test' ? '测试版' : '正式版'}</span></div>
         <button className={`sidebar-settings ${surface === null && view === 'settings' ? 'is-active' : ''}`} onClick={() => onSwitchView('settings')}><Settings size={18} /><span>设置</span></button>
         <div className="sidebar-utility"><button onClick={() => onSidebarInfoChange(sidebarInfo === 'help' ? null : 'help')} aria-label="帮助" title="帮助"><HelpCircle size={17} /></button><button onClick={() => onSidebarInfoChange(sidebarInfo === 'account' ? null : 'account')} aria-label="账号" title="账号"><UserRound size={17} /></button></div>
@@ -78,7 +95,7 @@ export function AppShell({
       {projectContext}
       <main id="main-content"><ErrorBoundary resetKeys={errorResetKeys} onBack={onErrorBack} backLabel="返回制作页">{children}</ErrorBoundary></main>
     </div>
-    <nav className="mobile-nav" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}>{mobileNav.map((item) => <button key={item.value} type="button" aria-current={activeView === item.value ? 'page' : undefined} onClick={() => onSwitchView(item.value)} className={activeView === item.value ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
+    <nav className="mobile-nav" aria-label="移动端主导航" style={{ gridTemplateColumns: `repeat(${mobileNav.length}, minmax(0, 1fr))` }}>{mobileNav.map((item) => <button key={item.id} type="button" aria-current={isActive(item) ? 'page' : undefined} onClick={() => item.surface ? onSwitchSurface(item.surface) : onSwitchView(item.value)} className={isActive(item) ? 'is-active' : ''}>{item.icon}<span>{item.label}</span>{item.badge ? <i>{item.badge}</i> : null}</button>)}</nav>
     {overlays}
   </div>
 }

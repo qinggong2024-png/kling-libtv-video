@@ -13,7 +13,7 @@ import { createUuid } from '../../uuid'
 import { providerPresentation } from '../../providerPresentation'
 import { loadVideoComposerSettings, saveVideoComposerSettings } from '../../videoComposerSettings'
 import { formatVideoDurationOptions, getVideoDurationOptions, normalizeVideoDuration } from '../../videoDurationOptions'
-import { type Material, type RemixSeed, type UploadBucket, UPLOAD_CONCURRENCY } from './productionTypes'
+import { type DirectorFixedPreparation, type Material, type RemixSeed, type UploadBucket, UPLOAD_CONCURRENCY } from './productionTypes'
 import { MATERIAL_DRAG_TYPE, MaterialCard } from './MaterialCard'
 import { formatTime } from '../../domain/taskPresentation'
 import { ImagePreview } from '../../shared/components/Media'
@@ -23,15 +23,68 @@ import { TemplateSelector } from '../../shared/components/studio/TemplateSelecto
 import { SubjectDisclosure } from '../../shared/components/studio/SubjectDisclosure'
 import { Button } from '../../shared/components/ui/Button'
 import './videoStudio.css'
+import './studioRefinement.css'
 
-export function ProductionComposer({ seed, onCreated, system, actorId, layout = 'standard' }: {
+function DirectorFixedPreparationPanel({ preparation }: { preparation: DirectorFixedPreparation }) {
+  const input = preparation.input
+  const hash = preparation.sourceImageHash
+  return <section
+    className="composer composer--studio"
+    aria-label="导演固定视频准备"
+    data-execution-mode="director_fixed"
+    data-provider-submission-allowed="false"
+  >
+    <div className="generation-workflow-heading">
+      <div>
+        <span>Video Studio / Director Fixed</span>
+        <h2>导演视频准备</h2>
+      </div>
+      <strong>{preparation.status === 'READY' ? '只读准备完成' : '等待补齐 handoff'}</strong>
+    </div>
+    <div className="inline-alert" role="status">
+      <LockKeyhole size={17} />
+      <span>
+        <strong>OFFLINE_SYNTHETIC_ONLY · 不可交付</strong>
+        <small>当前只做不可变输入摘要和 preflight 展示，不上传、不调用 Provider、不创建真实视频任务。</small>
+      </span>
+    </div>
+    <dl className="director-package-list">
+      <div><dt>creative_task_id</dt><dd>{preparation.creativeTaskId ?? '未提供'}</dd></div>
+      <div><dt>package / revision</dt><dd>{preparation.packageId ?? '未提供'}{preparation.packageRevision ? ` · r${preparation.packageRevision}` : ''}</dd></div>
+      <div><dt>shot_id</dt><dd>{preparation.shotId ?? '需要 SHOT_01'}</dd></div>
+      <div><dt>candidate_id</dt><dd>{preparation.candidateId ?? '未提供'}</dd></div>
+      <div><dt>source image hash</dt><dd><code>{hash ?? '未提供'}</code></dd></div>
+      <div><dt>shot mapping</dt><dd>{input?.shotMapping.outputId ?? input?.shotMapping.objectKey ?? (preparation.shotMapping ? '已提供摘要' : '未提供')}</dd></div>
+    </dl>
+    {preparation.preflight ? <div className="inline-alert" role="status">
+      <CircleAlert size={17} />
+      <span><strong>只读 preflight：{preparation.preflight.readiness.score}%</strong><small>{preparation.preflight.readiness.validatedChecks}/{preparation.preflight.readiness.totalChecks} 项服务端证据已验证，仍禁止 Provider submission。</small></span>
+    </div> : null}
+    {preparation.missingFields.length ? <div className="inline-alert inline-alert--warning" role="alert">
+      <CircleAlert size={17} />
+      <span><strong>尚未进入可执行准备态</strong><small>缺少：{preparation.missingFields.join('、')}</small></span>
+    </div> : null}
+    {input ? <details className="technical-details">
+      <summary><span>不可变 director_fixed 输入摘要</span><ChevronRight size={16} /></summary>
+      <div><pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(input, null, 2)}</pre></div>
+    </details> : null}
+  </section>
+}
+
+export function ProductionComposer({ seed, directorFixedPreparation, onCreated, system, actorId, layout = 'standard' }: {
   seed: RemixSeed | null
+  directorFixedPreparation?: DirectorFixedPreparation | null
   onCreated: (task: Task, open?: boolean) => void
   system: SystemStatus | null
   actorId: string | null
   layout?: 'standard' | 'studio'
 }) {
-  const [storedSettings] = useState(() => loadVideoComposerSettings(localStorage))
+  const directorFixed = Boolean(directorFixedPreparation)
+  const [storedSettings] = useState(() => loadVideoComposerSettings(
+    typeof localStorage === 'undefined'
+      ? { getItem: () => null }
+      : localStorage,
+  ))
   const [storyboards, setStoryboards] = useState<Material[]>(() => seed?.storyboards.map((file, index) => ({ id: createUuid(), file, sourceImageOutputId: seed.storyboardOutputIds?.[index] })) ?? [])
   const [batchGroups, setBatchGroups] = useState<BatchUploadGroup[]>([])
   const [templates, setTemplates] = useState<VideoTemplateSummary[]>([])
@@ -48,11 +101,11 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
   const [durationSeconds, setDurationSeconds] = useState(storedSettings.durationSeconds)
   const [actionIntensity, setActionIntensity] = useState<'low' | 'standard' | 'high'>(storedSettings.actionIntensity)
   const [cutMode, setCutMode] = useState<'explicit_cuts' | 'continuous_when_possible'>(storedSettings.cutMode)
-  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogLoading, setCatalogLoading] = useState(() => !directorFixed)
   const [catalogError, setCatalogError] = useState('')
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
   const [elementCatalogError, setElementCatalogError] = useState('')
-  const [elementsLoading, setElementsLoading] = useState(true)
+  const [elementsLoading, setElementsLoading] = useState(() => !directorFixed)
   const [elementCatalogReloadKey, setElementCatalogReloadKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('正在上传素材')
@@ -74,6 +127,8 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
   const uploadAbortRef = useRef<AbortController | null>(null)
   const submissionIdentityRef = useRef<{ clientTaskId: string; idempotencyKey: string } | null>(null)
   const submitLockRef = useRef(false)
+  const dragDepthRef = useRef(0)
+  const [dragOver, setDragOver] = useState(false)
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>()
   const selectedMaterial = storyboards.find((item) => item.id === selectedMaterialId) ?? storyboards[0]
   const studio = layout === 'studio'
@@ -109,6 +164,9 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
     || !getVideoDurationOptions(videoGeneration, group.storyboards.length).includes(normalizedDurationSeconds)
     || group.storyboards.length + Number(Boolean(group.productFront)) + Number(Boolean(group.productBack)) > referenceLimit)
   useEffect(() => {
+    if (directorFixed) {
+      return
+    }
     let active = true
     Promise.all([getVideoTemplates(), getSiteStyleProfiles()])
       .then(([nextTemplates, nextProfiles]) => {
@@ -124,7 +182,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
       })
       .finally(() => { if (active) setCatalogLoading(false) })
     return () => { active = false }
-  }, [catalogReloadKey])
+  }, [catalogReloadKey, directorFixed])
   useEffect(() => {
     saveVideoComposerSettings(localStorage, {
       templateId,
@@ -138,6 +196,9 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
     })
   }, [actionIntensity, customPrompt, cutMode, generationMode, normalizedDurationSeconds, resultCount, siteProfileId, templateId])
   useEffect(() => {
+    if (directorFixed) {
+      return
+    }
     if (!system || (!system.sharedAuthentication && !actorId)) {
       return
     }
@@ -166,7 +227,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
         if (!controller.signal.aborted) setElementsLoading(false)
       })
     return () => controller.abort()
-  }, [actorId, system, elementCatalogReloadKey])
+  }, [actorId, directorFixed, system, elementCatalogReloadKey])
   useEffect(() => () => {
     if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current)
     uploadAbortRef.current?.abort()
@@ -237,6 +298,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
     addFiles(Array.from(event.dataTransfer.files))
   }
   const submit = async () => {
+    if (directorFixed) return
     if (submitLockRef.current || formLocked || batchInvalid || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady) return
     submitLockRef.current = true
     setBusy(true)
@@ -410,6 +472,8 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
     />
   </div>
 
+  if (directorFixedPreparation) return <DirectorFixedPreparationPanel preparation={directorFixedPreparation} />
+
   return <section className={`composer${studio ? ' composer--studio' : ''}${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-label="视频制作配置" aria-busy={busy}>
     {uncertainSubmission ? <div className="inline-alert inline-alert--warning" role="alert">
       <CircleAlert size={17} />
@@ -427,7 +491,14 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
     <div className="composer-inputs" inert={formLocked}>
       <div className="upload-panels upload-panels--with-subject">
         <div className="composer-asset-lane">
-        <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}`} onDragOver={(event) => {
+        <section className={`upload-panel upload-panel--storyboard${storyboards.length ? ' upload-panel--has-items' : ''}${dragOver ? ' is-drop-target' : ''}`} onDragEnter={() => {
+          if (formLocked || batchMode) return
+          dragDepthRef.current += 1
+          setDragOver(true)
+        }} onDragLeave={() => {
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+          if (!dragDepthRef.current) setDragOver(false)
+        }} onDropCapture={() => { dragDepthRef.current = 0; setDragOver(false) }} onDragEnd={() => { dragDepthRef.current = 0; setDragOver(false) }} onDragOver={(event) => {
           if (formLocked || batchMode) return
           event.preventDefault()
           event.dataTransfer.dropEffect = event.dataTransfer.types.includes(MATERIAL_DRAG_TYPE) ? 'move' : 'copy'
@@ -436,7 +507,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
           <input ref={batchInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addBatchFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
           <div className="upload-panel-head"><div><h2>{studio ? '分镜素材' : '有序分镜'}</h2><small>至少 1 张，最多 {storyboardLimit} 张</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
           <div className={studio ? 'studio-upload-actions' : undefined}>
-          <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
+          <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} aria-hidden="true" /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
           <button type="button" className="text-button upload-batch-button" aria-label="按命名批量导入产品图与分镜" title="按命名批量导入产品图与分镜" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />{studio ? '批量导入' : '按命名批量导入产品图与分镜'}</button>
           </div>
           {studio ? <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} onRemove={remove} onDropAt={handleDrop} onPreview={(material, index) => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} /> : null}
@@ -458,9 +529,16 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
           {studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">生成配置</h2></div></div> : null}
           <TemplateSelector templates={templates} value={templateId} onChange={setTemplateId} disabled={formLocked} loading={catalogLoading} compact={studio} />
           {!studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">创意配置</h2></div></div> : null}
-          <div className="generation-routes" role="radiogroup" aria-label="生成方式">
+          <div className="generation-routes" role="radiogroup" aria-label="生成方式" onKeyDown={(event) => {
+            if (formLocked || !(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'radio') return
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault()
+            const next = event.key === 'Home' ? 'custom' : event.key === 'End' ? 'automatic' : generationMode === 'custom' ? 'automatic' : 'custom'
+            setGenerationMode(next)
+            event.currentTarget.querySelector<HTMLButtonElement>(`.generation-route--${next} [role="radio"]`)?.focus()
+          }}>
             <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
-              <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
+              <button type="button" className="generation-route-selector" role="radio" tabIndex={generationMode === 'custom' ? 0 : -1} aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
                 <span className="generation-route-radio">{generationMode === 'custom' ? <Check size={14} /> : null}</span><span><strong>自定义提示词</strong></span>
               </button>
               <div className="generation-route-body">
@@ -469,7 +547,7 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
             </article>
 
             <article className={`generation-route generation-route--automatic${generationMode === 'automatic' ? ' is-active' : ' is-inactive'}`}>
-              <button type="button" className="generation-route-selector" role="radio" aria-checked={generationMode === 'automatic'} disabled={formLocked} onClick={() => setGenerationMode('automatic')}>
+              <button type="button" className="generation-route-selector" role="radio" tabIndex={generationMode === 'automatic' ? 0 : -1} aria-checked={generationMode === 'automatic'} disabled={formLocked} onClick={() => setGenerationMode('automatic')}>
                 <span className="generation-route-radio">{generationMode === 'automatic' ? <Check size={14} /> : null}</span><span><strong>自动化生成</strong></span>
               </button>
               <div className="generation-route-body">
@@ -493,8 +571,8 @@ export function ProductionComposer({ seed, onCreated, system, actorId, layout = 
       <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
-      <Button variant="primary" className="primary-button primary-button--large" disabled={formLocked || batchInvalid || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
-      {busy ? <div className="composer-submit-progress progress-track"><span style={{ width: `${progress}%` }} /></div> : null}
+      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} disabled={formLocked || batchInvalid || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
+      {busy ? <div className="composer-submit-progress progress-track" role="progressbar" aria-label={stage} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={studio ? { transform: `scaleX(${progress / 100})` } : { width: `${progress}%` }} /></div> : null}
     </div>
     <div className="composer-feedback" aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>

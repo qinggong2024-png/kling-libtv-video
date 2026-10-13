@@ -18,6 +18,7 @@ from libtv_agent.api.dependencies import (
     can_review_across_owners,
     require_review_write,
 )
+from libtv_agent.creative.media_qualification import is_offline_synthetic_output
 from libtv_agent.domain.enums import QualityDecisionStatus
 from libtv_agent.domain.models import (
     AuditEvent,
@@ -771,14 +772,26 @@ async def put_image_quality_decision(
 ) -> dict[str, Any]:
     require_review_write(actor)
     if can_review_across_owners(actor):
-        output = await session.scalar(
-            select(ImageGenerationOutput)
+        statement = (
+            select(ImageGenerationOutput, ImageGenerationItem, ImageGenerationBatch)
             .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
             .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
             .where(ImageGenerationOutput.id == output_id)
         )
     else:
-        output = await owned_output(session, user_id=actor.id, output_id=output_id)
+        statement = (
+            select(ImageGenerationOutput, ImageGenerationItem, ImageGenerationBatch)
+            .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
+            .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
+            .where(
+                ImageGenerationOutput.id == output_id,
+                ImageGenerationBatch.user_id == actor.id,
+            )
+        )
+    row = (await session.execute(statement)).first()
+    output = row[0] if row else None
+    source_item = row[1] if row else None
+    source_batch = row[2] if row else None
     if output is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "image output was not found")
     if not output.object_key or not output.sha256:
@@ -789,9 +802,21 @@ async def put_image_quality_decision(
                 "message": "quality decision requires a materialized, checksummed image",
             },
         )
+    offline_synthetic = is_offline_synthetic_output(
+        output, item=source_item, batch=source_batch
+    )
+    if offline_synthetic and payload.decision == "QUALIFIED":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "OFFLINE_SYNTHETIC_ONLY",
+                "message": "offline synthetic media cannot be qualified for production",
+            },
+        )
     previous = output.qualification_status
     output.qualification_status = QualityDecisionStatus(payload.decision)
-    output.quality_gates_json = {
+    existing_gates = dict(output.quality_gates_json or {})
+    review_gates = {
         "PRODUCT_FIDELITY": {
             "verification": "HUMAN_REQUIRED",
             "outcome": "PASS" if payload.product_fidelity_pass else "FAIL",
@@ -806,6 +831,11 @@ async def put_image_quality_decision(
             "sha256": output.sha256,
         },
     }
+    if offline_synthetic:
+        existing_gates["offlineReview"] = review_gates
+        output.quality_gates_json = existing_gates
+    else:
+        output.quality_gates_json = review_gates
     output.reviewed_by = actor.id
     output.reviewed_at = datetime.now(UTC)
     output.human_review_seconds = payload.human_review_seconds

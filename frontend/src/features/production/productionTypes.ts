@@ -4,10 +4,16 @@ import { fetchImageAssetFile } from '../../api'
 import { type Task, type VariantKind } from '../../types'
 import { type ImageCenterVideoHandoff } from '../image-studio'
 import { type SubjectReferenceFiles } from '../../subjectFiles'
+import type {
+  DirectorFixedOfflinePreparation,
+  DirectorFixedShotMapping,
+} from '../director-studio/productionBridge'
 
 export type UploadBucket = 'storyboard' | 'product'
 export type Material = { id: string; file: File; sourceImageOutputId?: string }
 export type RemixSeed = { id: string; storyboards: File[]; storyboardOutputIds?: string[]; products: File[]; subjectFiles?: SubjectReferenceFiles; requirement?: string }
+export type DirectorFixedPreparation = DirectorFixedOfflinePreparation
+export type DirectorFixedMapping = DirectorFixedShotMapping
 export const UPLOAD_CONCURRENCY = 4
 export function taskPrompt(task: Task, kind: VariantKind): string {
   return task.variants.find((variant) => variant.kind === kind)?.promptText

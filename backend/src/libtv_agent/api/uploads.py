@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.creative.media_qualification import is_offline_synthetic_output
 from libtv_agent.domain.enums import QualityDecisionStatus
 from libtv_agent.domain.models import (
     Asset,
@@ -48,17 +49,32 @@ async def upload_storyboard(
         )
     raw_sha256 = hashlib.sha256(data).hexdigest()
     if source_image_output_id is not None:
-        source_output = await session.scalar(
-            select(ImageGenerationOutput)
+        row = (
+            await session.execute(
+            select(ImageGenerationOutput, ImageGenerationItem, ImageGenerationBatch)
             .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
             .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
             .where(
                 ImageGenerationOutput.id == source_image_output_id,
                 ImageGenerationBatch.user_id == actor.id,
             )
-        )
+            )
+        ).first()
+        source_output = row[0] if row else None
+        source_item = row[1] if row else None
+        source_batch = row[2] if row else None
         if source_output is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "source image output was not found")
+        if is_offline_synthetic_output(
+            source_output, item=source_item, batch=source_batch
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "SOURCE_IMAGE_OFFLINE_SYNTHETIC",
+                    "message": "offline synthetic source image cannot be uploaded for production",
+                },
+            )
         if source_output.qualification_status != QualityDecisionStatus.QUALIFIED:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,

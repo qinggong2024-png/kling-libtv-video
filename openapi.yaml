@@ -5936,6 +5936,926 @@
           }
         }
       }
+    },
+    "/api/v1/products": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Create Product",
+        "operationId": "create_product_api_v1_products_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "products"
+        ],
+        "summary": "List Products",
+        "operationId": "list_products_api_v1_products_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductRead"
+                  },
+                  "title": "Response List Products Api V1 Products Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}": {
+      "get": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Get Product",
+        "operationId": "get_product_api_v1_products__product_id__get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Create Product Version",
+        "operationId": "create_product_version_api_v1_products__product_id__versions_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductVersionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductVersionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "products"
+        ],
+        "summary": "List Product Versions",
+        "operationId": "list_product_versions_api_v1_products__product_id__versions_get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductVersionRead"
+                  },
+                  "title": "Response List Product Versions Api V1 Products  Product Id  Versions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions/{version_id}": {
+      "get": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Get Product Version",
+        "operationId": "get_product_version_api_v1_products__product_id__versions__version_id__get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductVersionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions/{version_id}/confirm": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Confirm Product Version",
+        "operationId": "confirm_product_version_api_v1_products__product_id__versions__version_id__confirm_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductVersionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions/{version_id}/block": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Block Product Version",
+        "operationId": "block_product_version_api_v1_products__product_id__versions__version_id__block_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductVersionDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductVersionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions/{version_id}/handoff": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Handoff Product Version",
+        "operationId": "handoff_product_version_api_v1_products__product_id__versions__version_id__handoff_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Handoff Product Version Api V1 Products  Product Id  Versions  Version Id  Handoff Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_id}/versions/{version_id}/delivery": {
+      "post": {
+        "tags": [
+          "products"
+        ],
+        "summary": "Deliver Product Version",
+        "operationId": "deliver_product_version_api_v1_products__product_id__versions__version_id__delivery_post",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Deliver Product Version Api V1 Products  Product Id  Versions  Version Id  Delivery Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/creative-workflow/tasks": {
+      "post": {
+        "tags": [
+          "creative-workflow-offline"
+        ],
+        "summary": "Create",
+        "operationId": "create_api_v1_creative_workflow_tasks_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_api_v1_creative_workflow_tasks_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Api V1 Creative Workflow Tasks Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/creative-workflow/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "creative-workflow-offline"
+        ],
+        "summary": "Read",
+        "operationId": "read_api_v1_creative_workflow_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Read Api V1 Creative Workflow Tasks  Task Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/creative-workflow/tasks/{task_id}/commands": {
+      "post": {
+        "tags": [
+          "creative-workflow-offline"
+        ],
+        "summary": "Command",
+        "operationId": "command_api_v1_creative_workflow_tasks__task_id__commands_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Command Api V1 Creative Workflow Tasks  Task Id  Commands Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/creative-production-bridge/tasks/{task_id}/preflight": {
+      "post": {
+        "tags": [
+          "controlled-image-bridge"
+        ],
+        "summary": "Preflight",
+        "operationId": "preflight_api_v1_creative_production_bridge_tasks__task_id__preflight_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlledImageBridgePreflightRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlledImageBridgePreflight"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6165,6 +7085,120 @@
           "thumbnailUrl"
         ],
         "title": "AssetRead"
+      },
+      "Authorization": {
+        "properties": {
+          "authorization_id": {
+            "type": "string",
+            "title": "Authorization Id"
+          },
+          "package_id": {
+            "type": "string",
+            "title": "Package Id"
+          },
+          "locks_hash": {
+            "type": "string",
+            "title": "Locks Hash"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "FIRST_FRAME",
+              "VIDEO_STORYBOARD"
+            ],
+            "title": "Scope",
+            "default": "FIRST_FRAME"
+          },
+          "shot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Shot Ids"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "loop_enabled": {
+            "type": "boolean",
+            "title": "Loop Enabled",
+            "default": false
+          },
+          "max_revisions": {
+            "type": "integer",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Max Revisions",
+            "default": 1
+          },
+          "max_calls": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Max Calls"
+          },
+          "max_cost_micros": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Max Cost Micros"
+          },
+          "currency": {
+            "type": "string",
+            "const": "FAKE",
+            "title": "Currency",
+            "default": "FAKE"
+          },
+          "allowed_modules": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "Scene",
+                "Reality",
+                "Composition"
+              ]
+            },
+            "type": "array",
+            "title": "Allowed Modules"
+          },
+          "parent_authorization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Authorization Id"
+          },
+          "total_task_cap_micros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Task Cap Micros"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "authorization_id",
+          "package_id",
+          "locks_hash",
+          "expires_at",
+          "max_calls",
+          "max_cost_micros"
+        ],
+        "title": "Authorization"
       },
       "BachConfigResponse": {
         "properties": {
@@ -6537,6 +7571,49 @@
         ],
         "title": "BatchConfirmationResult"
       },
+      "Body_create_api_v1_creative_workflow_tasks_post": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "front": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Front"
+          },
+          "client_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Key"
+          },
+          "product_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Version Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "front"
+        ],
+        "title": "Body_create_api_v1_creative_workflow_tasks_post"
+      },
       "Body_create_image_generation_batch_api_v1_image_generation_batches_post": {
         "properties": {
           "clientManifest": {
@@ -6601,6 +7678,211 @@
         ],
         "title": "ChangePasswordRequest"
       },
+      "Command": {
+        "properties": {
+          "command_key": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Command Key"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "analyze",
+              "select_direction",
+              "authorize",
+              "generate",
+              "review",
+              "select",
+              "revise",
+              "stop",
+              "revoke_asset",
+              "reconcile"
+            ],
+            "title": "Action"
+          },
+          "direction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "A",
+                  "B",
+                  "C"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction Id"
+          },
+          "authorization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Authorization"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "package_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "shot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shot Id"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "QUALIFIED",
+                  "REJECTED"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "changed_modules": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "Scene",
+                "Reality",
+                "Composition"
+              ]
+            },
+            "type": "array",
+            "title": "Changed Modules"
+          },
+          "fix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix"
+          },
+          "failure_region": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Region"
+          },
+          "fake_outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCEEDED",
+              "UNKNOWN",
+              "WRITE_UNCERTAIN"
+            ],
+            "title": "Fake Outcome",
+            "default": "SUCCEEDED"
+          },
+          "reconcile_not_submitted": {
+            "type": "boolean",
+            "title": "Reconcile Not Submitted",
+            "default": false
+          },
+          "client_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Key"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "impact_scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Scope"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "command_key",
+          "expected_version",
+          "action"
+        ],
+        "title": "Command"
+      },
       "ConfirmRequest": {
         "properties": {
           "expectedStateVersion": {
@@ -6644,6 +7926,136 @@
           "SYSTEM_BLOCK"
         ],
         "title": "ConsistencyLevel"
+      },
+      "ControlledImageBridgePreflight": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "controlled-image-bridge-preflight.v1",
+            "title": "Schema Version",
+            "default": "controlled-image-bridge-preflight.v1"
+          },
+          "status": {
+            "type": "string",
+            "const": "READY_FOR_HUMAN_SUBMIT",
+            "title": "Status",
+            "default": "READY_FOR_HUMAN_SUBMIT"
+          },
+          "execution_mode": {
+            "type": "string",
+            "const": "PREFLIGHT_ONLY",
+            "title": "Execution Mode",
+            "default": "PREFLIGHT_ONLY"
+          },
+          "creative_task_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Creative Task Id"
+          },
+          "state_version": {
+            "type": "integer",
+            "title": "State Version"
+          },
+          "package_revision_id": {
+            "type": "string",
+            "title": "Package Revision Id"
+          },
+          "shot_id": {
+            "type": "string",
+            "const": "FIRST_FRAME",
+            "title": "Shot Id",
+            "default": "FIRST_FRAME"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "request_hash": {
+            "type": "string",
+            "title": "Request Hash"
+          },
+          "evidence_hash": {
+            "type": "string",
+            "title": "Evidence Hash"
+          },
+          "preflight_hash": {
+            "type": "string",
+            "title": "Preflight Hash"
+          },
+          "reference_count": {
+            "type": "integer",
+            "title": "Reference Count"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "actual_submitted": {
+            "type": "boolean",
+            "const": false,
+            "title": "Actual Submitted",
+            "default": false
+          },
+          "provider_submission_allowed": {
+            "type": "boolean",
+            "const": false,
+            "title": "Provider Submission Allowed",
+            "default": false
+          },
+          "provider_capabilities_verified": {
+            "type": "boolean",
+            "const": false,
+            "title": "Provider Capabilities Verified",
+            "default": false
+          },
+          "qualification_scope": {
+            "type": "string",
+            "const": "OFFLINE_SYNTHETIC_ONLY",
+            "title": "Qualification Scope",
+            "default": "OFFLINE_SYNTHETIC_ONLY"
+          },
+          "deliverable_eligible": {
+            "type": "boolean",
+            "const": false,
+            "title": "Deliverable Eligible",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "creative_task_id",
+          "state_version",
+          "package_revision_id",
+          "provider",
+          "model",
+          "request_hash",
+          "evidence_hash",
+          "preflight_hash",
+          "reference_count",
+          "expires_at"
+        ],
+        "title": "ControlledImageBridgePreflight"
+      },
+      "ControlledImageBridgePreflightRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "ControlledImageBridgePreflightRequest"
       },
       "CreateUserRequest": {
         "properties": {
@@ -7802,6 +9214,22 @@
               }
             ],
             "title": "Baseactionid"
+          },
+          "productFocus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "upper_garment",
+                  "lower_garment",
+                  "footwear"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productfocus"
           }
         },
         "type": "object",
@@ -7910,6 +9338,91 @@
         "title": "PointsQuotaRead",
         "description": "Per-user daily generation quota.\n\nField names keep the historical \"points\" wording so the API contract stays\ncompatible, but the unit is now *video generations per day* (configured by\nDAILY_USER_POINTS_LIMIT / GENERATION_ESTIMATED_POINTS). Image generation does\nnot consume this quota. See services/points.py for the enforcement rule."
       },
+      "ProductCreate": {
+        "properties": {
+          "internalSkuId": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Internalskuid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "internalSkuId"
+        ],
+        "title": "ProductCreate"
+      },
+      "ProductLicenseStatus": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN",
+          "VERIFIED",
+          "BLOCKED"
+        ],
+        "title": "ProductLicenseStatus"
+      },
+      "ProductRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Userid"
+          },
+          "internalSkuId": {
+            "type": "string",
+            "title": "Internalskuid"
+          },
+          "currentVersionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentversionid"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "userId",
+          "internalSkuId"
+        ],
+        "title": "ProductRead"
+      },
       "ProductReferenceInput": {
         "properties": {
           "uploadId": {
@@ -7930,6 +9443,269 @@
           "order"
         ],
         "title": "ProductReferenceInput"
+      },
+      "ProductVersionCreate": {
+        "properties": {
+          "productId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productid"
+          },
+          "productPageUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productpageurl"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "PRODUCT_PAGE",
+              "USER_UPLOAD"
+            ],
+            "title": "Sourcetype",
+            "default": "PRODUCT_PAGE"
+          },
+          "clientRequestKey": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientrequestkey"
+          },
+          "pageTitle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pagetitle"
+          },
+          "candidateNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Candidatenames"
+          },
+          "truthFields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Truthfields"
+          },
+          "immutableFields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Immutablefields"
+          },
+          "allowedVariation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Allowedvariation"
+          },
+          "sourceAssetReferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Sourceassetreferences"
+          },
+          "licenseStatus": {
+            "$ref": "#/components/schemas/ProductLicenseStatus",
+            "default": "UNKNOWN"
+          }
+        },
+        "type": "object",
+        "title": "ProductVersionCreate"
+      },
+      "ProductVersionDecision": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "ProductVersionDecision"
+      },
+      "ProductVersionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "productId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Productid"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "title": "Versionnumber"
+          },
+          "productPageUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productpageurl"
+          },
+          "sourceType": {
+            "type": "string",
+            "title": "Sourcetype",
+            "default": "PRODUCT_PAGE"
+          },
+          "pageTitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pagetitle"
+          },
+          "candidateNames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Candidatenames"
+          },
+          "truthFields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Truthfields"
+          },
+          "immutableFields": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Immutablefields"
+          },
+          "allowedVariation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowedvariation"
+          },
+          "sourceAssetReferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sourceassetreferences"
+          },
+          "licenseStatus": {
+            "$ref": "#/components/schemas/ProductLicenseStatus"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProductVersionStatus"
+          },
+          "blockedReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockedreason"
+          },
+          "confirmedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmedat"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "productId",
+          "versionNumber",
+          "productPageUrl",
+          "candidateNames",
+          "truthFields",
+          "immutableFields",
+          "allowedVariation",
+          "sourceAssetReferences",
+          "licenseStatus",
+          "status"
+        ],
+        "title": "ProductVersionRead"
+      },
+      "ProductVersionStatus": {
+        "type": "string",
+        "enum": [
+          "DRAFT",
+          "READY",
+          "APPROVED",
+          "BLOCKED"
+        ],
+        "title": "ProductVersionStatus"
       },
       "PromptAssistantRequest": {
         "properties": {

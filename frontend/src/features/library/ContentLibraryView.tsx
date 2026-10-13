@@ -1,6 +1,6 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 // 代码为逐字搬运，未经逻辑改写。
-import {Activity, AlertTriangle, Check, ChevronRight, Clapperboard, Copy, Globe2, LoaderCircle, LockKeyhole, Package, Pencil, Plus, Search, ShieldCheck, UserRound, WandSparkles} from 'lucide-react'
+import {Activity, AlertTriangle, Check, ChevronRight, Clapperboard, Copy, Globe2, LoaderCircle, LockKeyhole, Package, Pencil, Plus, Search, ShieldCheck, UserRound} from 'lucide-react'
 import {useDeferredValue, useEffect, useMemo, useState} from 'react'
 import {getMotionActions, getSiteStyleProfiles, getVideoTemplates} from '../../api'
 import {type MotionActionSummary, type SiteStyleProfileSummary, type VideoTemplateSummary} from '../../types'
@@ -170,13 +170,6 @@ export function ContentLibraryView({ actorId, canDeleteSubjects, canEditCatalog 
       <div><span>生产素材库</span><h1>内容与主体库</h1><p>通用资产可跨品牌复用，品牌专属资产只服务对应品牌。</p><DataFreshness timestamp={lastSyncedAt} stale={Boolean(error && hasLoadedOnce)} /></div>
       {tab !== 'subjects' ? <label className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'actions' ? '搜索动作、用途或风险' : '搜索风格、语气或镜头'} aria-label={tab === 'actions' ? '搜索动作库' : '搜索风格库'} />{query ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); setQuery('') }} aria-label="清除内容库搜索关键词" title="清除搜索"><span aria-hidden="true">×</span></button> : null}</label> : null}
     </div>
-
-    <section className="library-overview" aria-label="内容库概览">
-      <div><span className="library-overview-icon library-overview-icon--blue"><Activity size={20} /></span><span><small>通用动作</small><strong>{generalActionCount}</strong><em>跨品牌复用</em></span></div>
-      <div><span className="library-overview-icon library-overview-icon--green"><Clapperboard size={20} /></span><span><small>通用风格</small><strong>{generalStyleCount}</strong><em>不绑定品牌</em></span></div>
-      <div><span className="library-overview-icon library-overview-icon--violet"><LockKeyhole size={20} /></span><span><small>品牌风格</small><strong>{brandStyleCount}</strong><em>独立版本与证据</em></span></div>
-      <div><span className="library-overview-icon library-overview-icon--orange"><WandSparkles size={20} /></span><span><small>品牌动作</small><strong>{brandActionCount}</strong><em>仅限所属品牌</em></span></div>
-    </section>
 
     <div className="library-scope-tabs" role="tablist" aria-label="内容库归属">
       <button id="general-tab" type="button" role="tab" tabIndex={scope === 'general' ? 0 : -1} aria-selected={scope === 'general'} aria-controls="general-panel" className={scope === 'general' ? 'is-active' : ''} onKeyDown={(event) => moveTab(event, ['general', 'brand', 'subjects'], scope, setScope)} onClick={() => { setScope('general'); setBrandFilter('all') }}><Globe2 size={18} /><span><strong>通用内容</strong><small>所有品牌可复用</small></span></button>
