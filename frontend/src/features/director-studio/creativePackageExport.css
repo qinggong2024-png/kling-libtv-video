@@ -1,20 +1,25 @@
 .creative-package-export {
-  border-top: 1px solid var(--line, #e5e7eb);
-  margin-top: 16px;
-  padding-top: 12px;
   min-width: 0;
 }
 
 .creative-package-export summary {
   cursor: pointer;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .creative-package-export__scope,
-.creative-package-export dt small {
+.creative-package-meta {
   font-size: 12px;
-  color: var(--muted, #64748b);
+  line-height: 1.6;
+  color: var(--muted);
   font-weight: 400;
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}
+
+.creative-package-export__scope {
+  color: var(--text);
 }
 
 .creative-package-export__tools {
@@ -23,30 +28,30 @@
   flex-wrap: wrap;
   gap: 8px;
   margin: 12px 0;
-  min-height: 36px;
+  min-height: 44px;
 }
 
 .creative-package-export button {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   flex-shrink: 0;
-  border: 1px solid var(--line, #e5e7eb);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  color: var(--text, #111827);
-  background: var(--surface, #fff);
+  color: var(--text);
+  background: var(--surface);
   cursor: pointer;
 }
 
 .creative-package-export button:hover {
-  background: var(--surface-soft, #f7f8fc);
+  background: var(--surface-soft);
 }
 
 .creative-package-export button:focus-visible {
-  outline: 2px solid var(--primary, #2563eb);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -70,7 +75,7 @@
   grid-template-columns: 120px minmax(0, 1fr);
   gap: 12px;
   padding: 10px 0;
-  border-top: 1px solid var(--line, #e5e7eb);
+  border-top: 1px solid var(--line);
 }
 
 .creative-package-export dt {
@@ -87,6 +92,13 @@
   margin: 0;
 }
 
+.creative-package-export dd p {
+  margin: 4px 0 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .creative-package-export pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -96,9 +108,145 @@
   max-width: 100%;
 }
 
+.creative-package-section {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+
+.creative-package-section h3,
+.director-handoff-summary h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 24px;
+}
+
+.creative-package-section h4 {
+  margin: 16px 0 4px;
+  font-size: 13px;
+}
+
+.creative-package-section__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin-bottom: 4px;
+}
+
+.creative-package-section__heading h3 {
+  margin: 0;
+}
+
+.creative-package-prompt__preview {
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px;
+  margin-top: 12px !important;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.creative-package-prompt__preview:focus-visible,
+.creative-package-technical > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.creative-package-shots,
+.creative-package-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.creative-package-shots li,
+.creative-package-checklist li {
+  min-width: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.creative-package-shots p,
+.creative-package-checklist p {
+  margin: 4px 0;
+}
+
+.creative-package-shots span,
+.creative-package-shots small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.creative-package-technical {
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.creative-package-technical > summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.creative-package-technical > pre {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.director-handoff-summary__facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.director-handoff-summary__facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.director-handoff-summary__facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.director-handoff-summary__description {
+  margin: 8px 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.director-handoff-summary__description small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 600px) {
   .creative-package-export__fields > div {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+
+  .creative-package-shots,
+  .creative-package-checklist {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

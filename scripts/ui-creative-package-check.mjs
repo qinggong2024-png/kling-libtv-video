@@ -13,6 +13,26 @@ const requireFrontend = createRequire(resolve(root, 'frontend/package.json'))
 const { createServer } = await import(pathToFileURL(requireFrontend.resolve('vite')).href)
 const { chromium } = requireFrontend(process.env.PLAYWRIGHT_MODULE)
 
+// Windows clipboard reads use CRLF; only normalize this platform representation.
+async function readClipboard(page) {
+  return (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n')
+}
+
+async function trackClipboard(context) {
+  await context.addInitScript(() => {
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard)
+    navigator.clipboard.writeText = async text => {
+      window.__creativePackageClipboardInput = text
+      await write(text)
+    }
+  })
+}
+
+async function expectClipboard(page, expected) {
+  assert.equal(await page.evaluate(() => window.__creativePackageClipboardInput), expected)
+  assert.equal(await readClipboard(page), expected.replace(/\r\n/g, '\n'))
+}
+
 // Build the browser fixture with the real backend compiler and export adapter.
 const fixtureProcess = spawnSync(process.env.CREATIVE_PACKAGE_PYTHON, ['-c', `
 import json, uuid
@@ -74,14 +94,16 @@ const html = `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8">
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { DirectorPackageEvidence } from '/src/features/director-studio/DirectorPlanningViews.tsx'
+import { CreativePackageExportView } from '/src/features/director-studio/CreativePackageExportView.tsx'
 import { DirectorStudio } from '/src/features/director-studio/DirectorStudio.tsx'
 import '/src/styles.css'
 import '/src/features/director-studio/directorStudio.css'
 const workflow = await fetch('/fixture.json').then(response => response.json())
 if (new URLSearchParams(location.search).has('legacy')) delete workflow.creative_packages
 createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('brandStudio') ? React.createElement('div', { className: 'image-center page-view' }, React.createElement(DirectorStudio)) : React.createElement('div', { className: 'director-studio' },
-  React.createElement(DirectorPackageEvidence, { workflow, shotId: 'FIRST_FRAME' }),
-  React.createElement(DirectorPackageEvidence, { workflow, shotId: 'SHOT_01' })))
+  ...['FIRST_FRAME', 'SHOT_01'].map(shotId => React.createElement('section', { key: shotId, 'aria-label': shotId + ' 创意交接' },
+    React.createElement(CreativePackageExportView, { workflow, packageId: shotId === 'FIRST_FRAME' ? workflow.snapshot.package.package_id : workflow.snapshot.storyboard.packages[shotId].package_id },
+      React.createElement(DirectorPackageEvidence, { workflow, shotId }))))))
 </script></body></html>`
 const server = await createServer({
   configFile: false, envFile: false, root: resolve(root, 'frontend'),
@@ -107,11 +129,12 @@ const server = await createServer({
 })
 await server.listen()
 const origin = server.resolvedUrls.local[0]
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: true, ...(process.env.DIRECTOR_BROWSER_PATH ? { executablePath: process.env.DIRECTOR_BROWSER_PATH } : {}) })
 const report = { mode: 'OFFLINE_SYNTHETIC_ONLY', viewports: [], forbiddenRequests: [], pageErrors: [] }
 try {
   for (const width of [1440, 1024, 768, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, permissions: ['clipboard-read', 'clipboard-write'], serviceWorkers: 'block' })
+    await trackClipboard(context)
     const page = await context.newPage()
     page.on('pageerror', error => report.pageErrors.push(String(error)))
     await context.route('**/*', route => {
@@ -122,23 +145,26 @@ try {
       return route.continue()
     })
     await page.goto(origin)
-    const first = page.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true })
-    const shot = page.getByRole('region', { name: 'SHOT_01 生产包证据', exact: true })
+    const first = page.getByRole('region', { name: 'FIRST_FRAME 创意交接', exact: true })
+    const shot = page.getByRole('region', { name: 'SHOT_01 创意交接', exact: true })
     await first.getByRole('button', { name: '复制完整 Creative Package', exact: true }).waitFor()
-    await first.getByRole('button', { name: '复制视频 Prompt', exact: true }).click()
+    assert.equal(await first.locator('details.creative-package-technical').getAttribute('open'), null)
+    assert.equal(await first.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true }).isVisible(), false)
+    assert(await first.getByText('Fake · 离线合成 · 不可交付。规划内容不等于已验证生产内容。', { exact: true }).isVisible())
+    await first.getByRole('button', { name: '复制视频创作提案全文', exact: true }).click()
     await first.getByRole('status').filter({ hasText: '已复制' }).waitFor()
     const videoPrompt = fixture.creative_packages[fixture.snapshot.package.package_id].videoPrompt
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), videoPrompt)
+    await expectClipboard(page, videoPrompt)
     assert(videoPrompt.includes('PROPOSED HUMAN HANDOFF') && videoPrompt.includes('FAKE SOURCE'))
-    await first.getByRole('button', { name: '复制图片 Prompt', exact: true }).click()
+    await first.getByRole('button', { name: '复制图片生成提示词全文', exact: true }).click()
     await first.getByRole('status').filter({ hasText: '已复制' }).waitFor()
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), fixture.snapshot.package.prompt)
-    await shot.getByRole('button', { name: '复制图片 Prompt', exact: true }).click()
+    await expectClipboard(page, fixture.snapshot.package.prompt)
+    await shot.getByRole('button', { name: '复制图片生成提示词全文', exact: true }).click()
     await shot.getByRole('status').filter({ hasText: '已复制' }).waitFor()
-    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), fixture.snapshot.storyboard.packages.SHOT_01.prompt)
+    await expectClipboard(page, fixture.snapshot.storyboard.packages.SHOT_01.prompt)
     await first.getByRole('button', { name: '复制完整 Creative Package', exact: true }).click()
     await first.getByRole('status').filter({ hasText: '已复制' }).waitFor()
-    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    const copied = await readClipboard(page)
     assert(copied.includes('OFFLINE_SYNTHETIC_ONLY') && copied.includes(fixture.snapshot.package.prompt))
     const downloadEvent = page.waitForEvent('download')
     await first.getByRole('button', { name: '下载 Creative Package JSON', exact: true }).click()
@@ -163,7 +189,7 @@ try {
     await page.screenshot({ path: resolve(evidence, `package-${width}.png`), fullPage: true })
     await page.screenshot({ path: resolve(evidence, `package-${width}-viewport.png`) })
     await page.goto(`${origin}?legacy=1`)
-    await first.getByText('Creative Package · 暂无可导出合同', { exact: true }).waitFor()
+    await first.getByText('Creative Package · 暂无可导出合同，未提供交接内容。', { exact: true }).waitFor()
     assert.equal(await first.getByRole('button', { name: '复制完整 Creative Package', exact: true }).count(), 0)
     report.viewports.push({ width, passed: true, copy: true, download: true, reload: true, legacy: true, layout })
     await context.close()
@@ -174,15 +200,16 @@ try {
   }))
   const page = await failure.newPage()
   await page.goto(origin)
-  const first = page.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true })
+  const first = page.getByRole('region', { name: 'FIRST_FRAME 创意交接', exact: true })
   await first.getByRole('button', { name: '复制完整 Creative Package', exact: true }).click()
   await first.getByRole('status').filter({ hasText: '复制失败' }).waitFor()
   assert(await first.getByRole('button', { name: '复制完整 Creative Package', exact: true }).isEnabled())
   report.clipboardFailure = true
   await failure.close()
   report.brandStudio = []
-  for (const width of [1440, 390]) {
-    const context = await browser.newContext({ viewport: { width, height: 1000 }, serviceWorkers: 'block' })
+  for (const width of [1440, 1024, 768, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: ({390: 844, 768: 1024, 1024: 768})[width] ?? 900 }, permissions: ['clipboard-read', 'clipboard-write'], serviceWorkers: 'block' })
+    await trackClipboard(context)
     const page = await context.newPage()
     const requests = []
     page.on('pageerror', error => report.pageErrors.push(String(error)))
@@ -231,15 +258,38 @@ try {
     await brandSelect.selectOption('brand-b')
     await page.getByLabel('Brand Creative DNA').getByText('目录建议 · 尚未绑定任务', { exact: true }).waitFor({ state: 'attached' })
     await page.locator('input[type=file]').setInputFiles({ name: 'front.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64') })
-    await page.getByRole('button', { name: '创建任务并分析', exact: true }).click()
-    await page.getByRole('region', { name: '方向差异对比', exact: true }).waitFor()
-    await page.getByRole('button', { name: /^B / }).click()
-    const first = page.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true })
-    await first.getByText('Frozen configured audience', { exact: true }).waitFor()
-    assert(await brandSelect.isDisabled())
-    assert.equal(await brandSelect.inputValue(), 'brand-b')
+    await page.getByRole('button', { name: '生成创意方向', exact: true }).click()
+    const direction = page.getByRole('article', { name: '方向 B · 安静质感', exact: true })
+    await direction.getByRole('button').click()
+    assert.equal(requests.filter(value => value === 'POST /api/v1/creative-workflow/tasks/' + fixture.id + '/commands').length, 1, 'Card selection does not execute select_direction')
+    await page.getByRole('button', { name: '确认方向：B · 安静质感', exact: true }).click()
+    const packageStage = page.locator('.director-stage--package')
+    const handoff = packageStage.getByRole('region', { name: '创意交接文档', exact: true }).first()
+    await handoff.getByText('Frozen configured audience', { exact: true }).waitFor()
+    const retainedBrandSelect = page.locator('.director-intake-fields select')
+    assert(await retainedBrandSelect.isDisabled())
+    assert.equal(await retainedBrandSelect.inputValue(), 'brand-b')
     assert.equal(await page.locator('html').evaluate(element => element.scrollWidth <= innerWidth + 1), true)
-    assert.equal(await page.locator('.director-studio__grid').evaluate(element => element.getBoundingClientRect().right <= innerWidth + 1), true)
+    assert.equal(await page.locator('.director-studio__workspace').evaluate(element => element.getBoundingClientRect().right <= innerWidth + 1), true)
+    const technical = handoff.locator(':scope > details.creative-package-technical')
+    assert.equal(await technical.getAttribute('open'), null)
+    assert.equal(await packageStage.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true }).isVisible(), false)
+    const visibleHeadings = await handoff.locator(':scope > section > h3, :scope > section > div > h3').allTextContents()
+    assert.deepEqual(visibleHeadings, ['制作要求', '图片生成提示词', '视频创作提案', '镜头规划', '质量检查'])
+    await page.evaluate(() => scrollTo(0, 0))
+    const summaryBounds = await packageStage.getByRole('region', { name: '当前方案摘要', exact: true }).boundingBox()
+    assert(summaryBounds.y >= 0 && summaryBounds.y < page.viewportSize().height, 'First screen leads with the package summary')
+    await page.screenshot({ path: resolve(evidence, `handoff-first-screen-${width}.png`) })
+    const callsBeforeCopy = requests.filter(value => value.startsWith('POST ')).length
+    await handoff.getByRole('button', { name: '复制图片生成提示词全文', exact: true }).click()
+    await expectClipboard(page, fixture.snapshot.package.prompt)
+    await handoff.getByRole('button', { name: '复制视频创作提案全文', exact: true }).click()
+    await expectClipboard(page, fixture.creative_packages[fixture.snapshot.package.package_id].videoPrompt)
+    assert.equal(requests.filter(value => value.startsWith('POST ')).length, callsBeforeCopy, 'Copy does not execute workflow commands')
+    await technical.locator(':scope > summary').click()
+    assert(await packageStage.getByRole('region', { name: 'FIRST_FRAME 生产包证据', exact: true }).isVisible())
+    await technical.locator(':scope > summary').click()
+    assert.equal(await technical.getAttribute('open'), null)
     await page.screenshot({ path: resolve(evidence, `brand-studio-${width}.png`), fullPage: true })
     report.brandStudio.push({ width, passed: true, selectedId: 'brand-b', version: '2.0.0', requestCount: requests.length })
     await context.close()

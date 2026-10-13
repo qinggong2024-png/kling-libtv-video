@@ -1,5 +1,4 @@
 import { Check, LockKeyhole } from 'lucide-react'
-import { CreativePackageExportView } from './CreativePackageExportView'
 import type { CreativeBrief } from './contracts'
 import type { DirectorAnalysis, DirectorTaskResponse } from './directorApi'
 import type { DirectorDirection } from './directorModel'
@@ -154,7 +153,6 @@ export function DirectorPackageEvidence({ workflow, shotId }: { workflow: Direct
         {evidence.reality.map((item, index) => <div key={`${item.dimension}-${index}`}><dt>{item.dimension}</dt><dd><strong>{item.decision}</strong><p>{item.evidence || '未提供证据'}</p></dd></div>)}
       </dl> : <p className="director-empty">尚无服务端 Reality 决策</p>}
     </details>
-    {evidence.package_id ? <CreativePackageExportView workflow={workflow} packageId={evidence.package_id} /> : null}
   </section>
 }
 
