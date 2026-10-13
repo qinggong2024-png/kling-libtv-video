@@ -6,6 +6,8 @@ import {
   readPersistedCreativeProject,
 } from '../../creative-project/recovery'
 import type { DirectorTaskResponse } from './directorApi'
+import { toCreativeBrief } from './directorAdapters'
+import { createDirectorDraft } from './directorModel'
 import {
   classifyDirectorRecoveryError,
   createDirectorTaskRecovery,
@@ -147,5 +149,32 @@ describe('Director task recovery', () => {
     const draft = draftFromPersistedDirectorProject(project, null)
     expect(draft.phase).toBe('directions')
     expect(draft.selectedDirectionId).toBe('B')
+    expect(draft.intake.modelGender).toBeUndefined()
+    expect(draft.intake.modelAgeRange).toBeUndefined()
+    expect(draft.intake.videoDurationSeconds).toBeUndefined()
+    expect(draft.intake.videoAspectRatio).toBeUndefined()
+  })
+
+  it('round-trips planned creation settings through existing project metadata', () => {
+    vi.stubGlobal('localStorage', fakeStore())
+    const settings = {
+      material: '棉',
+      videoType: 'lifestyle',
+      modelGender: 'female',
+      modelAgeRange: '25-35',
+      videoDurationSeconds: 15,
+      videoAspectRatio: '9:16',
+      notes: '保留商品印花',
+    }
+    const brief = toCreativeBrief({ ...createDirectorDraft().intake, ...settings })
+    const project = createCreativeProject({
+      id: 'planned-settings',
+      metadata: { directorPlanning: { brief, candidates: [], selectedDirectionId: null } },
+    })
+    expect(persistCreativeProject(project)).toBe(true)
+    const restored = readPersistedCreativeProject(createCreativeProject({ id: project.id }))
+    expect(draftFromPersistedDirectorProject(restored, null).intake).toMatchObject(settings)
+    expect(brief).not.toHaveProperty('productFrontFile')
+    clearPersistedCreativeProject(project.id)
   })
 })

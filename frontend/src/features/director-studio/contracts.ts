@@ -15,6 +15,10 @@ export interface CreativeBrief {
   brandName: string
   material?: string
   videoType?: string
+  modelGender?: string
+  modelAgeRange?: string
+  videoDurationSeconds?: number
+  videoAspectRatio?: string
   objective: string
   audience: string
   notes: string
