@@ -149,13 +149,15 @@ export function draftFromPersistedDirectorProject(
       })))
     : defaultDirectorDirections
   return {
-    phase: planning.productionPackage || planning.selectedDirectionId ? 'package' : directions.length ? 'directions' : 'intake',
+    phase: planning.productionPackage ? 'package' : directions.length ? 'directions' : 'intake',
     intake: {
       ...draft.intake,
       productName: planning.brief.productName,
       productFrontName: recovery?.product_reference.product_id ? '已恢复商品引用' : '',
       brandMode: planning.brief.brandMode,
       brandName: planning.brief.brandName,
+      material: planning.brief.material ?? '',
+      videoType: planning.brief.videoType ?? '',
       objective: planning.brief.objective,
       audience: planning.brief.audience,
       notes: planning.brief.notes,

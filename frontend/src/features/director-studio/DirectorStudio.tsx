@@ -1,7 +1,9 @@
 import { Check, FileImage, LockKeyhole, RefreshCw, Sparkles, WandSparkles, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { getSiteStyleProfiles } from '../../api'
 import { useOptionalCreativeProject } from '../../creative-project/hooks'
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
+import type { SiteStyleProfileSummary } from '../../types'
 import { createUuid } from '../../uuid'
 import {
   createDirectorProduct,
@@ -48,6 +50,11 @@ import { prepareProductionBridge } from './productionBridge'
 import { selectDirectorEvidence } from './directorEvidence'
 import { explainDirectorFailure } from './directorPresentation'
 import { DirectorBridgeStatus, DirectorDirectionComparison, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { DirectorBrandDNAView } from './DirectorBrandDNAView'
+import { selectDirectorBrandProfile } from './directorBrandDNA'
+import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
+import { SpatialPlanningView } from './SpatialPlanningView'
+import { createDirectorSpatialPlan, type DirectorSpatialPlan } from './spatialPlanning'
 import './directorStudio.css'
 
 function updateProjectSnapshot(
@@ -56,23 +63,39 @@ function updateProjectSnapshot(
   return snapshot
 }
 
+type DirectorStageKey = 'brief' | 'direction' | 'package'
+
 export function DirectorStudio() {
   const projectContext = useOptionalCreativeProject()
   const [draft, setDraft] = useState<DirectorDraft>(createDirectorDraft)
   const [workflow, setWorkflow] = useState<DirectorTaskResponse | null>(null)
+  const [brandProfiles, setBrandProfiles] = useState<SiteStyleProfileSummary[]>([])
+  const [brandProfilesLoading, setBrandProfilesLoading] = useState(true)
+  const [brandProfilesError, setBrandProfilesError] = useState('')
+  const [selectedBrandId, setSelectedBrandId] = useState('')
   const [busyAction, setBusyAction] = useState<'analyze' | 'select' | 'authorize' | 'generate' | 'authorize_storyboard' | 'generate_storyboard' | 'review' | 'select_frame' | 'select_storyboard' | 'refresh' | null>(null)
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState('')
+  const [viewedStage, setViewedStage] = useState<DirectorStageKey | null>(null)
+  const [spatialPlan, setSpatialPlan] = useState<DirectorSpatialPlan | null>(null)
   const clientKeyRef = useRef(createUuid())
   const productIdRef = useRef<string | undefined>(undefined)
   const recoveryAttemptRef = useRef<string | null>(null)
   const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
+  const directionsRef = useRef<HTMLElement>(null)
+  const directionsHeadingRef = useRef<HTMLHeadingElement>(null)
   const authorizationRef = useRef<{
     fingerprint: string
     payload: NonNullable<DirectorCommandInput['authorization']>
   } | null>(null)
-  const ready = isDirectorIntakeReady(draft.intake)
+  const chosenBrand = selectDirectorBrandProfile(brandProfiles, selectedBrandId, draft.intake.brandName)
+  const ready = isDirectorIntakeReady(draft.intake) && (draft.intake.brandMode !== 'brand' || Boolean(chosenBrand))
+  const hasAnalysis = Boolean(workflow?.snapshot.plan)
   const selectedDirection = draft.directions.find((direction) => direction.id === draft.selectedDirectionId) ?? null
+  const confirmedDirectionId = workflow?.snapshot.package
+    ? workflow.snapshot.plan?.selected_direction ?? draft.selectedDirectionId
+    : null
+  const directionConfirmed = Boolean(confirmedDirectionId)
   const firstFrameCandidates = selectDirectorFirstFrameCandidates(workflow)
   const storyboardPackage = selectDirectorStoryboardPackage(workflow)
   const storyboardCandidates = selectDirectorStoryboardCandidates(workflow)
@@ -86,7 +109,9 @@ export function DirectorStudio() {
         : storyboardPackage
           ? '首帧已选，分镜生产包已锁定'
           : '生产包已锁定'
-    : selectedDirection ? '方向已选择，等待授权' : '选择方向后生成生产包预览'
+    : selectedDirection
+      ? `已选择 ${selectedDirection.id} · ${selectedDirection.title}，等待确认`
+      : '确认方向后生成生产包预览'
   const snapshot = useMemo(
     () => updateProjectSnapshot(projectContext?.project.intelligenceSnapshot),
     [projectContext?.project.intelligenceSnapshot],
@@ -95,8 +120,59 @@ export function DirectorStudio() {
     workflow ? selectDirectorPlanningSnapshot(workflow, draft, projectContext?.project.id, snapshot).handoff : null,
   )
   const evidence = selectDirectorEvidence(workflow)
+  const stage = busyAction === 'analyze' || workflow?.status === 'ANALYZING'
+    ? 'analyzing'
+    : workflow?.snapshot.package
+      ? 'package'
+      : hasAnalysis
+        ? 'directions'
+        : 'intake'
+  const derivedStage: DirectorStageKey = stage === 'intake' || stage === 'analyzing'
+    ? 'brief'
+    : stage === 'directions'
+      ? 'direction'
+      : 'package'
+  const activeStage = viewedStage ?? derivedStage
+  const stageAvailability: Record<DirectorStageKey, boolean> = {
+    brief: true,
+    direction: hasAnalysis,
+    package: Boolean(workflow?.snapshot.package),
+  }
+  const progressStages = [
+    ['brief', '01', 'Product Brief'],
+    ['direction', '02', 'Creative Direction'],
+    ['package', '03', 'Production Package'],
+  ] as const
 
-  const persistPlanningSnapshot = (nextWorkflow: DirectorTaskResponse | null, nextDraft: DirectorDraft = draft) => {
+  useEffect(() => {
+    let active = true
+    void getSiteStyleProfiles()
+      .then((profiles) => {
+        if (active) setBrandProfiles(profiles.filter((profile) => profile.libraryScope === 'brand' && profile.status === 'active'))
+      })
+      .catch(() => {
+        if (active) setBrandProfilesError('品牌目录暂时不可用，可先选择通用风格。')
+      })
+      .finally(() => {
+        if (active) setBrandProfilesLoading(false)
+      })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!hasAnalysis) return
+    const frame = window.requestAnimationFrame(() => {
+      directionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      directionsHeadingRef.current?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [hasAnalysis])
+
+  const persistPlanningSnapshot = (
+    nextWorkflow: DirectorTaskResponse | null,
+    nextDraft: DirectorDraft = draft,
+    nextSpatialPlan: DirectorSpatialPlan | null = spatialPlan,
+  ) => {
     if (!projectContext) return
     const recovery = nextWorkflow
       ? createDirectorTaskRecovery(nextWorkflow, productIdRef.current)
@@ -121,6 +197,7 @@ export function DirectorStudio() {
           nextDraft,
           projectContext.project.id,
           snapshot,
+          nextSpatialPlan,
         ),
         ...(recovery ? { directorRecovery: recovery } : {}),
       },
@@ -148,9 +225,12 @@ export function DirectorStudio() {
     next: DirectorTaskResponse,
     baseDraft: DirectorDraft = draft,
   ) => {
+    setViewedStage(null)
     setWorkflow(next)
+    if (next.snapshot.brand_dna) setSelectedBrandId(next.snapshot.brand_dna.profileId)
     const nextDraft = {
       ...baseDraft,
+      ...(next.snapshot.brand_dna ? { intake: { ...baseDraft.intake, brandMode: 'brand', brandName: next.snapshot.brand_dna.name } } : {}),
       ...({
         phase: next.snapshot.package ? 'package' : next.snapshot.plan ? 'directions' : draft.phase,
         directions: next.snapshot.plan?.directions
@@ -159,15 +239,28 @@ export function DirectorStudio() {
         selectedDirectionId: next.snapshot.plan?.selected_direction ?? baseDraft.selectedDirectionId,
       }),
     } as DirectorDraft
+    const nextSelectedDirection = next.snapshot.plan?.selected_direction ?? baseDraft.selectedDirectionId
+    const nextSpatialPlan = nextSelectedDirection
+      ? spatialPlan?.directionId === nextSelectedDirection
+        ? spatialPlan
+        : createDirectorSpatialPlan(
+            (next.snapshot.plan?.directions
+              ? directionsFromAnalysis(next.snapshot.plan.directions)
+              : baseDraft.directions
+            ).find((direction) => direction.id === nextSelectedDirection) ?? baseDraft.directions[0],
+          )
+      : null
+    setSpatialPlan(nextSpatialPlan)
     setDraft((current) => ({
       ...current,
+      ...(next.snapshot.brand_dna ? { intake: { ...current.intake, brandMode: 'brand', brandName: next.snapshot.brand_dna.name } } : {}),
       phase: next.snapshot.package ? 'package' : next.snapshot.plan ? 'directions' : current.phase,
       directions: next.snapshot.plan?.directions
         ? directionsFromAnalysis(next.snapshot.plan.directions)
         : current.directions,
       selectedDirectionId: next.snapshot.plan?.selected_direction ?? current.selectedDirectionId,
     }))
-    persistPlanningSnapshot(next, nextDraft)
+    persistPlanningSnapshot(next, nextDraft, nextSpatialPlan)
   }
 
   useEffect(() => {
@@ -245,27 +338,26 @@ export function DirectorStudio() {
     return next
   }
 
-  const chooseDirection = async (direction: DirectorDirection) => {
-    if (!workflow || busyAction || workflow.status !== 'AWAITING_DIRECTION') return
+  const chooseDirection = (direction: DirectorDirection) => {
+    if (!workflow || busyAction || directionConfirmed || workflow.status !== 'AWAITING_DIRECTION') return
+    setNotice('')
+    const nextDraft = selectDirectorDirection(draft, direction.id)
+    setDraft(nextDraft)
+    persistPlanningSnapshot(workflow, nextDraft)
+    setNotice(`已选择 ${direction.id} · ${direction.title}。确认后才会生成 Production Package。`)
+  }
+
+  const confirmDirection = async () => {
+    if (!workflow || !selectedDirection || busyAction || directionConfirmed || workflow.status !== 'AWAITING_DIRECTION') return
     setBusyAction('select')
     setNotice('')
     try {
-      const nextDraft = selectDirectorDirection(draft, direction.id)
-      const nextWorkflow = await runCommand('select_direction', {
-        direction_id: direction.id,
+      await runCommand('select_direction', {
+        direction_id: selectedDirection.id,
       })
-      setDraft(nextDraft)
-      persistPlanningSnapshot(nextWorkflow, nextDraft)
-      projectContext?.updateProject({
-        currentStage: 'AWAITING_DIRECTION',
-        metadata: {
-          directorDirectionId: direction.id,
-          directorBrandMode: nextDraft.intake.brandMode,
-        },
-      })
-      setNotice('方向已记录。接下来需要明确授权后才能生成首帧。')
+      setNotice('方向已确认，Production Package 已准备。')
     } catch (cause) {
-      setNotice(explainDirectorFailure(cause, '方向选择失败，请重试。'))
+      setNotice(explainDirectorFailure(cause, '方向确认失败，请重试。'))
     } finally {
       setBusyAction(null)
     }
@@ -289,6 +381,10 @@ export function DirectorStudio() {
         productId: product.id,
         front: draft.intake.productFrontFile,
         clientKey: clientKeyRef.current,
+        ...(draft.intake.brandMode === 'brand' && chosenBrand ? {
+          brandProfileId: chosenBrand.id,
+          brandProfileVersion: chosenBrand.version,
+        } : {}),
       })
       applyWorkflow(created)
       setRejectionReasons({})
@@ -489,66 +585,98 @@ export function DirectorStudio() {
       <div>
         <span className="director-studio__eyebrow"><Sparkles size={14} />Creative OS / Director Studio</span>
         <h1>智能导演</h1>
-        <p>整理创作方向、生产包和后续生产输入。</p>
+        <p>从产品 Brief 到可执行生产包的创作工作台。</p>
       </div>
       <span className="director-studio__contract"><LockKeyhole size={14} />离线 Fake 模式 · 不可交付</span>
     </header>
 
-    <div className="director-studio__steps" aria-label="导演流程">
-      <span className={draft.phase === 'intake' ? 'is-active' : 'is-done'}>01 商品输入</span>
-      <span className={draft.phase === 'directions' ? 'is-active' : draft.phase === 'package' ? 'is-done' : ''}>02 方向候选</span>
-      <span className={draft.phase === 'package' ? 'is-active' : ''}>03 生产包</span>
-    </div>
+    <ol className="director-studio__steps" aria-label="导演创作阶段">
+      {progressStages.map(([key, index, label]) => {
+        const currentIndex = progressStages.findIndex(([value]) => value === activeStage)
+        const itemIndex = progressStages.findIndex(([value]) => value === key)
+        const available = stageAvailability[key]
+        return <li key={key} className={`${activeStage === key ? 'is-active' : itemIndex < currentIndex ? 'is-done' : ''}${available ? '' : ' is-disabled'}`}>
+          <button type="button" disabled={!available} onClick={() => setViewedStage(key)}>
+            <span>{index}</span><strong>{label}</strong>
+          </button>
+        </li>
+      })}
+    </ol>
 
-    <div className="director-studio__grid">
-      <section className="director-panel director-panel--intake" aria-labelledby="director-intake-title">
+    <div className="director-studio__workspace">
+      <section className={`director-stage director-stage--brief${activeStage === 'brief' ? ' is-active' : ' is-secondary'}`} aria-labelledby="director-intake-title">
+        <div className="director-stage__summary">
+          <strong>Product Brief</strong>
+          <span>{draft.intake.productFrontName ? `${draft.intake.productFrontName}${draft.intake.brandName ? ` · ${draft.intake.brandName}` : ''}` : '上传商品正面图并选择品牌归属'}</span>
+        </div>
+        <div className="director-stage__content">
+        <section className="director-panel director-panel--intake">
         <div className="director-panel__heading">
-          <div><span className="director-panel__index">01</span><div><h2 id="director-intake-title">Product Intake</h2><p>商品正面是最低输入。</p></div></div>
+          <div><span className="director-panel__index">01</span><div><h2 id="director-intake-title">Product Brief</h2><p>商品正面是最低输入，品牌归属用于约束创意方向。</p></div></div>
           <span className={ready ? 'director-state is-ready' : 'director-state'}>{ready ? '已就绪' : '待输入'}</span>
         </div>
-        <label className="director-upload">
-          <input type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
-          {draft.intake.productFrontPreviewUrl
-            ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" />
-            : <><FileImage size={24} /><strong>上传商品正面</strong><small>PNG、JPG 或 WEBP</small></>}
-        </label>
-        {draft.intake.productFrontName ? <p className="director-file-name">{draft.intake.productFrontName}</p> : null}
-        <label className="director-field"><span>商品名称</span><input value={draft.intake.productName} onChange={(event) => updateIntake({ productName: event.target.value })} placeholder="例如：棉质短款外套" /></label>
-        <fieldset className="director-choice">
-          <legend>品牌来源</legend>
-          <label><input type="radio" checked={draft.intake.brandMode === 'generic'} onChange={() => updateIntake({ brandMode: 'generic', brandName: '' })} />通用风格</label>
-          <label><input type="radio" checked={draft.intake.brandMode === 'brand'} onChange={() => updateIntake({ brandMode: 'brand' })} />选择品牌</label>
-        </fieldset>
-        {draft.intake.brandMode === 'brand' ? <label className="director-field"><span>品牌名称</span><input value={draft.intake.brandName} onChange={(event) => updateIntake({ brandName: event.target.value })} placeholder="输入已确认的品牌" /></label> : null}
-        <fieldset className="director-brief" aria-describedby="director-brief-scope">
-        <legend>Creative Brief</legend>
-        <p id="director-brief-scope" className="director-evidence__note">项目规划记录 · 未纳入当前离线分析请求</p>
-        <label className="director-field"><span>创作目标 <small>可选</small></span><input value={draft.intake.objective} onChange={(event) => updateIntake({ objective: event.target.value })} placeholder="例如：突出面料质感和日常穿着场景" /></label>
-        <label className="director-field"><span>目标受众 <small>可选</small></span><input value={draft.intake.audience} onChange={(event) => updateIntake({ audience: event.target.value })} placeholder="例如：关注通勤穿搭的成年用户" /></label>
-        <label className="director-field"><span>创作备注 <small>可选</small></span><textarea value={draft.intake.notes} onChange={(event) => updateIntake({ notes: event.target.value })} rows={3} placeholder="记录用户锁定项或需要保留的商品细节" /></label>
-        </fieldset>
+        <div className="director-intake-layout">
+          <div className="director-intake-primary">
+            <div className="director-media-mode" role="group" aria-label="分析素材类型">
+              <button type="button" className="is-selected" aria-pressed="true"><FileImage size={15} />图片</button>
+              <button type="button" disabled title="当前导演分析接口仅支持图片">视频<span>即将支持</span></button>
+            </div>
+            <label className="director-upload">
+              <input type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
+              {draft.intake.productFrontPreviewUrl
+                ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" />
+                : <><FileImage size={24} /><strong>上传商品正面</strong><small>PNG、JPG 或 WEBP</small></>}
+            </label>
+            {draft.intake.productFrontName ? <p className="director-file-name">{draft.intake.productFrontName}</p> : null}
+          </div>
+          <div className="director-intake-fields">
+            <label className="director-field"><span>商品名称</span><input value={draft.intake.productName} onChange={(event) => updateIntake({ productName: event.target.value })} placeholder="例如：棉质短款外套" /></label>
+            <fieldset className="director-choice">
+              <legend>品牌归属 <small>必选</small></legend>
+              <label><input type="radio" disabled={Boolean(workflow)} checked={draft.intake.brandMode === 'generic'} onChange={() => { setSelectedBrandId(''); updateIntake({ brandMode: 'generic', brandName: '' }) }} />通用风格</label>
+              <label><input type="radio" disabled={Boolean(workflow)} checked={draft.intake.brandMode === 'brand'} onChange={() => updateIntake({ brandMode: 'brand' })} />选择品牌</label>
+            </fieldset>
+            {draft.intake.brandMode === 'brand' ? <label className="director-field"><span>品牌 <small>必选</small></span><select value={chosenBrand?.id ?? workflow?.snapshot.brand_dna?.profileId ?? ''} disabled={brandProfilesLoading || Boolean(workflow)} onChange={(event) => { setSelectedBrandId(event.target.value); updateIntake({ brandName: brandProfiles.find(profile => profile.id === event.target.value)?.name ?? '' }) }}><option value="">{brandProfilesLoading ? '正在读取品牌目录' : '请选择已确认品牌'}</option>{workflow?.snapshot.brand_dna && !chosenBrand ? <option value={workflow.snapshot.brand_dna.profileId}>{workflow.snapshot.brand_dna.name} · {workflow.snapshot.brand_dna.profileVersion}</option> : null}{brandProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.version}</option>)}</select></label> : null}
+            {draft.intake.brandMode === 'brand' ? <DirectorBrandDNAView profile={chosenBrand} snapshot={workflow?.snapshot.brand_dna} /> : null}
+            {brandProfilesError && draft.intake.brandMode === 'brand' ? <p className="director-inline-note is-warning">{brandProfilesError}</p> : null}
+          </div>
+        </div>
         <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={!ready || busyAction !== null || workflow !== null}>
-          <WandSparkles size={16} />{busyAction === 'analyze' ? '正在创建并分析' : workflow ? '已创建任务' : '创建任务并分析'}
+          <WandSparkles size={16} />{busyAction === 'analyze' ? '正在生成创意方向' : workflow ? '已生成创意方向' : '生成创意方向'}
         </button>
       </section>
+        </div>
+      </section>
 
-      <section className="director-panel director-panel--directions" aria-labelledby="director-directions-title">
+      <section className={`director-stage director-stage--direction${activeStage === 'direction' ? ' is-active' : ' is-secondary'}`} aria-labelledby="director-directions-title">
+        <div className="director-stage__summary">
+          <strong>Creative Direction</strong>
+          <span>{hasAnalysis ? `${draft.directions.length} 个候选方向${selectedDirection ? ` · 已选择 ${selectedDirection.id}` : ''}` : '完成 Product Brief 后生成创意方向'}</span>
+        </div>
+        <div className="director-stage__content">
+      {hasAnalysis ? <section ref={directionsRef} className="director-panel director-panel--directions" aria-labelledby="director-directions-title">
         <div className="director-panel__heading">
-          <div><span className="director-panel__index">02</span><div><h2 id="director-directions-title">Direction Candidates</h2><p>选择方向；生成授权在下一步确认。</p></div></div>
+          <div><span className="director-panel__index">02</span><div><h2 ref={directionsHeadingRef} id="director-directions-title" tabIndex={-1}>Creative Direction</h2><p>基于商品理解生成候选方向，选择后再进入生产包。</p></div></div>
           <span className="director-state">{workflow?.snapshot.plan ? `${draft.directions.length} 个候选` : '等待分析'}</span>
         </div>
         <div className="director-direction-list">
           {draft.directions.map((direction) => <button
             key={direction.id}
             type="button"
-            className={`director-direction${draft.selectedDirectionId === direction.id ? ' is-selected' : ''}`}
+            className={`director-direction${draft.selectedDirectionId === direction.id ? ' is-selected' : ''}${confirmedDirectionId === direction.id ? ' is-confirmed' : ''}`}
             aria-pressed={draft.selectedDirectionId === direction.id}
             onClick={() => void chooseDirection(direction)}
-            disabled={!workflow || workflow.status !== 'AWAITING_DIRECTION' || busyAction !== null}
+            disabled={!workflow || workflow.status !== 'AWAITING_DIRECTION' || busyAction !== null || directionConfirmed}
           >
             <span className="director-direction__marker">{direction.id}</span>
             <span className="director-direction__body"><strong>{direction.title}</strong><small>{workflow?.snapshot.plan ? direction.summary : '本地规划参考 · 等待服务端分析'}</small></span>
-            <span className="director-direction__check">{draft.selectedDirectionId === direction.id ? <Check size={17} /> : '选择'}</span>
+            <span className="director-direction__check">
+              {confirmedDirectionId === direction.id
+                ? <><Check size={17} />已确认</>
+                : draft.selectedDirectionId === direction.id
+                  ? <><Check size={17} />已选择</>
+                  : '选择'}
+            </span>
           </button>)}
         </div>
         <DirectorDirectionComparison workflow={workflow} draft={draft} />
@@ -557,11 +685,38 @@ export function DirectorStudio() {
           <p>{selectedDirection ? selectedDirection.summary : '完成商品分析后查看方向候选。'}</p>
           {snapshot?.referenceStrength !== undefined ? <small>已有参考强度：{snapshot.referenceStrength}</small> : <small>尚未关联 Reality、Spatial 或 Video DNA</small>}
         </div>
+        <button
+          type="button"
+          className="primary-button director-action director-direction-confirm"
+          onClick={() => void confirmDirection()}
+          disabled={!selectedDirection || directionConfirmed || busyAction !== null || workflow?.status !== 'AWAITING_DIRECTION'}
+        >
+          <Check size={16} />
+          {busyAction === 'select'
+            ? '正在确认方向'
+            : directionConfirmed
+              ? '方向已确认'
+              : selectedDirection
+                ? `确认方向：${selectedDirection.id} · ${selectedDirection.title}`
+                : '请选择一个方向'}
+        </button>
+      </section> : <div className="director-stage__empty">上传商品并点击“生成创意方向”后，这里会显示产品理解摘要和候选方向。</div>}
+        </div>
       </section>
 
-      <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
-        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">Production Package</h2><p>查看已锁定生产包和当前阶段。</p></div></div></div>
-        <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>当前为离线 Fake 流程，候选仅用于验证，不可交付。</span></div></div>
+      <section className={`director-stage director-stage--package${activeStage === 'package' ? ' is-active' : ' is-secondary'}`} aria-labelledby="director-package-title">
+        <div className="director-stage__summary">
+          <strong>Production Package</strong>
+          <span>{workflow?.snapshot.package ? packageState : '确认方向后整理图片、视频 Prompt 和分镜'}</span>
+        </div>
+        <div className="director-stage__content">
+      {workflow?.snapshot.package ? <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
+        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">Production Package</h2><p>选择方向后查看图片、视频 Prompt 和分镜。</p></div></div></div>
+         <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>当前为离线 Fake 流程，候选仅用于验证，不可交付。</span></div></div>
+         {spatialPlan ? <SpatialPlanningView plan={spatialPlan} onChange={(nextPlan) => {
+           setSpatialPlan(nextPlan)
+           persistPlanningSnapshot(workflow, draft, nextPlan)
+         }} /> : null}
         <dl className="director-package-list">
           <div><dt>商品事实</dt><dd>{ready ? '正面已提供' : '未提供'}</dd></div>
           <div><dt>方向选择</dt><dd>{selectedDirection ? selectedDirection.id : '未选择'}</dd></div>
@@ -629,6 +784,7 @@ export function DirectorStudio() {
                   <Check size={16} />{selected ? '已选择离线首帧' : '选择离线首帧'}
                 </button>
               </div>
+              <HumanReviewPanel subjectType="DIRECTOR_CANDIDATE" subjectId={candidate.candidate_id} taskId={workflow.id} />
             </section>
           })}
         </section> : null}
@@ -718,6 +874,7 @@ export function DirectorStudio() {
                     <Check size={16} />{selected ? '已选择离线分镜' : '选择离线分镜'}
                   </button>
                 </div>
+                {workflow ? <HumanReviewPanel subjectType="DIRECTOR_CANDIDATE" subjectId={candidate.candidate_id} taskId={workflow.id} /> : null}
               </section>
             })}
           </div> : null}
@@ -803,6 +960,8 @@ export function DirectorStudio() {
             </div>
           </details>
         </section> : null}
+      </section> : <div className="director-stage__empty">方向确认后，这里会展示 Production Package 及其复制、导出入口。</div>}
+        </div>
       </section>
     </div>
     {notice ? <div className="director-notice" role="status">{notice}</div> : null}

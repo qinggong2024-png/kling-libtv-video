@@ -7,6 +7,7 @@ from libtv_agent.api.creative_workflow import router as creative_workflow_router
 from libtv_agent.api.downloads import router as downloads_router
 from libtv_agent.api.events import router as events_router
 from libtv_agent.api.health import router as health_router
+from libtv_agent.api.human_reviews import router as human_reviews_router
 from libtv_agent.api.image_generations import router as image_generations_router
 from libtv_agent.api.kling import router as kling_router
 from libtv_agent.api.motion_actions import router as motion_actions_router
@@ -43,3 +44,4 @@ api_router.include_router(submission_recovery_router)
 api_router.include_router(products_router)
 api_router.include_router(creative_workflow_router)
 api_router.include_router(controlled_image_bridge_router)
+api_router.include_router(human_reviews_router)

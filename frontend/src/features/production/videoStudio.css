@@ -170,13 +170,13 @@
 .composer--studio .custom-prompt-field { min-width: 0; }
 .composer--studio .custom-prompt-field textarea { min-height: 112px; }
 .composer--studio .advanced-settings { border-top: 1px solid var(--border); margin-top: 12px; }
-.composer--studio .composer-submit-row { grid-column: 1; grid-row: 3; margin-top: 24px; padding: 16px 0; gap: 16px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
+.composer--studio .composer-submit-row { grid-column: 1; grid-row: 4; margin-top: 24px; padding: 16px 0; gap: 16px; border-block: 1px solid var(--border); background: transparent; flex-wrap: wrap; }
 .composer--studio .composer-submit-row { position: static; box-shadow: none; backdrop-filter: none; border-radius: 0; }
 .composer--studio .composer-result-count { flex: 0 0 180px; }
 .composer--studio .composer-submit-summary,
 .composer--studio .composer-submit-status { min-width: 200px; }
 .composer--studio .composer-submit-summary small { display: block; white-space: normal; }
-.composer--studio .composer-feedback { grid-column: 1; grid-row: 4; padding: 8px 0 0; min-width: 0; }
+.composer--studio .composer-feedback { grid-column: 1; grid-row: 3; padding: 8px 0 0; min-width: 0; }
 .composer--studio .primary-button { background: var(--primary); box-shadow: none; }
 .composer--studio .primary-button:hover:not(:disabled) { background: var(--primary-hover); box-shadow: none; }
 .studio-batch-mode { display: grid; gap: 8px; padding: 8px 0; font-size: 12px; }
@@ -201,7 +201,7 @@
   .composer--studio .upload-panel-head > div { display: grid; gap: 4px; }
   .studio-canvas footer { flex-wrap: wrap; }
 }
-@media (max-width: 799px) {
+@media (max-width: 820px) {
   .composer-subject-panel { grid-column: 1; grid-row: auto; }
   .home-view.video-studio { width: calc(100% - 24px); padding-top: 12px; padding-bottom: 100px; }
   .video-studio .home-title { flex-direction: row; align-items: center; min-height: 64px; margin-bottom: 16px; text-align: left; }
@@ -216,11 +216,11 @@
   .composer--studio .generation-workflow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .composer--studio .studio-template-selector,
   .composer--studio .generation-routes { grid-column: 1; }
-  .composer--studio .composer-feedback { grid-column: 1; grid-row: 4; padding: 0; }
+  .composer--studio .composer-feedback { grid-column: 1; grid-row: 3; padding: 0; }
   .composer--studio .materials-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .composer--studio .subject-upload-grid { grid-template-columns: repeat(3, minmax(0, 128px)); }
   .composer--studio .subject-upload-tile--details { grid-column: auto; }
-  .composer--studio .composer-submit-row { grid-column: 1; grid-row: 3; margin: 0; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr); align-items: end; gap: 12px; padding: 16px 0; }
+  .composer--studio .composer-submit-row { grid-column: 1; grid-row: 4; margin: 0; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr); align-items: end; gap: 12px; padding: 16px 0; }
   .composer--studio .composer-submit-row > button { grid-column: 1 / -1; min-height: 48px; width: 100%; }
   .composer--studio .composer-submit-summary,
   .composer--studio .composer-submit-status { grid-column: 1 / -1; }

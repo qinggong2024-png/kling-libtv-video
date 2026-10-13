@@ -48,7 +48,7 @@ export function MaterialCard({ material, bucket, index, readOnly = false, onRemo
           if (!dragStartedRef.current) onPreview()
         }}
         aria-label={`查看图片 ${index + 1} 大图`}
-        title="点击查看大图，长按拖拽排序"
+        title="点击查看大图，使用左右箭头调整顺序"
       >
         <LocalImage file={material.file} alt={material.file.name} />
       </button>

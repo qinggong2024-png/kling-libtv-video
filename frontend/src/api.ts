@@ -1,5 +1,7 @@
 import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
+import type { HumanReviewExport, HumanReviewHistory, HumanReviewInput, HumanReviewQuery, HumanReviewRecord } from './features/human-review/contracts'
+import { humanReviewQueryString } from './features/human-review/humanReviewModel'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -186,6 +188,9 @@ const key = () => createUuid()
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
+export const getHumanReviewHistory = (query: HumanReviewQuery) => request<HumanReviewHistory>(`/api/v1/human-reviews?${humanReviewQueryString(query)}`)
+export const submitHumanReview = (input: HumanReviewInput) => request<HumanReviewRecord>('/api/v1/human-reviews', { method: 'POST', body: JSON.stringify(input) })
+export const getHumanReviewExport = (query: HumanReviewQuery) => request<HumanReviewExport>(`/api/v1/human-reviews/export?${humanReviewQueryString(query)}`)
 export const getPersonalPromptAutoConfirmation = () => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation')
 export const setPersonalPromptAutoConfirmation = (automatic: boolean) => request<{ automatic: boolean }>('/api/v1/auth/preferences/prompt-confirmation', {
   method: 'PATCH',

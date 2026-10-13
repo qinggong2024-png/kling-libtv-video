@@ -47,6 +47,9 @@ export function readDirectorPlanningSnapshot(
       ? planning.productionPackage as unknown as DirectorPlanningSnapshot['productionPackage']
       : null,
     handoff,
+    ...(isRecord(planning.spatialPlan)
+      ? { spatialPlan: planning.spatialPlan as unknown as DirectorPlanningSnapshot['spatialPlan'] }
+      : {}),
   }
 }
 

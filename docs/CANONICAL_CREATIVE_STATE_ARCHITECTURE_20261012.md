@@ -1,7 +1,7 @@
 # Canonical Creative State Architecture
 
 日期：2026-10-12  
-状态：架构提案，等待人工评审  
+状态：架构提案已获 Phase 1 实施授权；Phase 1 基础层已实现
 范围：Creative Workflow 的统一创意真源设计  
 执行边界：本文件只定义架构、边界、迁移和优先级，不实现代码、迁移、Provider 接线或生产写入。
 
@@ -334,6 +334,7 @@ type ShotState = {
   entryState?: string
   action: string
   exitState?: string
+  cameraLanguage?: string
   productEvidence: string[]
   inherited: {
     productRevision: string
@@ -349,6 +350,13 @@ type ShotState = {
     | 'PRODUCT_REDESIGN'
     | 'LOCK_BREAK'
   )[]
+  actionCapabilities: {
+    required: string[]
+    confirmed: string[]
+    denied: string[]
+    status: 'NOT_REQUIRED' | 'VALIDATED' | 'UNRESOLVED' | 'BLOCKED'
+  }
+  unresolvedReferences: string[]
   promptRefs: {
     imagePromptRevision?: string
     videoPromptRevision?: string
@@ -715,7 +723,7 @@ Non-goals:
 
 ## 12. Approval Outcome
 
-This document should be reviewed as the gate before the next implementation task. The next authorized task, after approval, should be:
+This document was used as the gate for Phase 1 implementation. The implemented Phase 1 scope is the read-only backend foundation and invariant tests described below; Storyboard integration remains the next phase:
 
 ```text
 Implement CreativeState Foundation

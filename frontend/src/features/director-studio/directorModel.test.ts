@@ -13,7 +13,7 @@ describe('Director Studio planning model', () => {
   it('selects a direction without creating a generation task', () => {
     const draft = createDirectorDraft()
     const next = selectDirectorDirection(draft, 'B')
-    expect(next.phase).toBe('package')
+    expect(next.phase).toBe('directions')
     expect(next.selectedDirectionId).toBe('B')
     expect('taskId' in next).toBe(false)
   })
@@ -21,6 +21,22 @@ describe('Director Studio planning model', () => {
   it('requires a product front before planning can begin', () => {
     const draft = createDirectorDraft()
     expect(isDirectorIntakeReady({ ...draft.intake, productFrontName: 'front.jpg' })).toBe(true)
+  })
+
+  it('requires a selected brand when brand mode is active', () => {
+    const draft = createDirectorDraft()
+    expect(isDirectorIntakeReady({
+      ...draft.intake,
+      productFrontName: 'front.jpg',
+      brandMode: 'brand',
+      brandName: '',
+    })).toBe(false)
+    expect(isDirectorIntakeReady({
+      ...draft.intake,
+      productFrontName: 'front.jpg',
+      brandMode: 'brand',
+      brandName: 'Pagewings',
+    })).toBe(true)
   })
 
   it('maps server analysis into the stable A/B/C presentation model', () => {

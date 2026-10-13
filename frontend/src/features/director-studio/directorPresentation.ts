@@ -7,6 +7,8 @@ export function selectDirectorBriefSummary(brief: CreativeBrief) {
   return [
     { label: '商品', value: brief.productName.trim() || '未命名' },
     { label: '品牌', value: brief.brandMode === 'brand' ? brief.brandName.trim() || '未填写品牌' : '通用风格' },
+    ...(brief.material?.trim() ? [{ label: '材质', value: brief.material.trim() }] : []),
+    ...(brief.videoType?.trim() ? [{ label: '视频类型', value: brief.videoType.trim() }] : []),
     { label: '创作目标', value: brief.objective.trim() || '未填写' },
     { label: '目标受众', value: brief.audience.trim() || '未填写' },
     { label: '保留要求', value: brief.notes.trim() || '未填写' },

@@ -9,6 +9,7 @@ import type { DirectorTaskResponse } from './directorApi'
 import {
   classifyDirectorRecoveryError,
   createDirectorTaskRecovery,
+  draftFromPersistedDirectorProject,
   validateDirectorProductReference,
   validateDirectorTaskRecovery,
 } from './directorRecovery'
@@ -118,5 +119,33 @@ describe('Director task recovery', () => {
     expect(classifyDirectorRecoveryError({ status: 404, code: 'TASK_NOT_FOUND' })).toBe('TASK_NOT_FOUND')
     expect(classifyDirectorRecoveryError({ code: 'ASSET_MISSING' })).toBe('PRODUCT_REFERENCE_EXPIRED')
     expect(classifyDirectorRecoveryError(new Error('offline'))).toBe('NETWORK_ERROR')
+  })
+
+  it('restores a local direction choice to Creative Direction until a package exists', () => {
+    const project = createCreativeProject({
+      id: 'project-1',
+      metadata: {
+        directorPlanning: {
+          brief: {
+            productName: 'Jacket',
+            brandMode: 'generic',
+            brandName: '',
+            objective: '',
+            audience: '',
+            notes: '',
+          },
+          candidates: [
+            { id: 'A', title: '干净街拍', summary: '城市街角', scene: '城市街角', behavior: '回身看镜头' },
+            { id: 'B', title: '安静质感', summary: '明亮室内', scene: '明亮室内', behavior: '整理衣摆' },
+            { id: 'C', title: '生活动作', summary: '生活化空间', scene: '生活化空间', behavior: '拿取随身物品' },
+          ],
+          selectedDirectionId: 'B',
+        },
+      },
+    })
+
+    const draft = draftFromPersistedDirectorProject(project, null)
+    expect(draft.phase).toBe('directions')
+    expect(draft.selectedDirectionId).toBe('B')
   })
 })

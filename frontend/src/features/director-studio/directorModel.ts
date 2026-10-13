@@ -76,6 +76,8 @@ export interface DirectorProductIntake {
   productFrontFile?: File
   brandMode: DirectorBrandMode
   brandName: string
+  material: string
+  videoType: string
   objective: string
   audience: string
   notes: string
@@ -148,6 +150,8 @@ export function createDirectorDraft(): DirectorDraft {
       productFrontPreviewUrl: '',
       brandMode: 'generic',
       brandName: '',
+      material: '',
+      videoType: '',
       objective: '',
       audience: '',
       notes: '',
@@ -159,6 +163,7 @@ export function createDirectorDraft(): DirectorDraft {
 
 export function isDirectorIntakeReady(intake: DirectorProductIntake): boolean {
   return Boolean(intake.productFrontName)
+    && (intake.brandMode === 'generic' || Boolean(intake.brandName.trim()))
 }
 
 export function selectDirectorDirection(
@@ -167,7 +172,7 @@ export function selectDirectorDirection(
 ): DirectorDraft {
   return {
     ...draft,
-    phase: 'package',
+    phase: 'directions',
     selectedDirectionId: directionId,
   }
 }

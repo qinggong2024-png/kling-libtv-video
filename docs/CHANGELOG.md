@@ -2,6 +2,14 @@
 
 ## 2026-10-13
 
+### Spatial Blocking + Key Visual Shot Selector
+
+- 吸收 AI-Fashion-Creative-Director v1.13.7 的空间关系、场景平面、机位轴线、人物运动轨迹和关键视觉选择规则。
+- Director Studio 新增规划级 Spatial Director：记录空间锚点、世界光源、C1/C2/C3 机位、180° 轴线、人物起止状态和接触转移。
+- 新增 Key Visual Shot Selector，先建立完整镜头时间线，再以 `keep / optional / merge` 选择最少充分关键图；分别显示镜头、关键视觉、计划、授权和已生成数量。
+- 规划状态保持 `planned_not_verified` / `planned_not_rendered`，不授予生成权限、不伪造像素复核、不替代人工审核。
+- 代码、单元测试和浏览器 fixture 记录见 `SPRINT_REPORT_SPATIAL_BLOCKING_KEY_VISUAL_20261013.md`。
+
 ### Reality Evidence Rules
 
 - 保留现有 Reality 六维与 Reality Loop，不新增 Reality Layer。

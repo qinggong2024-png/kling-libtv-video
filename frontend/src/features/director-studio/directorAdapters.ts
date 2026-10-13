@@ -6,6 +6,8 @@ export function toCreativeBrief(intake: DirectorProductIntake): CreativeBrief {
     productName: intake.productName,
     brandMode: intake.brandMode,
     brandName: intake.brandName,
+    material: intake.material,
+    videoType: intake.videoType,
     objective: intake.objective,
     audience: intake.audience,
     notes: intake.notes,

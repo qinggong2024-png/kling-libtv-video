@@ -7,6 +7,7 @@ import { GenerationFeedbackPanel } from '../../GenerationFeedback'
 import { StatusBadge } from '../../shared/components/Badges'
 import { AuthenticatedImage } from '../../shared/components/Media'
 import { formatTime, variantDisplayName, variantFileToken, variantLabelClass, variantShortLabel } from '../../domain/taskPresentation'
+import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 
 export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged, canReview = false }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean }) {
   const product = [...task.assets].sort((a, b) => a.order - b.order)[0]
@@ -143,6 +144,6 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     <div className="result-actions">
       {ready ? <><button className="icon-button" onClick={onPlay} aria-label="播放视频" title="播放"><Play size={17} /></button><button className="icon-button" disabled={downloadBusy} onClick={() => void download()} aria-label="下载视频" title="下载">{downloadBusy ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}</button><button className="icon-button" onClick={onOpen} aria-label="查看任务详情" title="查看任务详情"><Eye size={17} /></button></> : <button className="compact-button" onClick={onOpen}>查看状态</button>}
       <button className="remix-button" onClick={onRemix}><RotateCcw size={15} />同素材再制作</button>
-    </div>{downloadError ? <small className="result-action-error" role="alert">{downloadError}</small> : null}</div>
+    </div>{ready ? <HumanReviewPanel subjectType="VIDEO_VARIANT" subjectId={variant.id} taskId={task.id} canWrite={canReview} /> : null}{downloadError ? <small className="result-action-error" role="alert">{downloadError}</small> : null}</div>
   </article>
 }

@@ -135,7 +135,7 @@ function UploadTile({
         role="img"
         aria-label={`${label}预览：${file.name}`}
         draggable={!disabled}
-        title="Drag to swap positions"
+        title="拖拽交换位置（桌面端）"
         onDragStart={(event) => {
           event.stopPropagation()
           event.dataTransfer.effectAllowed = 'move'
@@ -219,7 +219,7 @@ function DetailUploadTile({
           role="img"
           data-subject-detail-index={index}
           draggable={!disabled}
-          title="Drag to swap positions"
+          title="拖拽交换位置（桌面端）"
           onDragStart={(event) => {
             event.stopPropagation()
             event.dataTransfer.effectAllowed = 'move'

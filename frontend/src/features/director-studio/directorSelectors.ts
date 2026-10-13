@@ -1,6 +1,7 @@
 import type { DirectorCandidate, DirectorTaskResponse } from './directorApi'
 import type { DirectorDraft } from './directorModel'
 import type { DirectorPlanningSnapshot, ProductionPackage, StudioHandoffContext } from './contracts'
+import type { DirectorSpatialPlan } from './spatialPlanning'
 import type { CreativeIntelligenceSnapshot } from '../../creative-project/types'
 import type { CreativeProject, CreativeTaskRecoveryReference } from '../../creative-project/types'
 import { readDirectorTaskRecovery } from './directorRecovery'
@@ -73,6 +74,7 @@ export function selectDirectorPlanningSnapshot(
   draft: DirectorDraft,
   projectId?: string,
   intelligenceSnapshot?: CreativeIntelligenceSnapshot,
+  spatialPlan?: DirectorSpatialPlan | null,
 ): DirectorPlanningSnapshot {
   const storyboard = workflow?.snapshot.storyboard
   const storyboardPackage = storyboard?.packages?.SHOT_01
@@ -84,6 +86,7 @@ export function selectDirectorPlanningSnapshot(
     selectedDirectionId: draft.selectedDirectionId,
     productionPackage: selectDirectorProductionPackage(workflow),
     handoff: selectDirectorHandoff(workflow, draft, projectId, intelligenceSnapshot),
+    ...(spatialPlan ? { spatialPlan } : {}),
     ...(workflow ? {
       directorFixed: {
         creativeTaskId: workflow.id,
