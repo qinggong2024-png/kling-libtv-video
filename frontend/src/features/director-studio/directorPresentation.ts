@@ -15,14 +15,15 @@ export function selectDirectorBriefSummary(brief: CreativeBrief) {
   ]
 }
 
-export function selectDirectorDirectionComparison(workflow: DirectorTaskResponse | null, draft: DirectorDraft) {
-  return workflow?.snapshot.plan?.directions.map((direction) => ({
-    id: direction.id,
-    scene: direction.scene,
-    behavior: direction.behavior,
-    selected: workflow.snapshot.plan?.selected_direction === direction.id,
-    planningReference: draft.directions.find((reference) => reference.id === direction.id) ?? null,
-  })) ?? []
+export function selectDirectorDirectionCards(workflow: DirectorTaskResponse | null, draft: DirectorDraft) {
+  const confirmedDirectionId = workflow?.snapshot.package
+    ? workflow.snapshot.plan?.selected_direction ?? draft.selectedDirectionId
+    : null
+  return draft.directions.map((direction) => ({
+    ...direction,
+    selected: draft.selectedDirectionId === direction.id,
+    confirmed: confirmedDirectionId === direction.id,
+  }))
 }
 
 export function selectDirectorPackageEvidence(workflow: DirectorTaskResponse | null, shotId: 'FIRST_FRAME' | 'SHOT_01') {

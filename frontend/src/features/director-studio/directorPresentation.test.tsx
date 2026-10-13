@@ -4,8 +4,8 @@ import { DirectorApiError, type DirectorTaskResponse } from './directorApi'
 import { createDirectorDraft } from './directorModel'
 import { toCreativeBrief } from './directorAdapters'
 import { prepareProductionBridge } from './productionBridge'
-import { DirectorBriefSummary, DirectorBridgeStatus, DirectorDirectionComparison, DirectorPackageEvidence } from './DirectorPlanningViews'
-import { explainDirectorFailure, selectDirectorBriefSummary, selectDirectorBridgeExplanation, selectDirectorDirectionComparison, selectDirectorPackageEvidence } from './directorPresentation'
+import { DirectorBriefSummary, DirectorBridgeStatus, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { explainDirectorFailure, selectDirectorBriefSummary, selectDirectorBridgeExplanation, selectDirectorDirectionCards, selectDirectorPackageEvidence } from './directorPresentation'
 
 function task(): DirectorTaskResponse {
   return {
@@ -61,26 +61,29 @@ describe('Director UX read-only projections', () => {
     expect(selectDirectorBriefSummary(toCreativeBrief(draft.intake))[1].value).toBe('未填写品牌')
   })
 
-  it('shows no analysis candidates before the server returns a plan', () => {
-    expect(selectDirectorDirectionComparison(null, createDirectorDraft())).toEqual([])
-    const markup = renderToStaticMarkup(<DirectorDirectionComparison workflow={null} draft={createDirectorDraft()} />)
-    expect(markup).toContain('尚无服务端方向候选')
-    expect(markup).not.toContain('城市街角')
+  it('projects direction cards without confirming before a package exists', () => {
+    const draft = createDirectorDraft()
+    const cards = selectDirectorDirectionCards(null, draft)
+    expect(cards).toHaveLength(3)
+    expect(cards.every((card) => !card.selected && !card.confirmed)).toBe(true)
+    expect(cards[0]).toMatchObject({
+      title: '干净街拍',
+      summary: '把商品细节放在自然行走和城市光线里。',
+      scene: '城市街角',
+      behavior: '回身看镜头',
+      camera: '中近景跟拍',
+      emotion: '轻松自信',
+    })
   })
 
-  it('compares server scene and behavior, labels local DNA as reference, and uses server selection', () => {
+  it('keeps selected and confirmed direction state separate', () => {
     const workflow = task()
     const draft = createDirectorDraft()
-    draft.selectedDirectionId = 'A'
+    draft.selectedDirectionId = 'B'
     const before = structuredClone(workflow)
-    const rows = selectDirectorDirectionComparison(workflow, draft)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ id: 'B', scene: 'server scene B', behavior: 'server behavior B', selected: true })
-    const markup = renderToStaticMarkup(<DirectorDirectionComparison workflow={workflow} draft={draft} />)
-    expect(markup).toContain('场景 · 服务端分析')
-    expect(markup).toContain('行为 · 服务端分析')
-    expect(markup).toContain('本地规划参考 · 非分析证据')
-    expect(markup).toContain('已选择')
+    const cards = selectDirectorDirectionCards(workflow, draft)
+    expect(cards.find((card) => card.id === 'B')).toMatchObject({ selected: true, confirmed: true })
+    expect(cards.find((card) => card.id === 'A')).toMatchObject({ selected: false, confirmed: false })
     expect(workflow).toEqual(before)
   })
 

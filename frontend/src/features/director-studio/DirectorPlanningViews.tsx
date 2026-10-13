@@ -2,12 +2,10 @@ import { LockKeyhole } from 'lucide-react'
 import { CreativePackageExportView } from './CreativePackageExportView'
 import type { CreativeBrief } from './contracts'
 import type { DirectorTaskResponse } from './directorApi'
-import type { DirectorDraft } from './directorModel'
 import type { ProductionBridgePreparation } from './productionBridge'
 import {
   selectDirectorBriefSummary,
   selectDirectorBridgeExplanation,
-  selectDirectorDirectionComparison,
   selectDirectorPackageEvidence,
 } from './directorPresentation'
 
@@ -19,31 +17,6 @@ export function DirectorBriefSummary({ brief }: { brief: CreativeBrief }) {
     </dl>
     <p className="director-evidence__note">未纳入当前离线分析请求或服务端生产包。</p>
   </details>
-}
-
-export function DirectorDirectionComparison({ workflow, draft }: { workflow: DirectorTaskResponse | null; draft: DirectorDraft }) {
-  const candidates = selectDirectorDirectionComparison(workflow, draft)
-  if (!candidates.length) return <p className="director-empty">尚无服务端方向候选</p>
-  return <section className="director-comparison" aria-label="方向差异对比">
-    <h3>场景 / 行为对比</h3>
-    <div className="director-comparison__grid">
-      {candidates.map((candidate) => <article key={candidate.id} className={`director-comparison__item${candidate.selected ? ' is-selected' : ''}`}>
-        <h4>方向 {candidate.id}{candidate.selected ? <span>已选择</span> : null}</h4>
-        <dl className="director-evidence-list">
-          <div><dt>场景 · 服务端分析</dt><dd>{candidate.scene || '未提供'}</dd></div>
-          <div><dt>行为 · 服务端分析</dt><dd>{candidate.behavior || '未提供'}</dd></div>
-        </dl>
-        {candidate.planningReference ? <details className="director-reference">
-          <summary>本地规划参考 · 非分析证据</summary>
-          <dl className="director-evidence-list">
-            <div><dt>人物</dt><dd>{candidate.planningReference.human}</dd></div>
-            <div><dt>镜头</dt><dd>{candidate.planningReference.camera}</dd></div>
-            <div><dt>情绪</dt><dd>{candidate.planningReference.emotion}</dd></div>
-          </dl>
-        </details> : null}
-      </article>)}
-    </div>
-  </section>
 }
 
 export function DirectorPackageEvidence({ workflow, shotId }: { workflow: DirectorTaskResponse | null; shotId: 'FIRST_FRAME' | 'SHOT_01' }) {
