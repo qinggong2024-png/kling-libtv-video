@@ -1,6 +1,5 @@
 import type { CreativeBrief } from './contracts'
 import { DirectorApiError, type DirectorTaskResponse } from './directorApi'
-import type { DirectorDraft } from './directorModel'
 import type { ProductionBridgePreparation, ProductionBridgeChecks } from './productionBridge'
 
 export function selectDirectorBriefSummary(brief: CreativeBrief) {
@@ -13,17 +12,6 @@ export function selectDirectorBriefSummary(brief: CreativeBrief) {
     { label: '目标受众', value: brief.audience.trim() || '未填写' },
     { label: '保留要求', value: brief.notes.trim() || '未填写' },
   ]
-}
-
-export function selectDirectorDirectionCards(workflow: DirectorTaskResponse | null, draft: DirectorDraft) {
-  const confirmedDirectionId = workflow?.snapshot.package
-    ? workflow.snapshot.plan?.selected_direction ?? draft.selectedDirectionId
-    : null
-  return draft.directions.map((direction) => ({
-    ...direction,
-    selected: draft.selectedDirectionId === direction.id,
-    confirmed: confirmedDirectionId === direction.id,
-  }))
 }
 
 export function selectDirectorPackageEvidence(workflow: DirectorTaskResponse | null, shotId: 'FIRST_FRAME' | 'SHOT_01') {

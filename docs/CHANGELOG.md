@@ -2,6 +2,13 @@
 
 ## 2026-10-13
 
+### Director Studio V2 Sprint 3
+
+- 将 Creative Direction 的场景/行为与镜头/情绪整合到三张创意决策卡，移除独立对比及重复 DNA / Reality 摘要。
+- 摘要保留现有值并标注为结果整理；名称、镜头、情绪明确为本地创意提案，来源详情区分 Fake 结果、提案、用户输入与未提供能力。
+- 保留点击只选择、确认才调用 `select_direction`、确认后锁定及既有 Production Package 流程，未改后端、Agent、Provider 或生成逻辑。
+- testing/main 的 build、lint、单测及四视口隔离浏览器通过，详见 `SPRINT_REPORT_DIRECTOR_STUDIO_V2_SPRINT3_20261013.md`。
+
 ### Spatial Blocking + Key Visual Shot Selector
 
 - 吸收 AI-Fashion-Creative-Director v1.13.7 的空间关系、场景平面、机位轴线、人物运动轨迹和关键视觉选择规则。

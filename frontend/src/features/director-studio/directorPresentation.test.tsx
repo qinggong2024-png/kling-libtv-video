@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { DirectorApiError, type DirectorTaskResponse } from './directorApi'
-import { createDirectorDraft } from './directorModel'
+import { createDirectorDraft, directionsFromAnalysis } from './directorModel'
 import { toCreativeBrief } from './directorAdapters'
 import { prepareProductionBridge } from './productionBridge'
-import { DirectorBriefSummary, DirectorBridgeStatus, DirectorPackageEvidence } from './DirectorPlanningViews'
-import { explainDirectorFailure, selectDirectorBriefSummary, selectDirectorBridgeExplanation, selectDirectorDirectionCards, selectDirectorPackageEvidence } from './directorPresentation'
+import { DirectorBriefSummary, DirectorBridgeStatus, DirectorDirectionCard, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { explainDirectorFailure, selectDirectorBriefSummary, selectDirectorBridgeExplanation, selectDirectorPackageEvidence } from './directorPresentation'
 
 function task(): DirectorTaskResponse {
   return {
@@ -61,30 +61,53 @@ describe('Director UX read-only projections', () => {
     expect(selectDirectorBriefSummary(toCreativeBrief(draft.intake))[1].value).toBe('未填写品牌')
   })
 
-  it('projects direction cards without confirming before a package exists', () => {
-    const draft = createDirectorDraft()
-    const cards = selectDirectorDirectionCards(null, draft)
-    expect(cards).toHaveLength(3)
-    expect(cards.every((card) => !card.selected && !card.confirmed)).toBe(true)
-    expect(cards[0]).toMatchObject({
-      title: '干净街拍',
-      summary: '把商品细节放在自然行走和城市光线里。',
-      scene: '城市街角',
-      behavior: '回身看镜头',
-      camera: '中近景跟拍',
-      emotion: '轻松自信',
-    })
+  it('does not show fallback scenes as analysis when the server result is absent', () => {
+    const markup = renderToStaticMarkup(<DirectorDirectionCard
+      direction={createDirectorDraft().directions[0]} workflow={null}
+      selected={false} confirmed={false} disabled={true} onSelect={() => {}}
+    />)
+    expect(markup).toContain('Unknown')
+    expect(markup).toContain('未提供')
+    expect(markup).not.toContain('城市街角')
+    expect(markup).not.toContain('回身看镜头')
+    expect(markup).toContain('中近景跟拍')
+    expect(markup).toContain('本地规划参考，非 AI 分析结果')
+    expect(markup).toContain('aria-pressed="false"')
   })
 
-  it('keeps selected and confirmed direction state separate', () => {
+  it('labels server results, locally composed summary and creative proposals without inventing evidence', () => {
     const workflow = task()
-    const draft = createDirectorDraft()
-    draft.selectedDirectionId = 'B'
+    const direction = directionsFromAnalysis(workflow.snapshot.plan!.directions)[0]
     const before = structuredClone(workflow)
-    const cards = selectDirectorDirectionCards(workflow, draft)
-    expect(cards.find((card) => card.id === 'B')).toMatchObject({ selected: true, confirmed: true })
-    expect(cards.find((card) => card.id === 'A')).toMatchObject({ selected: false, confirmed: false })
+    const markup = renderToStaticMarkup(<DirectorDirectionCard
+      direction={direction} workflow={workflow}
+      selected={true} confirmed={true} disabled={true} onSelect={() => {}}
+    />)
+    expect(markup).toContain('AI Result · 离线 Fake')
+    expect(markup).toContain('server scene B')
+    expect(markup).toContain('摘要：前端按结果整理')
+    expect(markup).toContain('名称 / 镜头 / 情绪：本地规划参考')
+    expect(markup).toContain('User Input · 用户输入')
+    expect(markup).toContain('Unknown · 未提供')
+    expect(markup).toContain('目标受众适配 / Product Evidence / Trade-off')
+    expect(markup).not.toContain('Creative Strategy')
+    expect(markup).toContain('已确认')
+    expect(markup).toContain('aria-pressed="true"')
     expect(workflow).toEqual(before)
+  })
+
+  it('distinguishes selection from confirmation and keeps empty fields unprovided', () => {
+    const workflow = task()
+    workflow.snapshot.plan!.directions[0].scene = ''
+    const direction = { ...createDirectorDraft().directions[1], camera: '', emotion: '' }
+    const markup = renderToStaticMarkup(<DirectorDirectionCard
+      direction={direction} workflow={workflow}
+      selected={true} confirmed={false} disabled={false} onSelect={() => {}}
+    />)
+    expect(markup).toContain('已选择')
+    expect(markup).not.toContain('已确认')
+    expect(markup).not.toContain('明亮室内')
+    expect(markup.match(/<dd>未提供<\/dd>/g)).toHaveLength(3)
   })
 
   it('preserves exact package evidence and keeps FIRST_FRAME and SHOT_01 independent', () => {
