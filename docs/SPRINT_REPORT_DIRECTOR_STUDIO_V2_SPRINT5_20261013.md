@@ -54,6 +54,8 @@
   build、lint 通过，Vitest 57 文件 / 404 项通过。
 - main 源码同步后独立 build、lint 通过，Vitest 57 文件 / 397 项通过；
   两侧原有代码 / 测试数量差异保留，没有盲目覆盖生产树。
+- 并行 Image Studio 提交完成后，testing 共享工作区最终 build、lint 通过，
+  Vitest 57 文件 / 405 项通过。
 - 两侧交接组件检查均通过 1440、1024、768、390：
   技术详情默认隐藏、Fake 明显、无横向页面溢出、缺项诚实展示、
   独立图片 / 视频全文复制、整包复制、JSON 下载、刷新和旧包无合同分支。
@@ -70,11 +72,14 @@
   屏蔽非 GET / HEAD 请求，不访问正式后端。
 - testing 额外全站 shell 脚本在四个视口的旧“批量创作”入口断言处失败；
   导演空态 / 上传、导航和布局段已执行通过，任务深链 / 返回通过。
-  该附加脚本没有全套通过，不能据此声称全站回归成功；没有放宽断言或扩展修改范围。
+  这是并行 Image Studio 工作完成前的检查结果；没有放宽断言或扩展本轮修改范围。
+- 并行工作完成后重新运行 testing 共享工作区完整 shell 脚本：
+  1440、1024、768、390 全部通过，任务深链及记录滚动通过；
+  无横向页面溢出。该检查仍为隔离 UI，不替代正式版本真实商品验收。
 - 已人工复核四个视口首屏及移动端长文截图。
 - 证据目录：`E:/Codex/director-v2-sprint5-20261013/`，
   内含 testing-package、testing-workflow、testing-smoke、testing-shell
-  和 main-package、main-workflow、main-smoke。
+  和 main-package、main-workflow、main-smoke、shared-final-shell。
 - 没有真实 Provider、数据库写入、付费生成或正式版本运行验收。
 
 ## 同步

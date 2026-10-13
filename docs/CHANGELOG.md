@@ -11,7 +11,7 @@
 - 复用服务端字段来源与状态；未知内容显示未提供，不根据字段完整度推导生产就绪。
 - 提示词预览限制高度，复制仍使用完整原文；JSON 导出保留原始合同。
 - testing 隔离副本与 main 独立 build、lint、单测、四视口交接/流程和 smoke 通过；
-  额外全站脚本存在旧批量入口断言失败，未扩大范围修复 Image Studio。
+  并行工作完成后共享 testing build、lint、405 项单测及四视口完整 shell 通过。
 - 详细范围、证据、源码同步和限制见
   `SPRINT_REPORT_DIRECTOR_STUDIO_V2_SPRINT5_20261013.md`；源码同步不等于部署。
 
