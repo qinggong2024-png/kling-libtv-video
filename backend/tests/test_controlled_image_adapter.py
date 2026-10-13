@@ -40,7 +40,7 @@ def _brand() -> dict:
 def _request() -> CreativeImageProviderRequest:
     prompt = "Preserve the canonical product and create one FIRST_FRAME image."
     options = ImageProviderOptions()
-    return CreativeImageProviderRequest(
+    request = CreativeImageProviderRequest(
         creative_task_id=TASK,
         owner_id=OWNER,
         state_version=12,
@@ -93,6 +93,13 @@ def _request() -> CreativeImageProviderRequest:
             quality=options.quality,
         ),
     )
+    return request.model_copy(
+        update={
+            "request_hash": digest(
+                request.model_dump(mode="json", exclude={"request_hash"})
+            )
+        }
+    )
 
 
 def _package(*, brand: dict | None = None) -> dict:
@@ -136,6 +143,17 @@ def _compile(package: dict | None = None, request=None, **kwargs):
         owner_id=OWNER,
         creative_task_id=TASK,
         **kwargs,
+    )
+
+
+def _updated_request(request: CreativeImageProviderRequest, **updates):
+    updated = request.model_copy(update=updates)
+    return updated.model_copy(
+        update={
+            "request_hash": digest(
+                updated.model_dump(mode="json", exclude={"request_hash"})
+            )
+        }
     )
 
 
@@ -191,11 +209,11 @@ def test_identity_source_prompt_and_brand_tampering_is_rejected(mutation, code):
     package = _package(brand=_brand())
     request = _request()
     if mutation == "owner":
-        request = request.model_copy(update={"owner_id": "other-owner"})
+        request = _updated_request(request, owner_id="other-owner")
     elif mutation == "task":
-        request = request.model_copy(update={"creative_task_id": "other-task"})
+        request = _updated_request(request, creative_task_id="other-task")
     elif mutation == "package":
-        request = request.model_copy(update={"package_revision_id": "other-package"})
+        request = _updated_request(request, package_revision_id="other-package")
     elif mutation == "source":
         package["provenance"]["sourceHash"] = "f" * 64
     elif mutation == "prompt":
@@ -219,7 +237,7 @@ def test_batch_multi_shot_and_fake_boundaries_are_rejected(mutation):
     elif mutation == "storyboard_shot":
         package["provenance"]["sourcePackage"]["shot_id"] = "SHOT_01"
     elif mutation == "multiple_references":
-        request = request.model_copy(update={
+        request = _updated_request(request, **{
             "references": (
                 *request.references,
                 request.references[0].model_copy(update={"order": 2}),
@@ -228,7 +246,7 @@ def test_batch_multi_shot_and_fake_boundaries_are_rejected(mutation):
     elif mutation == "fake_package":
         package["provenance"]["synthetic"] = True
     else:
-        request = request.model_copy(update={"provider": "fake"})
+        request = _updated_request(request, provider="fake")
     with pytest.raises(ControlledImageAdapterRejected) as rejected:
         _compile(package, request)
     assert rejected.value.code in {
@@ -256,3 +274,12 @@ def test_missing_or_changed_creative_state_revision_is_rejected():
     with pytest.raises(ControlledImageAdapterRejected) as rejected:
         _compile(_package(), creative_state_revision=13)
     assert rejected.value.code == "CREATIVE_STATE_REVISION_MISMATCH"
+
+
+def test_provider_request_hash_tampering_is_rejected():
+    request = _request().model_copy(update={"request_hash": "0" * 64})
+
+    with pytest.raises(ControlledImageAdapterRejected) as rejected:
+        _compile(_package(), request)
+
+    assert rejected.value.code == "PROVIDER_REQUEST_HASH_MISMATCH"

@@ -245,6 +245,13 @@ def _assert_identity(
     return provenance
 
 
+def _assert_provider_request_integrity(request: CreativeImageProviderRequest) -> None:
+    if request.request_hash != digest(
+        request.model_dump(mode="json", exclude={"request_hash"})
+    ):
+        _reject("PROVIDER_REQUEST_HASH_MISMATCH")
+
+
 def compile_controlled_image_batch_input(
     package: Mapping[str, Any],
     provider_request: CreativeImageProviderRequest | Mapping[str, Any],
@@ -274,6 +281,7 @@ def compile_controlled_image_batch_input(
         _reject("PROVIDER_REQUEST_INVALID", str(exc))
     owner = _as_string(owner_id)
     task_id = _as_string(creative_task_id)
+    _assert_provider_request_integrity(request)
     provenance = _assert_identity(package, request, owner_id=owner, creative_task_id=task_id)
     _assert_single_first_frame(package, provenance)
     _assert_not_fake(package, request)
