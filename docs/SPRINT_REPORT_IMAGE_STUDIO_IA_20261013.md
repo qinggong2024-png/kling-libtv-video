@@ -28,7 +28,7 @@
 - 既有 shell 隔离检查：四视口及任务深链/记录滚动恢复通过，覆盖导演台切回图片工作室。
 - 既有图片审核检查：四视口、选片不写审核、只读比较、显式拒绝及焦点恢复通过。
 - 证据：`E:/Codex/image-studio-ia-final-testing`、`E:/Codex/image-studio-shell-final-testing`、`E:/Codex/image-studio-review-final-testing`。
-- 使用离线 fixture，未调用真实 Provider、付费生成或生产数据写入。生产分支独立验证及源码同步结果见后续同步记录。
+- 使用离线 fixture，未调用真实 Provider、付费生成或生产数据写入。
 
 ## 发现与限制
 
@@ -36,6 +36,18 @@
 - 原 IndexedDB 保存有 450ms 防抖；刷新恢复验收等待“草稿已保存”。图生图展示保存状态，未完成保存就刷新仍可能丢失尚未写入的修改。
 - 502 仍属于运行环境问题；本次只验证异常时阻断新任务，没有修改 API proxy、Windows 服务或重启服务。
 - 浏览器通过不代表真实生成质量、服务连通性、人工方向或上线接受已完成。
+- main 的全站 shell 脚本四视口页面检查通过，但任务详情返回后的精确滚动位置断言超时。隔离对照撤去新增导航事件仍复现；初次取样位置 2601 超出返回页最大滚动范围 1766，等待网络空闲后仍观察到 6–47px 偏移。未修改 Task Center / Drawer / 任务时序业务，未把这项检查记为通过，保留为独立待查项。
+
+## 源码同步与生产分支验证
+
+- 测试源码提交：`e358a49`、`469973d`；生产源码提交：`912fe25`、`de411ee`。
+- 使用实际 production checkout `C:/Users/Reel/Documents/libtv-auto-main-sync` 的 `main`，从测试仓库取回指定提交后逐笔 cherry-pick；没有通过测试仓库的陈旧 main 引用覆盖生产目录。
+- 本次推广的 19 个文件 Git blob 与测试提交逐一一致，保留其他会话的导演台代码与文档变化、生产专有文件及双方未跟踪运行报告和用户 ZIP。
+- main 独立 build、lint 通过；58 个 Vitest 文件、401 项测试通过。测试与生产分支原有差异保留，因此总测试数量不同。
+- main 五视口 Image Studio 完整隔离流程全部通过；图片审核四视口回归通过。main 全站 shell 的滚动恢复结果按上文如实记录。
+- main 构建输出位于 `E:/Codex/image-studio-main-build`，未覆盖生产运行产物。证据目录：`E:/Codex/image-studio-ia-final-main`、`E:/Codex/image-studio-review-final-main`、`E:/Codex/image-studio-shell-final-main`。
+- 本地离线界面预览位于 `http://127.0.0.1:5188/?view=images&pane=image`；仅本地预览，所有写请求阻断，生成按钮已验证禁用。
+- 源码同步成功；未部署、重启服务、执行迁移、写入生产数据或调用付费 Provider。双方最终工作树只保留其他会话/用户改动与既有未跟踪文件。
 
 ## 下一步
 
