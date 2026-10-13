@@ -6,10 +6,10 @@ export const packageFields = [
   ['characterDNA', '人物设定'],
   ['sceneDNA', '场景设定'],
   ['cameraDNA', '镜头设定'],
-  ['imagePrompt', '图片 Prompt'],
-  ['videoPrompt', '视频 Prompt'],
-  ['shotPlan', '分镜'],
-  ['qualityChecklist', '人工检查项'],
+  ['imagePrompt', '图片生成提示词'],
+  ['videoPrompt', '视频创作提案'],
+  ['shotPlan', '镜头规划'],
+  ['qualityChecklist', '质量检查'],
 ] as const
 
 export type CreativePackageDocument = Record<string, unknown> & {
@@ -24,8 +24,32 @@ export type CreativePackageDocument = Record<string, unknown> & {
   qualityChecklist: unknown
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function creativePackageFieldStatus(document: CreativePackageDocument, field: string): string {
+  if (document[field] === null || document[field] === undefined || document[field] === ''
+    || (Array.isArray(document[field]) && document[field].length === 0)) return '未提供'
+  const statuses = isRecord(document.fieldStatus) ? document.fieldStatus : {}
+  if (statuses[field] === 'PROPOSED') return '创意提案 · 待人工确认'
+  if (statuses[field] === 'UNRESOLVED') return '未提供 · 待补充'
+  return statuses[field] === 'PRESENT' ? '已记录 · 未验证生产内容' : '状态未提供'
+}
+
+export function creativePackageFieldSource(document: CreativePackageDocument, field: string): string {
+  const provenance = isRecord(document.provenance) ? document.provenance : {}
+  const evidence = isRecord(provenance.originEvidence) ? provenance.originEvidence : {}
+  const sources = isRecord(evidence.fieldSources) ? evidence.fieldSources : {}
+  const source = typeof sources[field] === 'string' ? sources[field] : ''
+  if (source.startsWith('proposed-video-handoff.')) return '方向与冻结包规则整理的交接提案'
+  if (source.startsWith('plan.brand_dna.')) return '任务绑定的品牌上下文'
+  if (source.startsWith('plan.directions')) return '已选择方向的提案记录'
+  if (source.startsWith('package.reality')) return '冻结生产包中的规则记录'
+  if (source === 'package.prompt') return '冻结生产包原文'
+  if (source.startsWith('package.')) return '冻结生产包'
+  if (source.startsWith('plan.')) return '任务规划记录'
+  return '未提供'
 }
 
 export function selectCreativePackageExport(workflow: DirectorTaskResponse | null, packageId: string): CreativePackageDocument | null {

@@ -53,6 +53,7 @@ import { DirectorAnalysisTrace, DirectorBridgeStatus, DirectorDirectionCard, Dir
 import { DirectorBrandDNAView } from './DirectorBrandDNAView'
 import { selectDirectorBrandProfile } from './directorBrandDNA'
 import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
+import { CreativePackageExportView } from './CreativePackageExportView'
 import { SpatialPlanningView } from './SpatialPlanningView'
 import { createDirectorSpatialPlan, type DirectorSpatialPlan } from './spatialPlanning'
 import './directorStudio.css'
@@ -704,12 +705,21 @@ export function DirectorStudio() {
       <section className={`director-stage director-stage--package${activeStage === 'package' ? ' is-active' : ' is-secondary'}`} aria-labelledby="director-package-title">
         <div className="director-stage__summary">
           <strong>生产方案</strong>
-          <span>{workflow?.snapshot.package ? packageState : '确认方向后整理图片、视频 Prompt 和分镜'}</span>
+          <span>{workflow?.snapshot.package ? packageState : '确认方向后整理图片提示词、视频创作提案和镜头规划'}</span>
         </div>
         <div className="director-stage__content">
       {workflow?.snapshot.package ? <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
-        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">生产方案 <small>Production Package</small></h2><p>选择方向后查看图片、视频 Prompt 和分镜。</p></div></div></div>
-         <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>当前为离线 Fake 流程，候选仅用于验证，不可交付。</span></div></div>
+        <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">生产方案 <small>Production Package</small></h2><p>创意交接文档</p></div></div></div>
+        <section className="director-handoff-summary" aria-label="当前方案摘要">
+          <h3>当前方案摘要</h3>
+          <div className="director-package-state"><LockKeyhole size={18} /><div><strong>Fake · 仅规划 · 不可交付</strong><span>{packageState}；不代表素材已生成或已验证生产内容。</span></div></div>
+          <dl className="director-handoff-summary__facts">
+            <div><dt>已确认方向</dt><dd>{confirmedDirectionId ? `${confirmedDirectionId}${selectedDirection ? ` · ${selectedDirection.title}` : ''}` : '未提供'}</dd></div>
+            <div><dt>方案版本</dt><dd>r{workflow.snapshot.package.revision} · 首帧图片规划</dd></div>
+          </dl>
+          {selectedDirection ? <p className="director-handoff-summary__description">{selectedDirection.summary}<small>方向结果整理 · 名称为本地创意提案</small></p> : null}
+        </section>
+        <CreativePackageExportView workflow={workflow} packageId={workflow.snapshot.package.package_id} spatialPlan={spatialPlan}>
          <DirectorAnalysisTrace analysis={workflow.snapshot.director_analysis} />
          {spatialPlan ? <SpatialPlanningView plan={spatialPlan} onChange={(nextPlan) => {
            setSpatialPlan(nextPlan)
@@ -791,7 +801,7 @@ export function DirectorStudio() {
             <div>
               <span className="director-panel__index">04</span>
               <div>
-                <h2 id="director-storyboard-title">Storyboard / SHOT_01</h2>
+                <h2 id="director-storyboard-title">镜头规划验证 / SHOT_01</h2>
                 <p>首帧选择后，单独处理 SHOT_01。</p>
               </div>
             </div>
@@ -811,6 +821,7 @@ export function DirectorStudio() {
             </div>
           </div>
           <DirectorPackageEvidence workflow={workflow} shotId="SHOT_01" />
+          {storyboardPackage ? <CreativePackageExportView workflow={workflow} packageId={storyboardPackage.package_id} /> : null}
           {workflow && canAuthorizeStoryboard(workflow) ? <button
             type="button"
             className="primary-button director-action"
@@ -958,6 +969,7 @@ export function DirectorStudio() {
             </div>
           </details>
         </section> : null}
+        </CreativePackageExportView>
       </section> : <div className="director-stage__empty">方向确认后，这里会展示生产方案及其复制、导出入口。</div>}
         </div>
       </section>

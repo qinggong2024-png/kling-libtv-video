@@ -5,6 +5,8 @@ import { CreativePackageExportView } from './CreativePackageExportView'
 import {
   copyCreativePackage,
   creativePackageDisplayText,
+  creativePackageFieldSource,
+  creativePackageFieldStatus,
   creativePackageJson,
   creativePackageText,
   packageFieldText,
@@ -55,10 +57,52 @@ describe('Creative Package export', () => {
 
   it('offers no video copy when video Prompt is missing', () => {
     const markup = renderToStaticMarkup(<CreativePackageExportView workflow={workflow()} packageId="first-package" />)
-    expect(markup).toContain('复制图片 Prompt')
-    expect(markup).not.toContain('aria-label="复制视频 Prompt"')
+    expect(markup).toContain('复制图片生成提示词全文')
+    expect(markup).not.toContain('aria-label="复制视频创作提案全文"')
     expect(markup).toContain('下载 Creative Package JSON')
-    expect(markup).toContain('OFFLINE_SYNTHETIC_ONLY')
+    expect(markup).toContain('Fake · 离线合成 · 不可交付')
+  })
+
+  it('separates handoff content and collapsed technical evidence without altering the contract', () => {
+    const before = structuredClone(document)
+    const markup = renderToStaticMarkup(<CreativePackageExportView workflow={workflow()} packageId="first-package"><p>Bridge evidence</p></CreativePackageExportView>)
+    const technical = markup.indexOf('<summary>技术详情</summary>')
+    for (const label of ['制作要求', '图片生成提示词', '视频创作提案', '镜头规划', '质量检查']) {
+      expect(markup.indexOf(`<h3>${label}</h3>`)).toBeLessThan(technical)
+    }
+    expect(markup).not.toContain('<details class="creative-package-technical" open')
+    expect(markup.indexOf('Bridge evidence')).toBeGreaterThan(technical)
+    expect(markup).toContain('不代表已完成分镜')
+    expect(markup).toContain('规划内容不等于已验证生产内容')
+    expect(document).toEqual(before)
+  })
+
+  it('keeps technical workflow available for a historical package without inventing an export', () => {
+    const markup = renderToStaticMarkup(<CreativePackageExportView workflow={null} packageId="first-package"><p>Existing Fake workflow</p></CreativePackageExportView>)
+    expect(markup).toContain('暂无可导出合同')
+    expect(markup).toContain('Existing Fake workflow')
+    expect(markup).not.toContain('<button')
+  })
+
+  it('labels only provided field statuses and origins, never grants execution qualification', () => {
+    const proposed = { ...document, videoPrompt: 'FAKE SOURCE. Complete proposal.',
+      fieldStatus: { imagePrompt: 'PRESENT', videoPrompt: 'PROPOSED' },
+      provenance: { ...document.provenance as object, originEvidence: { fieldSources: {
+        imagePrompt: 'package.prompt',
+        videoPrompt: 'proposed-video-handoff.v1(plan.directions[selected_direction])',
+        audience: 'plan.brand_dna.audience',
+      } } },
+    }
+    expect(creativePackageFieldSource(proposed, 'imagePrompt')).toBe('冻结生产包原文')
+    expect(creativePackageFieldSource(proposed, 'videoPrompt')).toContain('交接提案')
+    expect(creativePackageFieldSource(proposed, 'audience')).toBe('任务绑定的品牌上下文')
+    expect(creativePackageFieldStatus(proposed, 'videoPrompt')).toBe('创意提案 · 待人工确认')
+    expect(creativePackageFieldStatus(proposed, 'imagePrompt')).toBe('已记录 · 未验证生产内容')
+    expect(creativePackageFieldStatus(proposed, 'audience')).toBe('未提供')
+    expect(creativePackageFieldSource(document, 'cameraDNA')).toBe('未提供')
+    expect(creativePackageFieldStatus(document, 'cameraDNA')).toBe('状态未提供')
+    const markup = renderToStaticMarkup(<CreativePackageExportView workflow={workflow({ 'first-package': proposed })} packageId="first-package" />)
+    expect(markup).not.toMatch(/生产就绪|可执行|已完成<\/|质检通过<\/|<textarea/)
   })
 
   it('does not invent exports for historical snapshots', () => {
