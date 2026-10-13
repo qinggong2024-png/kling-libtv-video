@@ -17,4 +17,10 @@ describe('Image Studio information architecture navigation', () => {
   it('falls back to the home entry point for unknown modes', () => {
     expect(readImageStudioView('?view=images&pane=image&imageMode=assets')).toBe('home')
   })
+
+  it('preserves the professional destinations beneath batch production', () => {
+    for (const mode of ['batch-create', 'batch-products', 'batch-storyboard']) {
+      expect(readImageStudioView(`?view=images&pane=image&imageMode=${mode}`)).toBe(mode)
+    }
+  })
 })

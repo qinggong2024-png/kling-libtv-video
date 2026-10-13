@@ -48,7 +48,11 @@ export function useAppNavigation() {
       setRecordsQuery(next.recordsQuery)
     }
     window.addEventListener('popstate', restoreLocation)
-    return () => window.removeEventListener('popstate', restoreLocation)
+    window.addEventListener('app:navigation', restoreLocation)
+    return () => {
+      window.removeEventListener('popstate', restoreLocation)
+      window.removeEventListener('app:navigation', restoreLocation)
+    }
   }, [])
 
   const navigateRecords = useCallback((nextFilter: RecordsFilter, nextQuery: string, replace = false) => {
@@ -65,6 +69,7 @@ export function useAppNavigation() {
     if (normalizedQuery) params.set('q', normalizedQuery)
     const url = `${window.location.pathname}?${params.toString()}`
     window.history[replace ? 'replaceState' : 'pushState'](null, '', url)
+    window.dispatchEvent(new Event('app:navigation'))
   }, [])
 
   const openTaskFromRecords = useCallback((taskId: string) => {
@@ -117,6 +122,7 @@ export function useAppNavigation() {
     if (nextView === 'admin' && nextAdminSection !== 'overview') params.set('section', nextAdminSection)
     const url = `${window.location.pathname}${params.size ? `?${params.toString()}` : ''}`
     window.history[replace ? 'replaceState' : 'pushState'](null, '', url)
+    window.dispatchEvent(new Event('app:navigation'))
   }, [])
 
   const navigateSurface = useCallback((next: ProductSurface) => {
@@ -132,6 +138,7 @@ export function useAppNavigation() {
       params.set('filter', 'attention')
     }
     window.history.pushState(null, '', `${window.location.pathname}?${params}`)
+    window.dispatchEvent(new Event('app:navigation'))
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [])
 
