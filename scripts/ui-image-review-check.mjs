@@ -43,7 +43,7 @@ let browser
 try {
   await server.listen()
   const port = server.httpServer.address().port
-  browser = await chromium.launch({ channel: 'msedge', headless: true })
+  browser = await chromium.launch({ channel: process.env.UI_BROWSER_CHANNEL || 'chrome', headless: true })
   const page = await browser.newPage()
   const writes = []
   const errors = []
@@ -63,8 +63,8 @@ try {
       await route.fulfill({json:{id,qualificationStatus:writes.at(-1).decision,qualityGates:{},reviewedAt:new Date().toISOString(),humanReviewSeconds:1}})
     } else await route.fulfill({status:404,json:{detail:'Fixture blocks all live APIs'}})
   })
-  await page.goto(`http://127.0.0.1:${port}/__review_fixture`)
-  await page.getByRole('heading',{name:'图片中心',exact:true}).waitFor()
+  await page.goto(`http://127.0.0.1:${port}/__review_fixture?view=images&pane=image&imageMode=records`)
+  await page.getByRole('heading',{name:'生图记录',exact:true}).waitFor()
   await page.getByRole('button',{name:'勾选合成结果 1',exact:true}).click()
   await page.getByRole('button',{name:'勾选合成结果 2',exact:true}).click()
   assert.equal(writes.length,0,'Selection must not write an approval')

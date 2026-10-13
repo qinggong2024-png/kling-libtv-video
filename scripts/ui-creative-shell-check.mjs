@@ -133,9 +133,11 @@ try {
       assert.equal(await nav.getByRole('button', { name: '导演台', exact: true }).getAttribute('aria-current'), 'page', 'Director has its own navigation state')
       assert.equal(await page.getByRole('button', { name: '智能导演', exact: true }).count(), 0, 'Image Studio tabs do not duplicate Director Studio')
       await nav.getByRole('button', { name: '图片工作室', exact: true }).click()
-      await page.getByRole('button', { name: '批量创作', exact: true }).click()
+      await page.getByRole('heading', { level: 1, name: '图片工作室', exact: true }).waitFor()
+      await page.getByRole('button', { name: /批量生产/ }).click()
+      await page.getByRole('button', { name: /批量创作/ }).click()
       await page.locator('.image-center-create').waitFor({ state: 'visible' })
-      assert.equal(await page.getByRole('heading', { level: 1, name: '图片工作室', exact: true }).count(), 1, 'Custom Image Studio keeps its title')
+      assert.equal(await page.getByRole('heading', { level: 1, name: '批量创作', exact: true }).count(), 1, 'Batch editor is beneath the production entry')
       await layout('image')
       assert.deepEqual(errors, [])
       result.passed = true

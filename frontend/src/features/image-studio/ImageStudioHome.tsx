@@ -1,4 +1,4 @@
-import { ArrowRight, History, ImagePlus, Layers3, Sparkles, Type } from 'lucide-react'
+import { ArrowRight, History, ImagePlus, Layers3, Type } from 'lucide-react'
 import type { ImageStudioView } from './imageStudioNavigation'
 
 export function ImageStudioHome({ taskCount, onOpen }: {
@@ -20,7 +20,7 @@ export function ImageStudioHome({ taskCount, onOpen }: {
         <span className="image-studio-entry__copy">
           <small>首选工作流</small>
           <strong>图生图</strong>
-          <span>上传商品图和人物参考，生成可直接用于广告的画面。</span>
+          <span>商品与人物参考图生成服装广告画面。</span>
         </span>
         <ArrowRight className="image-studio-entry__arrow" size={20} />
       </button>
@@ -30,7 +30,7 @@ export function ImageStudioHome({ taskCount, onOpen }: {
         <span className="image-studio-entry__copy">
           <small>创意探索</small>
           <strong>文生图</strong>
-          <span>从一句创意描述开始，探索风格、场景和构图方向。</span>
+          <span>创意提示词草稿 · 纯文本生成暂未开放。</span>
         </span>
         <ArrowRight className="image-studio-entry__arrow" size={20} />
       </button>
@@ -52,7 +52,6 @@ export function ImageStudioHome({ taskCount, onOpen }: {
         <span><strong>生图记录</strong><small>{taskCount ? `${taskCount} 个批次，查看进度和结果` : '查看已提交的任务和结果'}</small></span>
         <ArrowRight size={17} />
       </button>
-      <div className="image-studio-home__note"><Sparkles size={16} /><span>先选择创作方式，复杂配置会在需要时出现。</span></div>
     </div>
   </section>
 }

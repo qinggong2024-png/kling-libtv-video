@@ -1,33 +1,23 @@
-import {
-  AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Clock3, Columns2, Film, GripVertical,
-  Download, Image as ImageIcon, Images, LoaderCircle, Package, Plus, RotateCcw, Shirt,
-  Sparkles, UploadCloud, UserRound, WandSparkles, X,
-} from 'lucide-react'
+import { AlertTriangle, CheckCircle2, LoaderCircle, WandSparkles, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../imageFiles'
-import { ApiError, createImageGenerationBatch, fetchAssetObjectUrl, getImageGenerationBatch, querySubmissionRecovery, saveAsset, setImageOutputQualityDecision } from '../../api'
-import { CustomPromptField } from '../../CustomPromptField'
+import { ApiError, createImageGenerationBatch, getImageGenerationBatch, querySubmissionRecovery } from '../../api'
 import {
-  IMAGE_ASSET_SLOT_LABELS, MAX_IMAGE_CENTER_OUTFITS,
+  MAX_IMAGE_CENTER_OUTFITS,
   buildImageGenerationBatchRequest, buildWaitingTasks, calculateImageTaskSummary, compactImageAssetSet,
-  createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getImageAssetSlots, getOrderedSelectedTasks, imageAssetSetFromSlots,
-  moveImageAssetSlot, normalizeImageGenerationModes, normalizeImageGenerationQuality, parseStoryboardPrompt, validateImageCenterDraft,
+  createImageCenterDraft, createImageCenterRegenerationDraft, createOutfit, getOrderedSelectedTasks,
+  normalizeImageGenerationModes, normalizeImageGenerationQuality, parseStoryboardPrompt, validateImageCenterDraft,
 } from '../../imageCenterModel'
 import type { ImageGenerationBatch, ImageGenerationBatchItem } from '../../types'
 import type {
-  ImageAssetSet, ImageCenterDraft, ImageGenerationMode, ImageGenerationOutput,
-  ImageGenerationTask, ImageProvider, OutfitDraft,
+  ImageCenterDraft, ImageGenerationMode, ImageGenerationOutput, ImageGenerationTask, OutfitDraft,
 } from '../../imageCenterModel'
 import { loadImageCenterDraft, saveImageCenterDraft } from '../../imageCenterStore'
 import { createUuid } from '../../uuid'
 import { imageTaskNotificationForTransition } from '../../browserNotifications'
-import { FoundationDrawer } from '../../shared/components/ui'
-import { imageStatusPresentation } from '../../domain/statusPresentation'
+import { readStorage, writeStorage } from '../../safeStorage'
 import { DirectorStudio } from '../director-studio/DirectorStudio'
-import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 import '../image-center/imageReview.css'
 import { BatchStudio } from './BatchStudio'
 import { ImageRecords } from './ImageRecords'
@@ -35,6 +25,11 @@ import { ImageStudioHome } from './ImageStudioHome'
 import { ImageToImageStudio } from './ImageToImageStudio'
 import { TextToImageStudio } from './TextToImageStudio'
 import { useImageStudioNavigation } from './imageStudioNavigation'
+import { BatchCreationView } from './BatchCreationView'
+import { OrderedAssetUpload } from './shared/ImageAssets'
+import { AssetPreviewDialog, BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputPreview, SelectionWorkbench } from './ImageResultTools'
+
+export { BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputCard } from './ImageResultTools'
 
 import type {
   ImageCenterNotificationEvent,
@@ -48,8 +43,6 @@ export type {
   VideoSubjectSource,
 } from './contracts'
 
-const ASSET_SLOT_DRAG_TYPE = 'application/x-image-center-slot'
-const IMAGE_OUTPUT_DRAG_TYPE = 'application/x-image-center-output'
 const TERMINAL_IMAGE_STATUSES = new Set(['completed', 'failed', 'write_uncertain'])
 type GenerationAvailability = 'checking' | 'available' | 'unavailable'
 
@@ -95,570 +88,8 @@ function mergeBatchIntoTasks(tasks: ImageGenerationTask[], batch: ImageGeneratio
   })
 }
 
-function useFileUrl(file: File | null): string {
-  const [url, setUrl] = useState('')
-  useEffect(() => {
-    let active = true
-    if (!file) {
-      queueMicrotask(() => { if (active) setUrl('') })
-      return () => { active = false }
-    }
-    const nextUrl = URL.createObjectURL(file)
-    queueMicrotask(() => { if (active) setUrl(nextUrl) })
-    return () => {
-      active = false
-      URL.revokeObjectURL(nextUrl)
-    }
-  }, [file])
-  return url
-}
-
-function AssetPreview({ file, url = '', alt }: { file: File | null; url?: string; alt: string }) {
-  const source = useFileUrl(file) || url
-  return source ? <img src={source} alt={alt} draggable={false} /> : <ImageIcon aria-hidden="true" size={22} />
-}
-
-function AuthenticatedAssetPreview({ file, url, alt }: { file: File | null; url: string; alt: string }) {
-  const [authenticatedUrl, setAuthenticatedUrl] = useState('')
-  useEffect(() => {
-    let active = true
-    let objectUrl = ''
-    if (!url || file) {
-      queueMicrotask(() => { if (active) setAuthenticatedUrl('') })
-      return () => { active = false }
-    }
-    void fetchAssetObjectUrl(url).then((nextUrl) => {
-      objectUrl = nextUrl
-      if (active) setAuthenticatedUrl(nextUrl)
-      else URL.revokeObjectURL(nextUrl)
-    }).catch(() => {
-      if (active) setAuthenticatedUrl('')
-    })
-    return () => {
-      active = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [file, url])
-  return <AssetPreview file={file} url={authenticatedUrl} alt={alt} />
-}
-
-function OrderedAssetUpload({ idPrefix, title, description, headerAccessory, assets, onChange }: {
-  idPrefix: string
-  title: string
-  description: string
-  headerAccessory?: ReactNode
-  assets: ImageAssetSet
-  onChange: (assets: ImageAssetSet) => void
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const files = getImageAssetSlots(assets).filter((file): file is File => file !== null)
-  const count = files.length
-  const receive = (files: File[]) => {
-    const accepted = files.filter(isSupportedImageFile)
-    if (!accepted.length) return
-    onChange(imageAssetSetFromSlots([...getImageAssetSlots(assets).filter((file): file is File => file !== null), ...accepted].slice(0, 3)))
-  }
-  const change = (event: ChangeEvent<HTMLInputElement>) => {
-    receive(Array.from(event.currentTarget.files ?? []))
-    event.currentTarget.value = ''
-  }
-  const remove = (index: number) => {
-    onChange(imageAssetSetFromSlots(files.filter((_, fileIndex) => fileIndex !== index)))
-  }
-  const move = (from: number, to: number) => onChange(moveImageAssetSlot(assets, from, to))
-  const handleDrop = (event: DragEvent, target: number) => {
-    event.preventDefault()
-    event.stopPropagation()
-    const slotPayload = event.dataTransfer.getData(ASSET_SLOT_DRAG_TYPE)
-    if (slotPayload) {
-      try {
-        const source = JSON.parse(slotPayload) as { owner?: string; index?: number }
-        if (source.owner === idPrefix && source.index !== undefined && Number.isInteger(source.index)) move(source.index, target)
-      } catch {
-        // Ignore malformed drag data from outside this uploader.
-      }
-      return
-    }
-    receive(Array.from(event.dataTransfer.files))
-  }
-
-  return <section
-    className={`ordered-asset-upload asset-count-${count}${count ? ' has-files' : ''}${headerAccessory ? ' has-header-accessory' : ''}`}
-    aria-label={title}
-    onDragOver={(event) => {
-      event.preventDefault()
-      event.dataTransfer.dropEffect = event.dataTransfer.types.includes(ASSET_SLOT_DRAG_TYPE) ? 'move' : 'copy'
-    }}
-    onDrop={(event) => {
-      handleDrop(event, files.length)
-    }}
-  >
-    <header>
-      <div className="ordered-asset-upload__title"><strong>{title}</strong><small>{description}</small></div>
-      {headerAccessory}
-      <span>{count}/3</span>
-    </header>
-    <button type="button" className="ordered-asset-dropzone" disabled={count >= 3} onClick={() => inputRef.current?.click()}>
-      <span><UploadCloud size={20} /></span>
-      <span><strong>{count ? '继续添加图片' : '拖拽或点击批量上传'}</strong><small>JPG、PNG、WEBP，最多 3 张</small></span>
-    </button>
-    <div className="ordered-asset-slot-guide" aria-label={`${title}上传槽位说明`}>
-      {IMAGE_ASSET_SLOT_LABELS.map((label, index) => <span key={label} className={files[index] ? 'is-filled' : index === 0 ? 'is-required' : 'is-optional'}>
-        <strong>{label}</strong>
-        <small>{files[index] ? '已上传' : index === 0 ? '必填' : '可选'}</small>
-      </span>)}
-    </div>
-    {files.length ? <div className="ordered-asset-list" aria-label={`${title}排序列表`}>
-      {files.map((file, index) => <article
-        key={`${idPrefix}-${index}-${file.name}-${file.size}-${file.lastModified}`}
-        className="ordered-asset-card"
-        title={`${IMAGE_ASSET_SLOT_LABELS[index]}：${file.name}`}
-        draggable
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = 'move'
-          event.dataTransfer.setData(ASSET_SLOT_DRAG_TYPE, JSON.stringify({ owner: idPrefix, index }))
-          event.currentTarget.classList.add('is-dragging')
-        }}
-        onDragEnd={(event) => event.currentTarget.classList.remove('is-dragging')}
-        onDragOver={(event) => {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = event.dataTransfer.types.includes(ASSET_SLOT_DRAG_TYPE) ? 'move' : 'copy'
-        }}
-        onDrop={(event) => handleDrop(event, index)}
-      >
-        <span className="ordered-asset-card__media"><AssetPreview file={file} alt={`${IMAGE_ASSET_SLOT_LABELS[index]}：${file.name}`} /></span>
-        <span className="ordered-asset-card__role"><i>{index + 1}</i>{IMAGE_ASSET_SLOT_LABELS[index]}{index === 0 ? <small>必填</small> : null}</span>
-        <button type="button" className="ordered-asset-card__remove" onClick={(event) => { event.stopPropagation(); remove(index) }} onPointerDown={(event) => event.stopPropagation()} aria-label={`移除${IMAGE_ASSET_SLOT_LABELS[index]}`} title="删除图片"><X size={14} /></button>
-      </article>)}
-    </div> : null}
-    <input ref={inputRef} id={`${idPrefix}-files`} className="sr-only" type="file" multiple accept={IMAGE_FILE_ACCEPT} disabled={count >= 3} onChange={change} />
-  </section>
-}
-
-function OutfitCard({ outfit, index, onChange }: {
-  outfit: OutfitDraft
-  index: number
-  onChange: (outfit: OutfitDraft) => void
-}) {
-  return <article className="outfit-card">
-    <OrderedAssetUpload
-      idPrefix={outfit.id}
-      title="产品图片"
-      description="图二固定为球衣正面，图三固定为球衣背面；侧面为补充参考"
-      headerAccessory={<div className="outfit-card__meta">
-        <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
-        <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} title="套装名称" onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
-        <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} title="商品 SKU" placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
-      </div>}
-      assets={outfit}
-      onChange={(assets) => onChange({ ...outfit, ...assets })}
-    />
-  </article>
-}
-
-function OutfitNavItem({ outfit, index, selected, canRemove, onSelect, onRemove }: {
-  outfit: OutfitDraft
-  index: number
-  selected: boolean
-  canRemove: boolean
-  onSelect: () => void
-  onRemove: () => void
-}) {
-  return <div className={`outfit-nav-entry${selected ? ' is-selected' : ''}`}>
-    <button
-      type="button"
-      id={`outfit-tab-${outfit.id}`}
-      className="outfit-nav-item"
-      role="tab"
-      aria-selected={selected}
-      aria-controls="active-outfit-editor"
-      onClick={onSelect}
-    >
-      <span className="outfit-nav-item__thumb"><AssetPreview file={outfit.front} alt={outfit.front ? `${outfit.name}正面图` : ''} /></span>
-      <span><strong>{outfit.name.trim() || `套装 ${String(index + 1).padStart(2, '0')}`}</strong><small>{outfit.sku.trim() || `第 ${index + 1} 套产品`}</small></span>
-      <i className={outfit.front ? 'is-ready' : ''}>{outfit.front ? <Check size={12} /> : index + 1}</i>
-    </button>
-    {canRemove ? <button type="button" className="outfit-nav-remove" onClick={onRemove} aria-label={`删除${outfit.name}`} title="删除套装"><X size={14} /></button> : null}
-  </div>
-}
-
-function SourceThumb({ file, label, onPreview }: {
-  file: File | null
-  label: string
-  onPreview: (file: File, label: string) => void
-}) {
-  return <figure className="image-task-source">
-    <button
-      type="button"
-      disabled={!file}
-      onClick={() => { if (file) onPreview(file, label) }}
-      aria-label={file ? `查看${label}大图` : undefined}
-      title={file ? '查看大图' : undefined}
-    ><AssetPreview file={file} alt={file ? `${label}：${file.name}` : ''} /></button>
-    <figcaption>{label}</figcaption>
-  </figure>
-}
-
-function OutputSelectionButton({ selected, label, className, onToggle }: {
-  selected: boolean
-  label: string
-  className: string
-  onToggle: () => void
-}) {
-  return <button
-    type="button"
-    className={`${className}${selected ? ' is-selected' : ''}`}
-    aria-label={selected ? `取消勾选${label}` : `勾选${label}`}
-    aria-pressed={selected}
-    title={selected ? '取消勾选' : '勾选图片'}
-    onClick={(event) => { event.stopPropagation(); onToggle() }}
-  >{selected ? <Check size={17} strokeWidth={2.6} /> : null}</button>
-}
-
-export function OutputCard({ taskId, output, selected, onToggle, onReject: onReview, onPreview }: {
-  taskId: string
-  output: ImageGenerationOutput
-  selected: boolean
-  onToggle: () => void
-  onReject: () => void
-  onPreview: () => void
-}) {
-  const download = () => {
-    if (output.url) void saveAsset(output.downloadUrl || output.url, `${output.label}.png`)
-  }
-  return <article
-    className={`image-output-card${selected ? ' is-selected' : ''}`}
-    draggable
-    onDragStart={(event) => {
-      event.dataTransfer.effectAllowed = 'copyMove'
-      event.dataTransfer.setData(IMAGE_OUTPUT_DRAG_TYPE, JSON.stringify({ taskId, outputId: output.id }))
-      event.currentTarget.classList.add('is-dragging')
-    }}
-    onDragEnd={(event) => event.currentTarget.classList.remove('is-dragging')}
-    title="拖入选片工作台"
-  >
-    <button type="button" className="image-output-card__preview" onClick={onPreview} aria-label={`查看${output.label}大图`} title="查看大图">
-      <span className="image-output-card__media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></span>
-      <span><strong>{output.label}</strong><small>{output.kind === 'fusion' ? '多图融合' : '分镜图'}</small></span>
-    </button>
-    <OutputSelectionButton selected={selected} label={output.label} className="image-output-card__selection" onToggle={onToggle} />
-    <button type="button" className="image-output-card__reject" disabled={!output.qualificationStatus} onClick={(event) => { event.stopPropagation(); onReview() }} title={output.qualificationStatus ? '审核图片' : '服务端尚未启用图片审核'} aria-label={`审核${output.label}`}><CheckCircle2 size={14} /></button>
-    <span className={`image-output-card__quality is-${(output.qualificationStatus ?? 'PENDING').toLowerCase()}`}>{output.qualificationStatus === 'QUALIFIED' ? '已合格' : output.qualificationStatus === 'REJECTED' ? '已拒绝' : '待人工审核'}</span>
-    {output.url ? <button type="button" className="image-output-card__download" onClick={download} title="下载图片" aria-label={`下载${output.label}`}><Download size={14} /></button> : null}
-  </article>
-}
-
-function AssetPreviewDialog({ file, url = '', label, selection, onClose }: {
-  file: File | null
-  url?: string
-  label: string
-  selection?: { selected: boolean; onToggle: () => void }
-  onClose: () => void
-}) {
-  const dialogRef = useRef<HTMLElement>(null)
-  const onCloseRef = useRef(onClose)
-  useEffect(() => { onCloseRef.current = onClose }, [onClose])
-  useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseRef.current()
-    }
-    document.body.classList.add('modal-open')
-    document.addEventListener('keydown', closeOnEscape)
-    dialogRef.current?.focus()
-    return () => {
-      document.body.classList.remove('modal-open')
-      document.removeEventListener('keydown', closeOnEscape)
-      previouslyFocused?.focus()
-    }
-  }, [])
-
-  return createPortal(<div
-    className="image-output-preview-backdrop"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
-  >
-    <section ref={dialogRef} className="image-output-preview" role="dialog" aria-modal="true" aria-labelledby="image-output-preview-title" tabIndex={-1}>
-      <h2 id="image-output-preview-title" className="sr-only">{label}大图预览</h2>
-      <button type="button" className="image-output-preview__stage" onClick={onClose} aria-label={`关闭${label}大图预览`} title="关闭大图">
-        <AuthenticatedAssetPreview file={file} url={url} alt={label} />
-      </button>
-      <button type="button" className="image-output-preview__close" onClick={onClose} aria-label="关闭大图预览" title="关闭大图"><X size={20} /></button>
-      {selection ? <OutputSelectionButton selected={selection.selected} label={label} className="image-output-preview__selection" onToggle={selection.onToggle} /> : null}
-    </section>
-  </div>, document.body)
-}
-
-export function ImageOutputReview({ output, onSaved, onClose }: {
-  output: ImageGenerationOutput
-  onSaved: (values: Partial<ImageGenerationOutput>) => void
-  onClose: () => void
-}) {
-  const [decision, setDecision] = useState<'QUALIFIED' | 'REJECTED'>('QUALIFIED')
-  const [productPass, setProductPass] = useState(false)
-  const [humanPass, setHumanPass] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [uncertain, setUncertain] = useState(false)
-  const startedAt = useRef(0)
-  useEffect(() => { startedAt.current = performance.now() }, [])
-  const submitting = useRef(false)
-  const canSubmit = decision === 'QUALIFIED' ? productPass && humanPass : notes.trim().length > 0
-  const save = async () => {
-    if (!canSubmit || submitting.current || uncertain) return
-    submitting.current = true
-    setBusy(true)
-    setError('')
-    try {
-      const result = await setImageOutputQualityDecision(output.id, {
-        decision,
-        productFidelityPass: decision === 'QUALIFIED' && productPass,
-        humanCriticalPass: decision === 'QUALIFIED' && humanPass,
-        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt.current) / 1000)),
-        notes: notes.trim() || null,
-      })
-      onSaved(result)
-      onClose()
-    } catch (cause) {
-      const unknown = !(cause instanceof ApiError) || cause.code === 'WRITE_UNCERTAIN' || cause.code === 'REQUEST_TIMEOUT' || cause.status >= 500
-      setUncertain(unknown)
-      setError(unknown ? '审核保存结果待确认，请刷新服务端记录核对，勿重复保存。' : cause instanceof Error ? cause.message : '图片审核保存失败')
-    } finally {
-      submitting.current = false
-      setBusy(false)
-    }
-  }
-  return <FoundationDrawer open title={`审核 · ${output.label}`} onClose={() => { if (!busy) onClose() }} footer={<>
-    <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button>
-    <button type="button" className="primary-button" disabled={busy || uncertain || !canSubmit} onClick={() => void save()}>{busy ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />}保存审核</button>
-  </>}>
-    <div className="image-review-media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></div>
-    <fieldset className="image-review-fields" disabled={busy}>
-      <legend>审核结果</legend>
-      <label><input type="radio" name="image-review-decision" checked={decision === 'QUALIFIED'} onChange={() => setDecision('QUALIFIED')} />合格</label>
-      <label><input type="radio" name="image-review-decision" checked={decision === 'REJECTED'} onChange={() => setDecision('REJECTED')} />退回</label>
-      {decision === 'QUALIFIED' ? <>
-        <label><input type="checkbox" checked={productPass} onChange={(event) => setProductPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构一致</label>
-        <label><input type="checkbox" checked={humanPass} onChange={(event) => setHumanPass(event.target.checked)} />人物与画面无关键缺陷</label>
-      </> : null}
-      <label htmlFor="image-review-notes">{decision === 'REJECTED' ? '退回原因（必填）' : '审核备注'}</label>
-      <textarea id="image-review-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} required={decision === 'REJECTED'} />
-    </fieldset>
-    <HumanReviewPanel subjectType="IMAGE_OUTPUT" subjectId={output.id} />
-    {error ? <p role="alert" className="notice">{error}</p> : null}
-  </FoundationDrawer>
-}
-
-function OutputPreview({ output, selected, onToggle, onClose }: {
-  output: ImageGenerationOutput
-  selected: boolean
-  onToggle: () => void
-  onClose: () => void
-}) {
-  return <AssetPreviewDialog
-    file={output.file}
-    url={output.url}
-    label={output.label}
-    selection={{ selected, onToggle }}
-    onClose={onClose}
-  />
-}
-
-export function ImageOutputCompare({ outputs, onClose }: {
-  outputs: ImageGenerationOutput[]
-  onClose: () => void
-}) {
-  if (outputs.length < 2) return null
-  const [left, right] = outputs
-  return <FoundationDrawer
-    open
-    title="并排比较"
-    eyebrow="只读比较"
-    onClose={onClose}
-  >
-    <div className="image-compare-grid" aria-label="图片并排比较">
-      {[left, right].map((output) => <article className="image-compare-panel" key={output.id}>
-        <div className="image-compare-panel__media">
-          <AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} />
-        </div>
-        <div className="image-compare-panel__meta">
-          <strong>{output.label}</strong>
-          <span>{output.kind === 'fusion' ? '多图融合' : '分镜图'} · {output.view === 'shot' ? '镜头' : output.view === 'front' ? '正面' : '背面'}</span>
-          <span>{output.qualificationStatus === 'QUALIFIED' ? '已合格' : output.qualificationStatus === 'REJECTED' ? '已拒绝' : '待人工审核'}</span>
-        </div>
-      </article>)}
-    </div>
-  </FoundationDrawer>
-}
-
-function SelectionWorkbench({ tasks, selectedOutputIds, expanded, preparing, onExpandedChange, onClear, onRemove, onPlaceOutput, onGenerate }: {
-  tasks: ImageGenerationTask[]
-  selectedOutputIds: string[]
-  expanded: boolean
-  preparing: boolean
-  onExpandedChange: (expanded: boolean) => void
-  onClear: () => void
-  onRemove: (outputId: string) => void
-  onPlaceOutput: (taskId: string, outputId: string, beforeOutputId?: string) => void
-  onGenerate: () => void
-}) {
-  const selectedTasks = useMemo(() => getOrderedSelectedTasks(tasks, selectedOutputIds), [selectedOutputIds, tasks])
-  const [dropActive, setDropActive] = useState(false)
-  const parseOutputDrop = (event: DragEvent) => {
-    const payload = event.dataTransfer.getData(IMAGE_OUTPUT_DRAG_TYPE)
-    if (!payload) return null
-    try {
-      const parsed = JSON.parse(payload) as { taskId?: string; outputId?: string }
-      return parsed.taskId && parsed.outputId ? { taskId: parsed.taskId, outputId: parsed.outputId } : null
-    } catch { return null }
-  }
-  const dropOutput = (event: DragEvent, beforeOutputId?: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setDropActive(false)
-    const payload = parseOutputDrop(event)
-    if (payload) onPlaceOutput(payload.taskId, payload.outputId, beforeOutputId)
-  }
-
-  return <section
-    className={`image-selection-bar${expanded ? ' is-expanded' : ''}${dropActive ? ' is-drop-active' : ''}`}
-    aria-label="选片工作台"
-    onDragEnter={(event) => {
-      if (!event.dataTransfer.types.includes(IMAGE_OUTPUT_DRAG_TYPE)) return
-      event.preventDefault()
-      setDropActive(true)
-    }}
-    onDragOver={(event) => {
-      if (!event.dataTransfer.types.includes(IMAGE_OUTPUT_DRAG_TYPE)) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'move'
-    }}
-    onDragLeave={(event) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropActive(false)
-    }}
-    onDrop={(event) => dropOutput(event)}
-  >
-    <div className="image-selection-bar__header" role="toolbar" aria-label="已选图片操作">
-      <div className="image-selection-bar__summary" aria-live="polite">
-        <span className="image-selection-bar__count" aria-hidden="true">{selectedOutputIds.length}</span>
-        <span className="image-selection-bar__copy"><strong>已选择 {selectedOutputIds.length} 张图片</strong><small>{selectedTasks.length} 套产品可生成视频</small></span>
-      </div>
-      <button type="button" className="icon-button image-selection-bar__toggle" onClick={() => onExpandedChange(!expanded)} aria-expanded={expanded} aria-controls="image-selection-details" aria-label={expanded ? '收起选片详情' : '展开选片详情'} title={expanded ? '收起详情' : '展开详情'}>{expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}</button>
-      <div className="image-selection-bar__actions">
-        <button type="button" className="secondary-button" onClick={onClear}><X size={16} />取消选择</button>
-        <button type="button" className="primary-button" disabled={preparing} onClick={onGenerate}>{preparing ? <LoaderCircle className="spin" size={17} /> : <Film size={17} />}{preparing ? '正在准备' : '送入视频队列'}</button>
-      </div>
-    </div>
-    <div id="image-selection-details" className="image-selection-bar__details" aria-hidden={!expanded} inert={!expanded}>
-      <div className="image-selection-bar__details-inner">
-        <header><div><strong>分镜编排</strong><small>共 {selectedTasks.length} 个产品视频</small></div><span>{selectedOutputIds.length} / {selectedTasks.length * 6} 张</span></header>
-        <div className="image-selection-groups">{selectedTasks.map(({ task, outputs }) => <article key={task.id} className="image-selection-group">
-          <div className="image-selection-frames" role="list" aria-label={`${task.outfitName}分镜顺序`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOutput(event)}>
-            {outputs.map((output, index) => <article
-              key={output.id}
-              className="image-selection-frame"
-              role="listitem"
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData(IMAGE_OUTPUT_DRAG_TYPE, JSON.stringify({ taskId: task.id, outputId: output.id }))
-              }}
-              onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'move' }}
-              onDrop={(event) => dropOutput(event, output.id)}
-            >
-              <span><AuthenticatedAssetPreview file={output.file} url={output.url} alt={`${task.outfitName}分镜 ${index + 1}`} /></span>
-              <i>{index + 1}</i>
-              <button type="button" onClick={() => onRemove(output.id)} aria-label={`移除分镜 ${index + 1}`} title="移除分镜"><X size={12} /></button>
-              <GripVertical size={13} aria-hidden="true" />
-            </article>)}
-            {outputs.length < 6 ? <div className="image-selection-drop-slot" aria-hidden="true"><Plus size={17} /><span>{outputs.length ? '添加分镜' : '暂无分镜'}</span></div> : null}
-          </div>
-          <div className="image-selection-product">
-            <span><AssetPreview file={task.product.front} alt={`${task.outfitName}产品正面图`} /><i>产品</i></span>
-            <div><strong>{task.outfitName}</strong><small>{task.sku || '未填写 SKU'}</small></div>
-            <em>{outputs.length}/6</em>
-          </div>
-        </article>)}</div>
-      </div>
-    </div>
-  </section>
-}
-
 export function ImageStudio(props: ImageCenterProps) {
   return <ScopedImageCenter key={props.draftScope ?? 'anonymous'} {...props} />
-}
-
-export function BatchImageOutputReview({ outputs, onSaved, onClose }: {
-  outputs: ImageGenerationOutput[]
-  onSaved: (outputId: string, values: Partial<ImageGenerationOutput>) => void
-  onClose: () => void
-}) {
-  const [index, setIndex] = useState(0)
-  const [decision, setDecision] = useState<'QUALIFIED' | 'REJECTED'>('QUALIFIED')
-  const [productPass, setProductPass] = useState(false)
-  const [humanPass, setHumanPass] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [uncertain, setUncertain] = useState(false)
-  const startedAt = useRef(0)
-  const submitting = useRef(false)
-  const output = outputs[index] ?? null
-  useEffect(() => { startedAt.current = performance.now() }, [output?.id])
-  if (!output) return null
-
-  const canSubmit = decision === 'QUALIFIED' ? productPass && humanPass : notes.trim().length > 0
-  const save = async () => {
-    if (!canSubmit || submitting.current || uncertain) return
-    submitting.current = true
-    setBusy(true)
-    setError('')
-    try {
-      const result = await setImageOutputQualityDecision(output.id, {
-        decision,
-        productFidelityPass: decision === 'QUALIFIED' && productPass,
-        humanCriticalPass: decision === 'QUALIFIED' && humanPass,
-        humanReviewSeconds: Math.max(1, Math.round((performance.now() - startedAt.current) / 1000)),
-        notes: notes.trim() || null,
-      })
-      onSaved(output.id, result)
-      if (index + 1 >= outputs.length) {
-        onClose()
-      } else {
-        setIndex((current) => current + 1)
-        setDecision('QUALIFIED')
-        setProductPass(false)
-        setHumanPass(false)
-        setNotes('')
-      }
-    } catch (cause) {
-      const unknown = !(cause instanceof ApiError) || cause.code === 'WRITE_UNCERTAIN' || cause.code === 'REQUEST_TIMEOUT' || cause.status >= 500
-      setUncertain(unknown)
-      setError(unknown ? '审核保存结果待确认，请刷新服务端记录核对，勿重复保存。' : cause instanceof Error ? cause.message : '图片审核保存失败')
-    } finally {
-      submitting.current = false
-      setBusy(false)
-    }
-  }
-  return <FoundationDrawer open title={`批量审核 · ${index + 1}/${outputs.length}`} onClose={() => { if (!busy) onClose() }} footer={<>
-    <button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button>
-    <button type="button" className="primary-button" disabled={busy || uncertain || !canSubmit} onClick={() => void save()}>{busy ? <LoaderCircle size={16} className="spin" /> : <CheckCircle2 size={16} />}{index + 1 >= outputs.length ? '保存并完成' : '保存并继续'}</button>
-  </>}>
-    <div className="image-review-progress" aria-live="polite"><strong>待审核图片</strong><span>{output.label}</span><small>完成当前项后自动进入下一张</small></div>
-    <div className="image-review-media"><AuthenticatedAssetPreview file={output.file} url={output.url} alt={output.label} /></div>
-    <fieldset className="image-review-fields" disabled={busy}>
-      <legend>审核结果</legend>
-      <label><input type="radio" name={`batch-image-review-decision-${output.id}`} checked={decision === 'QUALIFIED'} onChange={() => setDecision('QUALIFIED')} />合格</label>
-      <label><input type="radio" name={`batch-image-review-decision-${output.id}`} checked={decision === 'REJECTED'} onChange={() => setDecision('REJECTED')} />退回</label>
-      {decision === 'QUALIFIED' ? <>
-        <label><input type="checkbox" checked={productPass} onChange={(event) => setProductPass(event.target.checked)} />商品颜色、图案、Logo、文字和服装结构一致</label>
-        <label><input type="checkbox" checked={humanPass} onChange={(event) => setHumanPass(event.target.checked)} />人物与画面无关键缺陷</label>
-      </> : null}
-      <label htmlFor="batch-image-review-notes">{decision === 'REJECTED' ? '退回原因（必填）' : '审核备注'}</label>
-      <textarea id="batch-image-review-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={4} required={decision === 'REJECTED'} />
-    </fieldset>
-    {uncertain ? <p role="alert" className="notice image-review-uncertain">当前项保存状态未知，已停止批量审核，请刷新服务端记录核对，勿重复保存。</p> : error ? <p role="alert" className="notice">{error}</p> : null}
-  </FoundationDrawer>
 }
 
 function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrepareVideos, onNotifications, onActiveTasksChange }: ImageCenterProps) {
@@ -678,16 +109,16 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   const [submitting, setSubmitting] = useState(false)
   const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>('checking')
   const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState('')
-  const [studioMode, setStudioMode] = useState<'custom' | 'director'>(initialMode ?? 'custom')
+  const studioMode = initialMode === 'director' ? 'director' : 'custom'
+  const textDraftKey = `image-studio.text-prompt.${draftScope ?? 'anonymous'}`
+  const [textPrompt, setTextPrompt] = useState(() => readStorage('local', textDraftKey) ?? '')
+  const [textSaved, setTextSaved] = useState(true)
+  const submissionInFlight = useRef(false)
   const saveTimerRef = useRef<number | null>(null)
   const latestDraftRef = useRef(draft)
   const loadedRef = useRef(false)
   const previousTaskStatusesRef = useRef<Map<string, ImageGenerationTask['status']>>(new Map())
   const notificationBaselineReadyRef = useRef(false)
-
-  useEffect(() => {
-    if (initialMode) setStudioMode(initialMode)
-  }, [initialMode])
 
   useEffect(() => {
     latestDraftRef.current = draft
@@ -857,6 +288,14 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   }, [draft.selectedOutputIds.length])
   const activeOutfit = draft.outfits.find((outfit) => outfit.id === activeOutfitId) ?? draft.outfits[0]
   const activeOutfitIndex = Math.max(0, draft.outfits.findIndex((outfit) => outfit.id === activeOutfit.id))
+  const simpleDraft = {
+    ...draft,
+    outfits: [activeOutfit],
+    config: { ...draft.config, modes: ['fusion'] as ImageGenerationMode[] },
+  }
+  const simpleSummary = calculateImageTaskSummary(simpleDraft)
+  const simpleErrors = validateImageCenterDraft(simpleDraft)
+  const batchEditor = imageView === 'batch-create' || imageView === 'batch-products' || imageView === 'batch-storyboard'
   const errorTarget = errors[0]?.includes('上传') ? '#asset-composer-title' : '#generation-config-title'
   const updateOutfit = (changed: OutfitDraft) => updateDraft((current) => ({ ...current, outfits: current.outfits.map((item) => item.id === changed.id ? changed : item) }))
   const addOutfit = () => {
@@ -875,7 +314,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   const updateConfig = (changes: Partial<ImageCenterDraft['config']>) => updateDraft((current) => ({ ...current, config: { ...current.config, ...changes } }))
   const selectMode = (mode: ImageGenerationMode) => updateConfig({ modes: [mode] })
   const submitTaskSet = async (tasks: ImageGenerationTask[], expectedGenerationCount: number) => {
-    if (!tasks.length) return
+    if (!tasks.length || submissionInFlight.current) return
     const clientBatchId = createUuid()
     const identifiedTasks = tasks.map((task) => ({ ...task, clientBatchId }))
     const { manifest, files } = buildImageGenerationBatchRequest({
@@ -885,6 +324,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
       tasks: identifiedTasks,
     })
 
+    submissionInFlight.current = true
     setSubmitting(true)
     navigateImageView('records')
     updateDraft((current) => ({ ...current, activeTab: 'results', tasks: [...identifiedTasks, ...current.tasks], selectedOutputIds: [] }))
@@ -911,16 +351,18 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
         errorDetails: cause instanceof ApiError ? cause.details : null,
       } : task) }))
       setNotice(message)
-    } finally { setSubmitting(false) }
+    } finally { submissionInFlight.current = false; setSubmitting(false) }
   }
-  const submit = () => {
+  const submit = (source: ImageCenterDraft = draft) => {
+    if (submissionInFlight.current) return
     if (generationBlocked) {
       setNotice(generationStatusMessage)
       return
     }
-    if (errors.length) { setNotice(errors[0]); return }
-    const tasks = buildWaitingTasks(draft, createUuid)
-    void submitTaskSet(tasks, summary.totalImages)
+    const sourceErrors = validateImageCenterDraft(source)
+    if (sourceErrors.length) { setNotice(sourceErrors[0]); return }
+    const tasks = buildWaitingTasks(source, createUuid)
+    void submitTaskSet(tasks, calculateImageTaskSummary(source).totalImages)
   }
   const prepareRegeneration = (source: ImageGenerationTask) => {
     if (source.status === 'write_uncertain') {
@@ -929,7 +371,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
     }
     const outfitId = createUuid()
     setActiveOutfitId(outfitId)
-    navigateImageView('batch')
+    navigateImageView('batch-create')
     updateDraft((current) => createImageCenterRegenerationDraft(current, source, outfitId))
     setNotice(`已载入「${source.outfitName}」的素材与生成配置。`)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
@@ -1037,61 +479,35 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
 
     {studioMode === 'director' ? <DirectorStudio /> : null}
     {studioMode === 'custom' && imageView === 'home' ? <ImageStudioHome taskCount={draft.tasks.length} onOpen={navigateImageView} /> : null}
-    {studioMode === 'custom' && imageView === 'image-to-image' ? <ImageToImageStudio onBack={() => navigateImageView('home')} onOpenBatch={() => navigateImageView('batch')} /> : null}
-    {studioMode === 'custom' && imageView === 'text-to-image' ? <TextToImageStudio onBack={() => navigateImageView('home')} onOpenBatch={() => navigateImageView('batch')} /> : null}
-    {studioMode === 'custom' && imageView === 'batch' ? <BatchStudio saveState={saveState} onBack={() => navigateImageView('home')}><div className="image-center-create">
-      <section className="image-center-section asset-composer" aria-labelledby="asset-composer-title">
-        <div className="image-center-section__heading"><div><span className="section-number">01</span><div><h2 id="asset-composer-title">素材编排</h2><p>左侧模特复用到全部套装，右侧每套产品独立生成。</p></div></div><div className="asset-composer-toolbar"><span className="section-state"><Shirt size={15} />{summary.outfitCount}/{draft.outfits.length} 套已就绪</span><a className="image-center-jump" href="#generation-config-title"><WandSparkles size={15} />生成配置</a></div></div>
-        <div className="asset-composer-grid">
-          <aside className="model-pack-column">
-            <div className="asset-pack-heading"><span><UserRound size={18} /></span><div><h3>本批次模特</h3><p>正面必填，背面和侧面可选</p></div><i className={draft.model.front ? 'is-ready' : ''}>{draft.model.front ? '已就绪' : '待上传'}</i></div>
-            <OrderedAssetUpload idPrefix="image-center-model" title="模特图片" description="图一固定为人物与环境；背面、侧面为补充参考" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
-          </aside>
-          <div className="outfit-pack-column" aria-labelledby="outfits-title">
-            <div className="asset-pack-heading"><span><Package size={18} /></span><div><h3 id="outfits-title">产品套装</h3><p>每套正面必填，背面和侧面可选</p></div><div className="outfits-heading-actions"><strong>{draft.outfits.length}/{MAX_IMAGE_CENTER_OUTFITS}</strong><button type="button" className="primary-button outfit-add-button" disabled={draft.outfits.length >= MAX_IMAGE_CENTER_OUTFITS} onClick={addOutfit}><Plus size={16} />添加套装</button></div></div>
-            <div className="outfit-workspace">
-              <div className="outfit-navigator">
-                <div className="outfit-navigator__head"><strong>套装列表</strong><span>{summary.outfitCount} 套已就绪</span></div>
-                <div className="outfit-nav-list" role="tablist" aria-label="产品套装列表">{draft.outfits.map((outfit, index) => <OutfitNavItem key={outfit.id} outfit={outfit} index={index} selected={outfit.id === activeOutfit.id} canRemove={draft.outfits.length > 1} onSelect={() => setActiveOutfitId(outfit.id)} onRemove={() => removeOutfit(outfit.id)} />)}</div>
-                {draft.outfits.length < MAX_IMAGE_CENTER_OUTFITS ? <button type="button" className="outfit-nav-add" onClick={addOutfit}><Plus size={15} />添加下一套</button> : null}
-              </div>
-              <div id="active-outfit-editor" className="active-outfit-editor" role="tabpanel" aria-labelledby={`outfit-tab-${activeOutfit.id}`}>
-                <OutfitCard outfit={activeOutfit} index={activeOutfitIndex} onChange={updateOutfit} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="image-center-section generation-config" aria-labelledby="generation-config-title">
-        <div className="image-center-section__heading"><div><span className="section-number">02</span><div><h2 id="generation-config-title">生成配置</h2><p>统一配置会应用到全部已就绪套装。</p></div></div><span className="section-state"><WandSparkles size={15} />预计 {summary.totalImages} 张</span></div>
-        <div className="image-config-grid">
-          <fieldset className="image-config-block"><legend>生成引擎</legend><div className="image-provider-control">{(['gpt', 'nanobanana'] as ImageProvider[]).map((provider) => <button key={provider} type="button" className={draft.config.provider === provider ? 'is-selected' : ''} onClick={() => updateConfig({ provider })}><span>{provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><small>WaveSpeed API</small>{draft.config.provider === provider ? <Check size={14} /> : null}</button>)}</div></fieldset>
-          <fieldset className="image-config-block image-config-select"><legend>画面比例</legend><select aria-label="画面比例" value={draft.config.aspectRatio} onChange={(event) => updateConfig({ aspectRatio: event.target.value })}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="4:3">4:3</option></select></fieldset>
-          <fieldset className="image-config-block image-config-select"><legend>分辨率</legend><select aria-label="分辨率" value={draft.config.resolution} onChange={(event) => updateConfig({ resolution: event.target.value })}><option value="1k">1K</option><option value="2k">2K</option><option value="4k">4K</option></select></fieldset>
-          <fieldset className="image-config-block"><legend>统一结果数量</legend><div className="image-result-count">{([1, 2, 3, 4] as const).map((count) => <button key={count} type="button" className={draft.config.resultCount === count ? 'is-selected' : ''} onClick={() => updateConfig({ resultCount: count })}>{count}</button>)}</div></fieldset>
-        </div>
-        <div className="image-prompt-grid" role="radiogroup" aria-label="生成任务">
-          <section className={draft.config.modes.includes('fusion') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('fusion')} onClick={() => selectMode('fusion')}><span><Sparkles size={17} /></span><span><strong>多图融合</strong><small>按现有视角生成换装基准图</small></span><i>{draft.config.modes.includes('fusion') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_fusion" label="自定义提示词" value={draft.config.fusionPrompt} disabled={!draft.config.modes.includes('fusion')} onChange={(fusionPrompt) => updateConfig({ fusionPrompt })} placeholder="描述人物一致性、服装还原和画面要求" /></section>
-          <section className={draft.config.modes.includes('storyboard') ? 'is-selected' : 'is-disabled'}><header><button type="button" className="image-prompt-mode" role="radio" aria-checked={draft.config.modes.includes('storyboard')} onClick={() => selectMode('storyboard')}><span><Images size={17} /></span><span><strong>分镜图生成</strong><small>从一段提示词扩展有序镜头</small></span><i>{draft.config.modes.includes('storyboard') ? <Check size={14} /> : null}</i></button></header><CustomPromptField scope="image_storyboard" label="自定义提示词" value={draft.config.storyboardPrompt} disabled={!draft.config.modes.includes('storyboard')} onChange={(storyboardPrompt) => updateConfig({ storyboardPrompt })} placeholder="用一整段文字描述镜头顺序和展示重点" /></section>
-        </div>
-        <label className="back-inference-toggle"><input type="checkbox" checked={draft.config.allowBackInference} onChange={(event) => updateConfig({ allowBackInference: event.target.checked })} /><span><i>{draft.config.allowBackInference ? <Check size={13} /> : null}</i><strong>允许推测缺失的背面</strong><small>只有模特或产品一方提供背面时继续生成，并给结果添加风险标签。</small></span></label>
-        <div className="image-generation-summary"><div><span><Shirt size={18} /></span><p><strong>{summary.outfitCount}</strong><small>就绪套装</small></p></div><div><span><Sparkles size={18} /></span><p><strong>{summary.fusionImages}</strong><small>融合结果</small></p></div><div><span><Images size={18} /></span><p><strong>{summary.storyboardImages}</strong><small>分镜结果</small></p></div><div className="is-total"><span><WandSparkles size={18} /></span><p><strong>{summary.totalImages}</strong><small>预计总图片</small></p></div><div className="image-generation-submit"><small>{summary.inferredBackOutfitCount ? `${summary.inferredBackOutfitCount} 套将推测背面` : '不会强制要求背面或侧面图'}</small><p className="image-generation-submit__hint" role="status">{generationStatusMessage}</p></div></div>
-        {errors.length ? <div className="image-config-errors" role="alert"><AlertTriangle size={16} /><span>{errors[0]}</span></div> : null}
-      </section>
-    </div></BatchStudio> : studioMode === 'custom' && imageView === 'records' ? <ImageRecords onBack={() => navigateImageView('home')}><section className="image-results" aria-labelledby="image-results-list-title">
-      <div className="image-results-heading"><div><h2 id="image-results-list-title">任务列表</h2><p>当前浏览器已提交的任务会显示在这里，可查看进度、历史结果并直接挑选分镜。</p></div><div className="image-results-heading__actions">{selectedCompareOutputs.length === 2 ? <button type="button" className="secondary-button" onClick={() => setCompareOpen(true)}><Columns2 size={16} />并排比较</button> : null}{pendingReviewOutputs.length ? <button type="button" className="secondary-button" onClick={() => setBatchReviewOpen(true)}><CheckCircle2 size={16} />批量审核<span className="image-review-count">{pendingReviewOutputs.length}</span></button> : null}<button type="button" className="secondary-button" onClick={() => navigateImageView('batch')}><Plus size={16} />继续创建</button></div></div>
-      {draft.tasks.filter((task) => task.status === 'write_uncertain').map((task) => <div className="image-center-notice is-danger" key={`recovery-${task.id}`} role="status"><AlertTriangle size={16} /><span>{task.outfitName} 的提交结果未知，请先查询服务端原批次。</span><button type="button" className="secondary-button" onClick={() => void recoverUncertainTask(task)}><RotateCcw size={15} />安全查询</button></div>)}
-      {!draft.tasks.length ? <div className="image-results-empty"><span><Images size={28} /></span><h3>还没有生图记录</h3><p>提交第一组生图任务后，可在这里查看任务进度和生成结果。</p><button type="button" className="primary-button" onClick={() => navigateImageView('batch')}>开始配置</button></div> : <div className="image-task-list">{draft.tasks.map((task) => {
-        const status = imageStatusPresentation(task.status)
-        const active = ['uploading', 'submitting', 'queued', 'running'].includes(task.status)
-        return <article id={`image-task-${task.id}`} key={task.id} className="image-task-card"><header><div className="image-task-title"><span><Package size={18} /></span><div><strong>{task.outfitName}</strong><small>{task.sku || new Date(task.createdAt).toLocaleString('zh-CN')}</small></div></div><div className="image-task-header-actions"><div className="image-task-meta"><span>{task.provider === 'gpt' ? 'GPT Image 2' : 'Nano Banana 2'}</span><span>{task.modes.map((mode) => mode === 'fusion' ? '多图融合' : '分镜图').join(' + ')}</span><i className={`is-${status.tone}`}>{active ? <LoaderCircle className="spin" size={13} /> : task.status === 'completed' ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}{status.label}</i></div><button type="button" className="secondary-button image-task-regenerate" onClick={() => prepareRegeneration(task)} title="使用相同素材和配置重新创作"><RotateCcw size={15} />重新生成</button></div></header><div className="image-task-body"><div className="image-task-sources"><SourceThumb file={task.model.front} label="模特正面" onPreview={previewSourceImage} /><SourceThumb file={task.product.front} label="产品正面" onPreview={previewSourceImage} /><SourceThumb file={task.model.back} label="模特背面" onPreview={previewSourceImage} /><SourceThumb file={task.product.back} label="产品背面" onPreview={previewSourceImage} /><SourceThumb file={task.model.side} label="模特侧面" onPreview={previewSourceImage} /><SourceThumb file={task.product.side} label="产品侧面" onPreview={previewSourceImage} /></div>{task.outputs.length ? <div className="image-output-grid">{task.outputs.map((output) => <OutputCard key={output.id} taskId={task.id} output={output} selected={selectedIds.has(output.id)} onToggle={() => void toggleOutput(output.id)} onReject={() => void rejectOutput(output.id)} onPreview={() => { setPreviewSource(null); setPreviewOutputId(output.id) }} />)}</div> : <div className={`image-task-waiting${task.error ? ' is-error' : ''}`}><span>{active ? <LoaderCircle className="spin" size={20} /> : <Clock3 size={20} />}</span><div><strong>{task.error ? `${task.errorCode ?? 'GENERATION_FAILED'} · ${task.error}` : status.label}</strong><p>{task.error ? (task.retryable === false ? '该错误不能安全自动重试，请先核对远端任务或联系管理员。' : '可以检查配置后重新提交此套装。') : task.status === 'queued' ? '任务已进入 WaveSpeed 队列。' : task.status === 'running' ? 'WaveSpeed 正在生成图片，页面会自动刷新结果。' : '正在上传参考图并创建远端任务。'}</p></div></div>}</div><details className="image-task-technical"><summary>技术信息<ChevronRight size={14} /></summary><dl><dt>Task ID</dt><dd>{task.id}</dd><dt>Batch ID</dt><dd>{task.batchId ?? '尚未分配'}</dd><dt>Remote Task IDs</dt><dd>{task.providerTaskIds.length ? task.providerTaskIds.join(', ') : '尚未分配'}</dd><dt>Model ID</dt><dd>{task.modelId}</dd>{task.errorCode ? <><dt>错误代码</dt><dd>{task.errorCode}</dd></> : null}</dl></details></article>
-      })}</div>}
-    </section></ImageRecords> : null}
-    {active && studioMode === 'custom' && imageView === 'batch' ? createPortal(<div className="image-center-command-bar">
+    {studioMode === 'custom' && imageView === 'image-to-image' ? <ImageToImageStudio
+      onBack={() => navigateImageView('home')} onRecords={() => navigateImageView('records')}
+      config={draft.config} onChangeConfig={updateConfig} busy={submitting} blocked={generationBlocked} saveState={saveState}
+      reason={generationStatusMessage} error={simpleErrors[0]} count={simpleSummary.totalImages}
+      onGenerate={() => submit(simpleDraft)}
+      references={<>
+        <OrderedAssetUpload idPrefix="image-quick-product" title="商品图" description="商品正面必填" assets={activeOutfit} onChange={(assets) => updateOutfit({ ...activeOutfit, ...assets })} />
+        <OrderedAssetUpload idPrefix="image-quick-person" title="人物图" description="人物正面必填，保留人物和环境" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
+      </>}
+    /> : null}
+    {studioMode === 'custom' && imageView === 'text-to-image' ? <TextToImageStudio
+      onBack={() => navigateImageView('home')} prompt={textPrompt} saved={textSaved}
+      onChange={(prompt) => { setTextPrompt(prompt); setTextSaved(writeStorage('local', textDraftKey, prompt)) }}
+    /> : null}
+    {studioMode === 'custom' && (imageView === 'batch' || batchEditor) ? <BatchStudio
+      view={imageView} saveState={saveState} onBack={() => navigateImageView(imageView === 'batch' ? 'home' : 'batch')}
+      onOpen={(next) => { if (next === 'batch-storyboard') selectMode('storyboard'); if (next === 'batch-create') selectMode('fusion'); navigateImageView(next) }}
+    >{batchEditor ? <BatchCreationView assetsOnly={imageView === 'batch-products'} draft={draft} summary={summary} activeOutfit={activeOutfit} activeOutfitIndex={activeOutfitIndex} generationStatusMessage={generationStatusMessage} errors={errors} updateDraft={updateDraft} updateConfig={updateConfig} selectMode={selectMode} addOutfit={addOutfit} removeOutfit={removeOutfit} setActiveOutfitId={setActiveOutfitId} updateOutfit={updateOutfit} /> : null}</BatchStudio> : null}
+    {studioMode === 'custom' && imageView === 'records' ? <ImageRecords tasks={draft.tasks} selectedIds={selectedIds}
+      selectedCompareOutputs={selectedCompareOutputs} pendingReviewOutputs={pendingReviewOutputs}
+      onBack={() => navigateImageView('home')} onCreate={() => navigateImageView('image-to-image')}
+      onCompare={() => setCompareOpen(true)} onBatchReview={() => setBatchReviewOpen(true)}
+      recoverUncertainTask={recoverUncertainTask} prepareRegeneration={prepareRegeneration} previewSourceImage={previewSourceImage}
+      toggleOutput={toggleOutput} rejectOutput={rejectOutput} onPreviewOutput={(id) => { setPreviewSource(null); setPreviewOutputId(id) }}
+    /> : null}
+    {active && studioMode === 'custom' && batchEditor && imageView !== 'batch-products' ? createPortal(<div className="image-center-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
       {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : generationBlocked ? <span id="image-generation-availability" title={generationStatusMessage}><AlertTriangle size={15} />{generationStatusMessage}</span> : <span id="image-generation-availability" className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
-      <button type="button" className="primary-button" disabled={submitting || generationBlocked} onClick={submit} title={generationBlocked ? generationStatusMessage : undefined} aria-describedby="image-generation-availability">{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : generationBlocked ? '生成暂不可用' : '创建生图任务'}</button>
+      <button type="button" className="primary-button" disabled={submitting || generationBlocked} onClick={() => submit()} title={generationBlocked ? generationStatusMessage : undefined} aria-describedby="image-generation-availability">{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : generationBlocked ? '生成暂不可用' : '创建生图任务'}</button>
     </div>, document.body) : null}
     {active && studioMode === 'custom' && imageView === 'records' && selectedIds.size ? createPortal(<SelectionWorkbench
       tasks={draft.tasks}
