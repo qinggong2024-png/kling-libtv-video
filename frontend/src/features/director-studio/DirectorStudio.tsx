@@ -49,7 +49,7 @@ import {
 import { prepareProductionBridge } from './productionBridge'
 import { selectDirectorEvidence } from './directorEvidence'
 import { explainDirectorFailure } from './directorPresentation'
-import { DirectorBridgeStatus, DirectorDirectionCard, DirectorPackageEvidence } from './DirectorPlanningViews'
+import { DirectorAnalysisTrace, DirectorBridgeStatus, DirectorDirectionCard, DirectorPackageEvidence } from './DirectorPlanningViews'
 import { DirectorBrandDNAView } from './DirectorBrandDNAView'
 import { selectDirectorBrandProfile } from './directorBrandDNA'
 import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
@@ -710,6 +710,7 @@ export function DirectorStudio() {
       {workflow?.snapshot.package ? <section className="director-panel director-panel--package" aria-labelledby="director-package-title">
         <div className="director-panel__heading"><div><span className="director-panel__index">03</span><div><h2 id="director-package-title">生产方案 <small>Production Package</small></h2><p>选择方向后查看图片、视频 Prompt 和分镜。</p></div></div></div>
          <div className="director-package-state"><LockKeyhole size={18} /><div><strong>{packageState}</strong><span>当前为离线 Fake 流程，候选仅用于验证，不可交付。</span></div></div>
+         <DirectorAnalysisTrace analysis={workflow.snapshot.director_analysis} />
          {spatialPlan ? <SpatialPlanningView plan={spatialPlan} onChange={(nextPlan) => {
            setSpatialPlan(nextPlan)
            persistPlanningSnapshot(workflow, draft, nextPlan)

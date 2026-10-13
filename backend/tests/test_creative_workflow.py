@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,11 +11,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from libtv_agent.app import create_app
 from libtv_agent.config import Settings
-from libtv_agent.creative.workflow import PIPELINE, REALITY, Authorization, Command
+from libtv_agent.creative.workflow import PIPELINE, REALITY, Authorization, Command, digest
 from libtv_agent.domain.models import (
     Base,
     CreativePromptRegistry,
     CreativeRecord,
+    CreativeTask,
     ImageGenerationBatch,
 )
 from PIL import Image
@@ -114,6 +116,22 @@ async def test_front_only_closed_loop_and_append_only_evidence(workflow):
     flow = Flow(*workflow)
     await flow.plan()
     assert flow.result["snapshot"]["trace"] == list(PIPELINE[:5])
+    analysis = flow.result["snapshot"]["director_analysis"]
+    assert analysis["schema_version"] == "director-analysis.v1"
+    assert [stage["order"] for stage in analysis["stages"]] == list(range(1, 9))
+    assert analysis["trace"] == [
+        "PRODUCT_BRAND_AUDIENCE_DNA",
+        "SCENE_REALITY_SPATIAL",
+        "STORYBOARD_SHOT_MIX_PRECHECK",
+        "KEY_VISUAL_SELECTOR",
+        "IMAGE_PROMPT_MOTION_READY",
+        "MODEL_AWARE_VIDEO_STRATEGY",
+        "EMOTION_VIDEO_PROMPT",
+        "VIDEO_QA_ONE_FIX",
+    ]
+    assert analysis["video_strategy"]["strategy"] == "strategy_unresolved"
+    assert analysis["stages"][0]["status"] == "COMPLETE"
+    assert flow.result["snapshot"]["director_analysis_hash"] == digest(analysis)
     assert [value["dimension"] for value in flow.package["reality"]] == list(REALITY)
     assert flow.package["reality"][-1]["decision"] == "none"
     await flow.authorize()
@@ -137,11 +155,102 @@ async def test_front_only_closed_loop_and_append_only_evidence(workflow):
     assert {row.kind for row in rows} >= {
         "asset_link", "plan", "package", "authorization", "attempt", "iteration",
         "review", "selection",
+        "director_analysis",
     }
+    analysis_records = sorted(
+        (row for row in rows if row.kind == "director_analysis"),
+        key=lambda row: row.record_key,
+    )
+    assert [row.record_key for row in analysis_records] == ["1", "2"]
+    assert analysis_records[0].payload_json["selected_direction"] is None
+    assert analysis_records[1].payload_json == analysis
     critic = next(row for row in rows if row.kind == "review"
                   and row.payload_json["reviewer_kind"] == "FAKE_CRITIC")
     assert critic.payload_json["decision"] == "UNVERIFIED"
     assert set(critic.payload_json["axes"].values()) == {"unverified"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["select_direction", "authorize", "generate", "revise"])
+@pytest.mark.parametrize("corruption", [
+    "missing", "reordered", "edited_evidence", "foreign_source", "stale_facts",
+    "changed_direction", "different_selection",
+])
+async def test_analysis_contract_gate_blocks_corruption_without_side_effects(
+    workflow, action, corruption,
+):
+    flow = Flow(*workflow)
+    if action == "select_direction":
+        await flow.create()
+        await flow.command("analyze")
+    else:
+        await flow.plan()
+        await flow.authorize(loop_enabled=True)
+        if action == "revise":
+            await flow.generate()
+
+    async with flow.app.state.database.session_factory() as session:
+        task = await session.get(CreativeTask, uuid.UUID(flow.task_id))
+        snapshot = deepcopy(task.snapshot_json)
+        analysis = snapshot["director_analysis"]
+        if corruption == "missing":
+            del snapshot["director_analysis"]
+        elif corruption == "reordered":
+            analysis["stages"].reverse()
+        elif corruption == "edited_evidence":
+            analysis["stages"][0]["evidence"] = ["fabricated result"]
+        elif corruption == "foreign_source":
+            analysis["source_hash"] = "f" * 64
+            snapshot["director_analysis_hash"] = digest(analysis)
+        elif corruption == "stale_facts":
+            analysis["facts_revision"] += 1
+            snapshot["director_analysis_hash"] = digest(analysis)
+        elif corruption == "changed_direction":
+            snapshot["plan"]["directions"][0]["scene"] = "different scene"
+        else:
+            analysis["selected_direction"] = "B"
+            analysis["planning_status"] = "READY_FOR_PACKAGE"
+            snapshot["director_analysis_hash"] = digest(analysis)
+        task.snapshot_json = snapshot
+        await session.commit()
+        prior_records = list(await session.scalars(select(CreativeRecord).where(
+            CreativeRecord.task_id == task.id,
+        )))
+
+    kwargs = {}
+    if action == "select_direction":
+        kwargs["direction_id"] = "A"
+    elif action == "authorize":
+        kwargs["authorization"] = {
+            "authorization_id": str(uuid.uuid4()),
+            "package_id": flow.package["package_id"],
+            "locks_hash": flow.package["locks_hash"],
+            "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+            "max_calls": 2, "max_cost_micros": 2,
+        }
+    elif action == "revise":
+        kwargs.update(
+            package_id=flow.package["package_id"],
+            candidate_id=flow.result["snapshot"]["candidates"][0]["candidate_id"],
+            changed_modules=["Reality"], fix="change light", failure_region="shirt",
+        )
+    else:
+        kwargs["package_id"] = flow.package["package_id"]
+    response = await flow.command(action, expected_status=409, **kwargs)
+    expected = (
+        "DIRECTOR_ANALYSIS_REQUIRED"
+        if corruption == "missing"
+        else "DIRECTOR_ANALYSIS_INVALID"
+    )
+    assert response.json()["detail"]["code"] == expected
+    async with flow.app.state.database.session_factory() as session:
+        task = await session.get(CreativeTask, uuid.UUID(flow.task_id))
+        assert task.state_version == flow.version
+        assert task.snapshot_json == snapshot
+        records = list(await session.scalars(select(CreativeRecord).where(
+            CreativeRecord.task_id == task.id,
+        )))
+        assert len(records) == len(prior_records)
 
 
 @pytest.mark.asyncio
