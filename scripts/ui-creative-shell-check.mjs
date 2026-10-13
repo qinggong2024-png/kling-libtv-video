@@ -53,8 +53,8 @@ try {
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name}: no horizontal page overflow at ${width}`)
       result.layouts[name] = await page.evaluate(() => ({
         viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth,
-        directorColumns: document.querySelector('.director-studio__grid')
-          ? getComputedStyle(document.querySelector('.director-studio__grid')).gridTemplateColumns : null,
+        directorWorkspace: document.querySelector('.director-studio__workspace')
+          ? getComputedStyle(document.querySelector('.director-studio__workspace')).display : null,
       }))
       await page.screenshot({ path: resolve(reportDir, `${name}-${width}.png`), fullPage: true })
     }
@@ -83,14 +83,32 @@ try {
       await next.click()
       await page.getByRole('region', { name: '智能导演', exact: true }).waitFor()
       assert(new URL(page.url()).searchParams.get('project') === 'ui2-fixture')
-      assert.equal(await page.locator('.director-studio__grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length), width >= 1280 ? 3 : width > 760 ? 2 : 1)
+      assert.equal(await page.locator('.director-studio__workspace').evaluate(el => getComputedStyle(el).display), 'block')
+      assert.equal(await page.locator('.director-stage.is-active').count(), 1, 'One active stage workspace')
+      assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1, 'Only one visible product title')
+      assert.equal(await page.getByRole('heading', { level: 1 }).textContent(), '导演台')
       for (const index of await page.locator('.director-panel__index').all()) assert.equal(await index.evaluate(el => getComputedStyle(el).whiteSpace), 'nowrap')
       await layout('director-empty')
       const director = page.getByRole('region', { name: '智能导演', exact: true })
-      await director.getByRole('textbox', { name: '商品名称', exact: true }).fill('离线服装展示输入')
+      assert.equal(await director.getByRole('textbox', { name: '商品名称', exact: true }).count(), 0)
+      assert.equal(await director.locator('.director-brief-details').getAttribute('open'), null)
+      const analyze = director.getByRole('button', { name: '生成创意方向', exact: true })
+      const assertDirectorActionVisible = async () => {
+        if (width !== 390) return
+        const bounds = await analyze.boundingBox()
+        assert(bounds.y >= 0 && bounds.y + bounds.height <= height, 'Director action is visible in the first mobile viewport')
+        assert(await analyze.evaluate(button => {
+          const bounds = button.getBoundingClientRect()
+          return button.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2))
+        }), 'Mobile navigation does not cover the Director action')
+        const mobileNav = await page.getByRole('navigation', { name: '移动端主导航', exact: true }).boundingBox()
+        assert(bounds.y + bounds.height <= mobileNav.y, 'Entire action fits above mobile navigation')
+      }
+      await assertDirectorActionVisible()
       await director.locator('input[type=file]').setInputFiles({ name: 'fixture-product.png', mimeType: 'image/png', buffer: media })
       assert(await director.getByRole('img', { name: '商品正面预览', exact: true }).evaluate(img => img.complete && img.naturalWidth > 0))
-      assert(await director.getByRole('button', { name: '创建任务并分析', exact: true }).isEnabled())
+      assert(await analyze.isEnabled())
+      await assertDirectorActionVisible()
       await layout('director-input')
       await page.goBack()
       await page.getByRole('heading', { name: longName, exact: true }).waitFor()
@@ -117,6 +135,7 @@ try {
       await nav.getByRole('button', { name: '图片工作室', exact: true }).click()
       await page.getByRole('button', { name: '批量创作', exact: true }).click()
       await page.locator('.image-center-create').waitFor({ state: 'visible' })
+      assert.equal(await page.getByRole('heading', { level: 1, name: '图片工作室', exact: true }).count(), 1, 'Custom Image Studio keeps its title')
       await layout('image')
       assert.deepEqual(errors, [])
       result.passed = true

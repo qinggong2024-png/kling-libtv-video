@@ -48,6 +48,7 @@ try {
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
     const commands = []
+    const creationRequests = []
     let failReview = false
     let failSelect = false
     let uncertain = false
@@ -149,7 +150,10 @@ try {
         task.state_version++
         return json(task)
       }
-      if (url.pathname === '/api/v1/creative-workflow/tasks') return json(task)
+      if (url.pathname === '/api/v1/creative-workflow/tasks') {
+        creationRequests.push(route.request().postData())
+        return json(task)
+      }
       if (url.pathname.endsWith('/task-1')) {
         task.snapshot.execution_state = uncertain ? 'UNKNOWN' : 'SUCCEEDED'
         return json(task)
@@ -158,15 +162,65 @@ try {
     })
     try {
       await page.goto(origin)
-      await page.getByText('完成 Product Brief 后生成创意方向', { exact: true }).waitFor()
+      await page.getByText('完成商品输入后生成创意方向', { exact: true }).waitFor()
+      assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1)
+      assert.equal(await page.getByRole('heading', { level: 1 }).textContent(), '导演台')
+      assert.equal(await page.getByRole('textbox', { name: '商品名称', exact: true }).count(), 0)
+      const advanced = page.locator('details.director-brief-details')
+      assert.equal(await advanced.getAttribute('open'), null, 'Advanced settings default to collapsed')
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      const steps = page.locator('.director-studio__steps')
+      for (const name of ['商品输入', '创意方向', '生产方案']) {
+        assert(await steps.getByRole('button', { name: new RegExp(name) }).isVisible())
+      }
+      const stepAlignment = await steps.locator('button').evaluateAll(buttons => buttons.map(button => {
+        const number = button.querySelector('span').getBoundingClientRect()
+        const title = button.querySelector('strong').getBoundingClientRect()
+        return { numberHeight: number.height, numberWidth: number.width, centerDifference: Math.abs(number.y + number.height / 2 - title.y - title.height / 2) }
+      }))
+      assert(stepAlignment.every(step => step.numberHeight === 24 && step.numberWidth === 24), 'Stable centered step numbers')
+      if (width > 760) assert(stepAlignment.every(step => step.centerDifference <= 1), 'Step number and title align')
+      const analyze = page.getByRole('button', { name: '生成创意方向', exact: true })
+      if (width === 390) {
+        const bounds = await analyze.boundingBox()
+        assert(bounds.y >= 0 && bounds.y + bounds.height <= 844, 'Brief action fits first mobile viewport')
+      }
       await page.screenshot({ path: resolve(evidence, `brief-${width}.png`), fullPage: true })
+      await advanced.locator('summary').click()
+      assert.equal(await advanced.locator('.director-field').count(), 7)
+      assert.equal(await advanced.locator('.director-field small').filter({ hasText: '计划支持' }).count(), 7)
+      assert(await advanced.getByText('仅记录创作意向，尚未接入分析；不会影响当前创意方向或图片、视频 Prompt。', { exact: true }).isVisible())
+      await advanced.getByRole('textbox', { name: /产品材质/ }).fill('PLANNED_MATERIAL')
+      await advanced.getByRole('combobox', { name: /视频类型/ }).selectOption('lifestyle')
+      await advanced.getByRole('combobox', { name: /模特性别/ }).selectOption('female')
+      await advanced.getByRole('textbox', { name: /模特年龄范围/ }).fill('25-35')
+      await advanced.getByRole('spinbutton', { name: /视频时长/ }).fill('15')
+      await advanced.getByRole('spinbutton', { name: /视频时长/ }).fill('')
+      assert.equal(await advanced.getByRole('spinbutton', { name: /视频时长/ }).inputValue(), '')
+      await advanced.getByRole('spinbutton', { name: /视频时长/ }).fill('15')
+      await advanced.getByRole('combobox', { name: /视频比例/ }).selectOption('9:16')
+      await advanced.getByRole('textbox', { name: /创作备注/ }).fill('PLANNED_NOTES')
+      assert.equal(commands.length, 0, 'Planned settings do not execute commands')
+      assert.equal(creationRequests.length, 0, 'Planned settings do not create tasks')
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Expanded settings do not overflow')
+      await page.screenshot({ path: resolve(evidence, `brief-advanced-${width}.png`), fullPage: true })
+      await advanced.locator('summary').click()
+      await advanced.locator('summary').click()
+      assert.equal(await advanced.getByRole('textbox', { name: /产品材质/ }).inputValue(), 'PLANNED_MATERIAL', 'Collapse retains planning values')
+      await advanced.locator('summary').click()
       await page.locator('input[type=file]').setInputFiles({
         name: 'front.png', mimeType: 'image/png',
         buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
       })
-      await page.getByRole('button', { name: '生成创意方向', exact: true }).click()
+      await analyze.click()
       const directionCards = page.locator('article.director-direction')
       await directionCards.filter({ hasText: 'scene A' }).waitFor()
+      assert.equal(creationRequests.length, 1)
+      const formFields = [...creationRequests[0].matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map(match => match[1])
+      assert.deepEqual(formFields.sort(), ['client_key', 'front', 'product_id'], 'Only existing effective inputs enter task creation')
+      assert(!creationRequests[0].includes('PLANNED_'), 'Planning values stay out of analysis')
+      const analysisCommand = commands.find(command => command.action === 'analyze')
+      assert.deepEqual(Object.keys(analysisCommand).sort(), ['action', 'command_key', 'expected_version'], 'Analysis contract unchanged')
       assert.equal(await directionCards.count(), 3)
       assert.equal(await page.locator('.director-direction__label').filter({ hasText: 'Execution Concept' }).count(), 3)
       assert.equal(await page.locator('.director-direction__label').filter({ hasText: 'Visual Proposal' }).count(), 3)
@@ -218,7 +272,7 @@ try {
       const firstFramePackage = page.getByRole('region', { name: 'FIRST_FRAME 生产包证据' })
       await firstFramePackage.getByText('r3', { exact: true }).waitFor()
       assert.equal(commands.filter(command => command.action === 'select_direction').length, 1, 'Confirming a direction creates one select_direction command')
-      await page.locator('.director-studio__steps').getByRole('button', { name: /Creative Direction/ }).click()
+      await page.locator('.director-studio__steps').getByRole('button', { name: /创意方向/ }).click()
       assert(await directionA.getByText('已确认', { exact: true }).isVisible())
       assert(await directionA.locator('button').isDisabled())
       assert(await directionB.locator('button').isDisabled())
@@ -226,7 +280,7 @@ try {
       assert.equal(await directionA.locator('button').getAttribute('aria-pressed'), 'true', 'Confirmed direction stays selected')
       assert.equal(await directionB.locator('button').getAttribute('aria-pressed'), 'false', 'Confirmed package blocks switching')
       assert.equal(commands.filter(command => command.action === 'select_direction').length, 1)
-      await page.locator('.director-studio__steps').getByRole('button', { name: /Production Package/ }).click()
+      await page.locator('.director-studio__steps').getByRole('button', { name: /生产方案/ }).click()
       const spatial = page.getByRole('region', { name: '空间与关键视觉规划' })
       await spatial.getByText('Key Visual Shot Selector', { exact: true }).waitFor()
       assert.equal(await spatial.locator('.director-camera-row').count(), 3)
