@@ -15,6 +15,7 @@ from typing import Any, Literal, NoReturn
 from fastapi import HTTPException
 from libtv_agent.creative.media_qualification import OFFLINE_SCOPE, is_offline_synthetic_output
 from libtv_agent.creative.text_contract import validate_text_contract
+from libtv_agent.creative.visual_plan import VisualPlan, storyboard_keyframes
 from libtv_agent.creative.workflow import UNCERTAIN, digest
 from libtv_agent.domain.enums import QualityDecisionStatus
 from libtv_agent.domain.models import (
@@ -60,6 +61,7 @@ class DirectorFixedSourceMapping(BaseModel):
     source_sha256: str
     output_sha256: str
     object_key: str
+    keyframe_id: str | None = None
     qualification_scope: Literal["OFFLINE_SYNTHETIC_ONLY"] = OFFLINE_SCOPE
 
 
@@ -89,7 +91,8 @@ class CreativeVideoBridgePlan(BaseModel):
     package_revision_id: str
     shot_id: Literal["SHOT_01"] = SHOT_ID
     first_frame: DirectorFixedSourceMapping
-    storyboard: DirectorFixedSourceMapping
+    storyboard: DirectorFixedSourceMapping | None
+    keyframe_sources: tuple[DirectorFixedSourceMapping, ...] = ()
     source_image_hashes: dict[str, str]
     locked_prompt_preservation: LockedPromptPreservation
     provider_submission_allowed: Literal[False] = False
@@ -258,9 +261,29 @@ def _get_authorization(
         or _parse_expiry(authorization.get("expires_at")) <= now
     ):
         _reject("AUTHORIZATION_SCOPE_INVALID")
-    if scope == "VIDEO_STORYBOARD" and authorization.get("shot_ids") != [SHOT_ID]:
+    if scope == "VIDEO_STORYBOARD" and authorization.get("shot_ids") != [package["shot_id"]]:
         _reject("AUTHORIZATION_SCOPE_INVALID")
     return authorization
+
+
+def _authorization_chain(
+    records: list[CreativeRecord], auth: dict, root: dict, now: datetime,
+) -> None:
+    visited = {auth["authorization_id"]}
+    parent = auth.get("parent_authorization_id")
+    while parent != root["authorization_id"]:
+        if parent in visited or parent is None:
+            _reject("AUTHORIZATION_CHAIN_INVALID")
+        visited.add(parent)
+        matches = [
+            r.payload_json for r in records if r.kind == "authorization"
+            and r.record_key == parent and r.content_hash == digest(r.payload_json)
+        ]
+        if len(matches) != 1 or matches[0].get("locks_hash") != root["locks_hash"]:
+            _reject("AUTHORIZATION_CHAIN_INVALID")
+        if _parse_expiry(matches[0].get("expires_at")) <= now:
+            _reject("AUTHORIZATION_SCOPE_INVALID")
+        parent = matches[0].get("parent_authorization_id")
 
 
 async def _load_media_source(
@@ -353,6 +376,7 @@ async def _load_media_source(
             source_sha256=asset_sha256,
             output_sha256=output.sha256,
             object_key=output.object_key,
+            keyframe_id=package.get("keyframe_id"),
         ),
         output,
     )
@@ -432,8 +456,9 @@ def _source_fingerprint(
     task: CreativeTask,
     snapshot: dict[str, Any],
     first_frame: DirectorFixedSourceMapping,
-    storyboard: DirectorFixedSourceMapping,
+    storyboard: DirectorFixedSourceMapping | None,
     locked: LockedPromptPreservation,
+    keyframes: tuple[DirectorFixedSourceMapping, ...] = (),
 ) -> str:
     return digest(
         {
@@ -442,7 +467,8 @@ def _source_fingerprint(
             "status": task.status,
             "snapshot_hash": digest(snapshot),
             "first_frame": first_frame.model_dump(mode="json"),
-            "storyboard": storyboard.model_dump(mode="json"),
+            "storyboard": storyboard.model_dump(mode="json") if storyboard is not None else None,
+            "keyframes": [s.model_dump(mode="json") for s in keyframes],
             "locked": locked.model_dump(mode="json"),
         }
     )
@@ -455,6 +481,7 @@ async def plan_creative_video_bridge(
     owner_id: uuid.UUID,
     object_store: Any,
     now: datetime | None = None,
+    only_storyboard_slot: str | None = None,
 ) -> CreativeVideoBridgePlan:
     """Validate director_fixed inputs without creating a video task or attempt."""
 
@@ -474,7 +501,10 @@ async def plan_creative_video_bridge(
     snapshot = task.snapshot_json if isinstance(task.snapshot_json, dict) else {}
     if snapshot.get("stopped"):
         _reject("USER_STOPPED")
-    if task.status != "STORYBOARD_REVIEW":
+    structured = snapshot.get("plan", {}).get("script_beats") is not None
+    if task.status != "STORYBOARD_REVIEW" and not (
+        structured and task.status == "IMAGE_REVIEW"
+    ):
         _reject("TASK_STAGE_INVALID")
     asset = snapshot.get("asset")
     if not isinstance(asset, dict):
@@ -496,40 +526,56 @@ async def plan_creative_video_bridge(
         shot_id="FIRST_FRAME",
         now=current_time,
     )
+    if structured:
+        if first_package.get("visual_plan") is None:
+            _reject("VISUAL_PLAN_REQUIRED")
+        visual = VisualPlan.model_validate(first_package["visual_plan"])
+        if visual.budget_exceeded:
+            _reject("VIDEO_REFERENCE_BUDGET_EXCEEDED")
+        if visual.missing_product_views:
+            _reject("PRODUCT_VIEW_EVIDENCE_REQUIRED")
+        expected_slots = storyboard_keyframes(visual)
+    else:
+        expected_slots = {SHOT_ID: "K01"}
+    if only_storyboard_slot is not None:
+        if only_storyboard_slot not in expected_slots:
+            _reject("SHOT_ID_UNSUPPORTED")
+        expected_slots = {only_storyboard_slot: expected_slots[only_storyboard_slot]}
     storyboard_state = snapshot.get("storyboard")
-    storyboard_package = (
-        storyboard_state.get("packages", {}).get(SHOT_ID)
-        if isinstance(storyboard_state, dict)
-        else None
-    )
-    storyboard_package = _active_package(
-        snapshot,
-        storyboard_package,
-        purpose="VIDEO_STORYBOARD",
-        shot_id=SHOT_ID,
-        now=current_time,
-    )
     first_selection, first_candidate, first_review = _selected_source(
         snapshot, purpose="FIRST_FRAME", shot_id="FIRST_FRAME", owner_id=owner_id
     )
-    storyboard_selection, storyboard_candidate, storyboard_review = _selected_source(
-        snapshot, purpose="VIDEO_STORYBOARD", shot_id=SHOT_ID, owner_id=owner_id
-    )
-    if (
-        storyboard_package.get("source_first_frame_candidate_id")
-        != first_candidate.get("candidate_id")
-        or storyboard_candidate.get(
-            "source_first_frame_candidate_id",
-            first_candidate.get("candidate_id"),
+    sources = [(first_package, first_selection, first_candidate, first_review)]
+    if structured and first_package.get("keyframe_id") != "K01":
+        _reject("KEYFRAME_PACKAGE_MISMATCH")
+    for slot, key_id in expected_slots.items():
+        package = _active_package(
+            snapshot,
+            storyboard_state.get("packages", {}).get(slot)
+            if isinstance(storyboard_state, dict) else None,
+            purpose="VIDEO_STORYBOARD", shot_id=slot, now=current_time,
         )
-        != first_candidate.get("candidate_id")
-    ):
-        _reject("FIRST_FRAME_SOURCE_MISMATCH")
+        selection, candidate, review = _selected_source(
+            snapshot, purpose="VIDEO_STORYBOARD", shot_id=slot, owner_id=owner_id,
+        )
+        if (
+            package.get("source_first_frame_candidate_id") != first_candidate["candidate_id"]
+            or package.get("parent_package_id") != first_package["package_id"]
+            or candidate.get("source_first_frame_candidate_id", first_candidate["candidate_id"])
+            != first_candidate["candidate_id"]
+        ):
+            _reject("FIRST_FRAME_SOURCE_MISMATCH")
+        if structured and (
+            package.get("keyframe_id") != key_id
+            or package.get("visual_plan") != first_package.get("visual_plan")
+        ):
+            _reject("KEYFRAME_PACKAGE_MISMATCH")
+        sources.append((package, selection, candidate, review))
     try:
         await validate_asset(snapshot, object_store)
         await validate_product_version(session, task, snapshot)
-        _validate_locked_package(deepcopy(snapshot), first_package)
-        _validate_locked_package(deepcopy(snapshot), storyboard_package)
+        for package, *_ in sources:
+            _validate_locked_package(deepcopy(snapshot), package)
     except HTTPException as exc:
         raise CreativeVideoBridgeRejected(exc.detail["code"]) from exc
     product = await session.scalar(
@@ -543,15 +589,10 @@ async def plan_creative_video_bridge(
             select(CreativeRecord).where(CreativeRecord.task_id == task.id)
         )
     )
-    for package in (first_package, storyboard_package):
-        if not _record_matches(records, kind="package", payload=package):
-            _reject("CREATIVE_EVIDENCE_MISMATCH")
-    for review in (first_review, storyboard_review):
-        if not _record_matches(records, kind="review", payload=review):
-            _reject("CREATIVE_EVIDENCE_MISMATCH")
-    for selection in (first_selection, storyboard_selection):
-        if not _record_matches(records, kind="selection", payload=selection):
-            _reject("CREATIVE_EVIDENCE_MISMATCH")
+    for package, selection, _, review in sources:
+        for kind, payload in (("package", package), ("review", review), ("selection", selection)):
+            if not _record_matches(records, kind=kind, payload=payload):
+                _reject("CREATIVE_EVIDENCE_MISMATCH")
     first_auth = _get_authorization(
         records,
         first_candidate.get("authorization_id"),
@@ -559,82 +600,46 @@ async def plan_creative_video_bridge(
         package=first_package,
         now=current_time,
     )
-    storyboard_auth = _get_authorization(
-        records,
-        storyboard_candidate.get("authorization_id"),
-        scope="VIDEO_STORYBOARD",
-        package=storyboard_package,
-        now=current_time,
-    )
-    if storyboard_auth.get("parent_authorization_id") != first_auth.get("authorization_id"):
-        _reject("AUTHORIZATION_CHAIN_INVALID")
-    _attempt(
-        records,
-        first_candidate,
-        package=first_package,
-        purpose="FIRST_FRAME",
-        shot_id="FIRST_FRAME",
-    )
-    _attempt(
-        records,
-        storyboard_candidate,
-        package=storyboard_package,
-        purpose="VIDEO_STORYBOARD",
-        shot_id=SHOT_ID,
-    )
-    first_mapping, first_output = await _load_media_source(
-        session,
-        owner_id=owner_id,
-        task=task,
-        package=first_package,
-        candidate=first_candidate,
-        selection=first_selection,
-        purpose="FIRST_FRAME",
-        shot_id="FIRST_FRAME",
-        asset_sha256=source_sha256,
-    )
-    storyboard_mapping, storyboard_output = await _load_media_source(
-        session,
-        owner_id=owner_id,
-        task=task,
-        package=storyboard_package,
-        candidate=storyboard_candidate,
-        selection=storyboard_selection,
-        purpose="VIDEO_STORYBOARD",
-        shot_id=SHOT_ID,
-        asset_sha256=source_sha256,
-    )
-    if (
-        len(
-            {
-                first_mapping.candidate_id,
-                storyboard_mapping.candidate_id,
-                first_mapping.batch_id,
-                storyboard_mapping.batch_id,
-                first_mapping.item_id,
-                storyboard_mapping.item_id,
-                first_mapping.output_id,
-                storyboard_mapping.output_id,
-            }
+    mappings = []
+    for package, selection, candidate, _ in sources:
+        purpose, slot = package["purpose"], package["shot_id"]
+        if purpose == "VIDEO_STORYBOARD":
+            auth = _get_authorization(
+                records, candidate.get("authorization_id"), scope=purpose,
+                package=package, now=current_time,
+            )
+            _authorization_chain(records, auth, first_auth, current_time)
+        _attempt(records, candidate, package=package, purpose=purpose, shot_id=slot)
+        mapping, _ = await _load_media_source(
+            session, owner_id=owner_id, task=task, package=package, candidate=candidate,
+            selection=selection, purpose=purpose, shot_id=slot, asset_sha256=source_sha256,
         )
-        != 8
-    ):
+        mappings.append(mapping)
+    if len({
+        identity for mapping in mappings
+        for identity in (mapping.candidate_id, mapping.batch_id, mapping.item_id, mapping.output_id)
+    }) != 4 * len(mappings):
         _reject("SOURCE_MAPPING_COLLISION")
-    locked = _locked_prompt_preservation(snapshot, storyboard_package)
-    bridge_key = f"creative-video-bridge:{task.id}:{storyboard_package['package_id']}:{SHOT_ID}"
+    first_mapping = mappings[0]
+    storyboard_mapping = mappings[-1] if len(mappings) > 1 else None
+    primary = sources[-1][0]
+    locked = _locked_prompt_preservation(snapshot, primary)
+    bridge_key = f"creative-video-bridge:{task.id}:{primary['package_id']}:{SHOT_ID}"
     plan = CreativeVideoBridgePlan(
         idempotency_key=bridge_key,
         validity_token="pending",
         state_version=task.state_version,
         creative_task_id=str(task.id),
         owner_id=str(owner_id),
-        package_revision_id=storyboard_package["package_id"],
+        package_revision_id=primary["package_id"],
         first_frame=first_mapping,
         storyboard=storyboard_mapping,
+        keyframe_sources=tuple(mappings) if structured else (),
         source_image_hashes={
             "canonical_product": source_sha256,
-            "first_frame_output": first_output.sha256,
-            "storyboard_output": storyboard_output.sha256,
+            "first_frame_output": first_mapping.output_sha256,
+            **({"storyboard_output": storyboard_mapping.output_sha256}
+               if storyboard_mapping is not None else {}),
         },
         locked_prompt_preservation=locked,
         next_steps=[
@@ -643,7 +648,7 @@ async def plan_creative_video_bridge(
         ],
     )
     plan.validity_token = _source_fingerprint(
-        task, snapshot, first_mapping, storyboard_mapping, locked
+        task, snapshot, first_mapping, storyboard_mapping, locked, plan.keyframe_sources,
     )
     return plan
 

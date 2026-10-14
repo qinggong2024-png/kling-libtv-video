@@ -1,4 +1,4 @@
-"""Pure persisted-text integrity checks; no pixel or semantic quality claims."""
+"""Persisted-text integrity and bounded authored-cue checks; never pixel approval."""
 from __future__ import annotations
 
 import hashlib
@@ -55,6 +55,79 @@ def freeze_text_contract(
 
 def _sha(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def validate_prompt_preservation(prompt: str, reality: list[dict], locks: dict) -> dict:
+    """Check the compiled meaning contract, not unrestricted natural-language truth.
+
+    Legacy packages stay on their original gate. A new package must retain its
+    actual causal clauses; generic realism labels cannot stand in for them.
+    """
+    camera = next((item for item in reality if item.get("dimension") == "Camera"), {})
+    if "compiler_version" not in camera:
+        return {"status": "legacy_not_checked", "checks": []}
+    mode = camera.get("capture_mode")
+    cues = [item for item in reality if item.get("compiled_cue")]
+    modes = re.findall(r"Capture mode: ([a-z_]+)\.", prompt)
+    complete = bool(cues) and len(cues) <= 2 and all(
+        all(isinstance(item.get(key), str) and item[key].strip()
+            and item[key] in item["compiled_cue"]
+            for key in ("causal_trigger", "physical_relation", "visible_result"))
+        and item["compiled_cue"] in prompt for item in cues
+    )
+    preserved = (
+        f"Preserve canonical garment SHA {locks.get('source_hash')}" in prompt
+        and "Preserve original color, print, exact lettering, silhouette" in prompt
+        and "keep the product readable at the selected framing" in prompt
+    )
+    visible_locks = {
+        key: value for key, value in locks.get("user_locks", {}).items()
+        if key not in {"selected_direction", "shot_id"}
+    }
+    if visible_locks:
+        preserved = preserved and (
+            "User locks: " + json.dumps(visible_locks, sort_keys=True, ensure_ascii=True)
+        ) in prompt
+    locked_camera = visible_locks.get("camera") or visible_locks.get("framing")
+    if isinstance(locked_camera, str) and locked_camera.strip():
+        preserved = preserved and camera.get("decision") == locked_camera
+    # Exact SKU/user-lock values can contain imperative words as literal lettering.
+    # Photographic clauses still undergo contradiction checks, even when retained.
+    added = prompt
+    if visible_locks:
+        added = added.replace(json.dumps(visible_locks, sort_keys=True, ensure_ascii=True), "")
+    harmful = (
+        r"\b(?:blur|hide|replace|recolor|remove)\s+(?:the\s+)?"
+        r"(?:print|garment|lettering|product)\b|"
+        r"\badd\s+(?:grain|stains|dirt|motion blur)\b"
+    )
+    positive = [
+        clause for clause in re.split(r"[.,;\n]|\band\b|\bbut\b", added.lower())
+        if not re.search(r"\b(?:no|not|never|avoid|without|don't)\b", clause)
+    ]
+    contradictions = any(re.search(harmful, clause) for clause in positive)
+    awareness_conflict = (
+        mode in {"casual_portrait", "identity_snapshot"}
+        and any("unaware of the camera" in clause for clause in positive)
+    ) or (
+        "unaware of the camera" in prompt.lower()
+        and "look at the camera" in prompt.lower()
+    )
+    checks = [
+        ("capture_intent_alignment", camera.get("compiler_version") == "compact-photo.v1.13.14"
+         and bool(modes) and set(modes) == {mode}
+         and mode == locks.get("user_locks", {}).get("photo_intent", mode)
+         and not camera.get("unresolved_context") and not awareness_conflict),
+        ("visual_causality_retained", complete),
+        ("sku_and_ad_visibility", preserved),
+        ("contradiction_and_bloat", not contradictions
+         and "Reality generation constraints (proposed guidance)" not in prompt),
+    ]
+    return {
+        "status": "text_ready" if all(ok for _, ok in checks) else "repair_required",
+        "checks": [{"code": code, "valid": bool(ok)} for code, ok in checks],
+        "boundary": "AUTHORED_TEXT_ONLY_NOT_PIXEL_OR_CONVERSION_APPROVAL",
+    }
 
 
 def validate_text_contract(
@@ -201,6 +274,17 @@ def validate_text_contract(
                 reason = item.get("reason") or item.get("na_reason")
                 check("REALITY_NA_REASON", isinstance(reason, str) and bool(reason.strip()),
                       f"{item.get('dimension')} N/A needs a reason")
+        if isinstance(reality, list) and all(isinstance(item, dict) for item in reality):
+            semantics = validate_prompt_preservation(
+                package.get("prompt", ""), reality,
+                {"source_hash": plan.get("source_hash"),
+                 **(locks if isinstance(locks, dict) else {})},
+            )
+            for item in semantics["checks"]:
+                check(
+                    f"PROMPT_{item['code'].upper()}", item["valid"],
+                    "final Prompt lost or contradicted its authored photographic contract",
+                )
         rule_items = [
             item for item in reality if isinstance(item, dict)
             and any(item.get(key) for key in ("rule_id", "rules_version", "rules_hash"))

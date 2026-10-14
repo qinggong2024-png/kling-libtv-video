@@ -8,6 +8,7 @@ submits a Provider request, reserves quota, or writes state.
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 from uuid import UUID
 
@@ -194,6 +195,17 @@ def compile_controlled_video_task_input(
     if isinstance(source, (list, tuple, set)):
         _reject("BATCH_INPUT_NOT_ALLOWED")
     _validate_request_lineage(request, source)
+    try:
+        frozen = json.loads(request.locked_prompt.text_contract_json)
+    except (TypeError, ValueError) as exc:
+        raise ControlledVideoAdapterRejected("TEXT_CONTRACT_INVALID") from exc
+    if not isinstance(frozen, dict) or not isinstance(frozen.get("package", {}), dict):
+        _reject("TEXT_CONTRACT_INVALID")
+    if frozen.get("package", {}).get("visual_plan") is not None:
+        # This legacy envelope stages only the storyboard upload. The director
+        # contract also binds a first frame and canonical product; dropping them
+        # would leave @image_N pointing at different (or absent) images.
+        _reject("DIRECTOR_REFERENCE_BINDINGS_NOT_PRESERVED")
     if request.package_revision_id != source.package_lineage.package_revision_id:
         _reject("PACKAGE_REVISION_MISMATCH")
     if request.source_mapping.output_id != str(source.source_image_output_id):
@@ -210,7 +222,7 @@ def compile_controlled_video_task_input(
         title=title or f"Creative video {source.creative_task_id} / {source.shot_id}",
         storyboards=[{"upload_id": source.upload_id, "order": 1}],
         generation_mode="custom",
-        custom_prompt=request.locked_prompt.prompt,
+        custom_prompt=request.adapter_parameters.prompt,
         result_count=1,
         duration_seconds=duration_seconds or request.options.duration,
         action_intensity="standard",

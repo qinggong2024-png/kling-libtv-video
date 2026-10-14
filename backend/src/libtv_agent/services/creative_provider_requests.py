@@ -16,6 +16,14 @@ from tempfile import TemporaryDirectory
 from typing import Annotated, Any, Literal
 
 from libtv_agent.creative.text_contract import validate_text_contract
+from libtv_agent.creative.visual_plan import (
+    VisualPlan,
+    VisualPlanRejected,
+    assert_reference_budget,
+    assert_visual_inputs,
+    assert_visual_plan_current,
+    compile_visual_video_prompt,
+)
 from libtv_agent.creative.workflow import digest
 from libtv_agent.domain.models import (
     CreativeRecord,
@@ -25,6 +33,7 @@ from libtv_agent.domain.models import (
     ImageGenerationOutput,
     Product,
     ProductVersion,
+    StagedUpload,
     User,
 )
 from libtv_agent.services.creative_image_bridge import (
@@ -41,6 +50,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+ExecutionSlot = Annotated[str, Field(pattern=r"^(FIRST_FRAME|SHOT_(0[1-9]|[12]\d|3[01]))$")]
 RunMode = Literal["dry-run", "replay"]
 
 
@@ -76,7 +86,7 @@ class VideoProviderOptions(FrozenContract):
     aspect_ratio: Literal["9:16", "16:9", "1:1"] = "9:16"
     resolution: str | None = None
     audio: Literal["on", "off"] = "off"
-    multi_shot: Literal[False] = False
+    multi_shot: bool = Field(default=False, strict=True)
 
 
 class SourceMapping(FrozenContract):
@@ -108,6 +118,8 @@ class ProviderReference(FrozenContract):
     object_key: str = Field(min_length=1)
     sha256: Sha256
     source_mapping: SourceMapping | None = None
+    keyframe_id: str | None = None
+    product_view: Literal["front", "side", "back"] | None = None
     actual_submitted: Literal[False] = False
     provider_accepted: Literal[False] = False
 
@@ -139,7 +151,7 @@ class VideoRequestParameters(FrozenContract):
     aspect_ratio: str
     resolution: str | None
     audio: str
-    multi_shot: Literal[False] = False
+    multi_shot: bool = False
     fallback_mode: Literal["disabled"] = "disabled"
     task_trace_id: str
     external_task_id: str
@@ -152,7 +164,7 @@ class ProviderRequestContract(FrozenContract):
     owner_id: str
     state_version: int
     package_revision_id: str
-    shot_id: Literal["FIRST_FRAME", "SHOT_01"]
+    shot_id: ExecutionSlot
     source_mapping: SourceMapping
     canonical_product: CanonicalProduct
     locked_prompt: LockedProviderPrompt
@@ -220,12 +232,16 @@ def _locked(task: CreativeTask, package_id: str) -> LockedProviderPrompt:
     frozen = stored["text_contract"]
     package = snapshot["package"]
     if package["package_id"] != package_id:
-        package = snapshot["storyboard"]["packages"]["SHOT_01"]
+        package = next(
+            p for p in snapshot["storyboard"]["packages"].values()
+            if p["package_id"] == package_id
+        )
     result = validate_text_contract(
         snapshot["plan"], package, frozen, stored["registry_snapshot"], snapshot["facts_snapshot"]
     )
     if not result["valid"]:
         raise CreativeProviderRequestRejected("TEXT_CONTRACT_REJECTED")
+    _visual_package(current_plan=snapshot["plan"], package=package)
     prompt = package["prompt"]
     if not prompt.strip() or len(prompt) > 3072:
         raise CreativeProviderRequestRejected("LOCKED_PROMPT_INVALID")
@@ -238,6 +254,85 @@ def _locked(task: CreativeTask, package_id: str) -> LockedProviderPrompt:
         text_contract_json=json.dumps(frozen, sort_keys=True, separators=(",", ":")),
     )
 
+
+def _visual_package(*, current_plan: dict, package: dict) -> VisualPlan:
+    stored = package.get("visual_plan")
+    if stored is None:
+        # Historical text stays readable; submission requires a new frozen plan.
+        raise CreativeProviderRequestRejected("VISUAL_PLAN_REQUIRED")
+    direction = dict(next(
+        item for item in current_plan["directions"]
+        if item["id"] == current_plan["selected_direction"]
+    ))
+    user_locks = current_plan.get("locks", {}).get("user_locks", {})
+    for key in ("photo_intent", "operator", "capture_reason", "attention", "body_state"):
+        if isinstance(user_locks.get(key), str) and user_locks[key].strip():
+            direction[key] = user_locks[key]
+    locked_camera = user_locks.get("camera") or user_locks.get("framing")
+    if isinstance(locked_camera, str) and locked_camera.strip():
+        direction["camera"] = locked_camera
+    try:
+        visual = assert_visual_plan_current(current_plan, direction, stored)
+        if visual.unresolved:
+            raise VisualPlanRejected(visual.unresolved[0])
+        if visual.missing_product_views:
+            raise VisualPlanRejected("PRODUCT_VIEW_EVIDENCE_REQUIRED")
+        if visual.budget_exceeded:
+            raise VisualPlanRejected("VIDEO_REFERENCE_BUDGET_EXCEEDED")
+        if any(item.role != "product" for item in visual.reservations):
+            raise VisualPlanRejected("ADDITIONAL_REFERENCE_BINDING_REQUIRED")
+        if current_plan.get("script_beats") is None and (
+            len(visual.keyframes) != 1 or len(visual.shots) != 1
+        ):
+            raise VisualPlanRejected("DIRECTOR_MULTI_KEYFRAME_BINDING_REQUIRED")
+        return visual
+    except VisualPlanRejected as exc:
+        raise CreativeProviderRequestRejected(exc.code) from exc
+
+
+def _package(task: CreativeTask, package_id: str) -> dict:
+    packages = [task.snapshot_json["package"],
+                *task.snapshot_json.get("storyboard", {}).get("packages", {}).values()]
+    return next(p for p in packages if p["package_id"] == package_id)
+
+
+async def _product_references(
+    session: AsyncSession, task: CreativeTask, visual: VisualPlan, *,
+    field: str, start_order: int,
+) -> tuple[ProviderReference, ...]:
+    canonical = _canonical(task)
+    refs = [ProviderReference(
+        role="PRODUCT", order=start_order, adapter_field=field,
+        object_key=canonical.object_key, sha256=canonical.sha256,
+        product_view="front",
+    )]
+    plan = task.snapshot_json["plan"]
+    version = task.snapshot_json["product_version"]
+    view_sources = version.get("truth_fields", {}).get("product_view_uploads", {})
+    required_views = {m.garment_view for beat in visual.beats for m in beat.moments} - {"front"}
+    for view in sorted(required_views):
+        stored = plan.get("product_reference_assets", {}).get(view, {})
+        if not stored or view_sources.get(view) != stored.get("upload_id"):
+            raise CreativeProviderRequestRejected("ADDITIONAL_REFERENCE_BINDING_REQUIRED")
+        upload = await session.scalar(select(StagedUpload).where(
+            StagedUpload.id == uuid.UUID(stored["upload_id"]), StagedUpload.user_id == task.user_id,
+            StagedUpload.source_image_output_id.is_(None),
+        ).execution_options(populate_existing=True))
+        if (
+            upload is None or upload.object_key != stored.get("object_key")
+            or upload.sha256 != stored.get("sha256")
+            or upload.sha256 != plan.get("product_view_evidence", {}).get(view)
+            or upload.object_key not in version.get("source_asset_references", [])
+        ):
+            raise CreativeProviderRequestRejected("PRODUCT_VIEW_REFERENCE_STALE")
+        refs.append(ProviderReference(
+            role="PRODUCT", order=start_order + len(refs), adapter_field=field,
+            object_key=upload.object_key, sha256=upload.sha256,
+            product_view=view,
+        ))
+    if {r.sha256 for r in refs} != {r.source_id for r in visual.reservations}:
+        raise CreativeProviderRequestRejected("REFERENCE_RESERVATIONS_NOT_BOUND")
+    return tuple(refs)
 
 async def _current_task(session: AsyncSession, task_id: uuid.UUID) -> CreativeTask:
     task = await session.scalar(
@@ -349,24 +444,44 @@ async def compile_creative_image_request(
     options: ImageProviderOptions | None = None,
     run_mode: RunMode = "dry-run",
     now: datetime | None = None,
+    shot_id: str = "FIRST_FRAME",
 ) -> CreativeImageProviderRequest:
     options = options or ImageProviderOptions()
     try:
-        bridge = await plan_creative_image_bridge(
-            session, task, owner_id=owner_id, object_store=object_store, now=now
-        )
-    except CreativeImageBridgeRejected as exc:
+        if shot_id == "FIRST_FRAME":
+            bridge = await plan_creative_image_bridge(
+                session, task, owner_id=owner_id, object_store=object_store, now=now
+            )
+            package_id, candidate_id, source = (
+                bridge.package_revision_id, bridge.candidate_id, bridge.source_mapping,
+            )
+        else:
+            bridge = await plan_creative_video_bridge(
+                session, task, owner_id=owner_id, object_store=object_store, now=now,
+                only_storyboard_slot=shot_id,
+            )
+            source = bridge.storyboard
+            assert source is not None
+            package_id, candidate_id = source.package_revision_id, source.candidate_id
+    except (CreativeImageBridgeRejected, CreativeVideoBridgeRejected) as exc:
         raise CreativeProviderRequestRejected(exc.code) from exc
     current = await _current_task(session, task.id)
     canonical = _canonical(current)
-    locked = _locked(current, bridge.package_revision_id)
-    mapping = _mapping(
-        bridge.package_revision_id, bridge.candidate_id, bridge.shot_id, bridge.source_mapping
+    locked = _locked(current, package_id)
+    mapping = _mapping(package_id, candidate_id, shot_id, source)
+    visual = _visual_package(
+        current_plan=current.snapshot_json["plan"], package=_package(current, package_id),
     )
-    references = (ProviderReference(
-        role="PRODUCT", order=1, adapter_field="images",
-        object_key=canonical.object_key, sha256=canonical.sha256,
-    ),)
+    references = await _product_references(session, current, visual, field="images", start_order=1)
+    if shot_id != "FIRST_FRAME":
+        first = bridge.first_frame
+        references += (ProviderReference(
+            role="FIRST_FRAME", order=len(references) + 1, adapter_field="images",
+            object_key=first.object_key, sha256=first.output_sha256,
+            source_mapping=_mapping(
+                first.package_revision_id, first.candidate_id, first.shot_id, first,
+            ),
+        ),)
     await _verify_references(references, object_store)
     # Only real object keys are passed to infer edit mode. The images field is
     # removed; these keys must never be sent as URLs to submit_prediction.
@@ -379,10 +494,10 @@ async def compile_creative_image_request(
     parameters.pop("images")
     return _sealed(CreativeImageProviderRequest(
         creative_task_id=bridge.creative_task_id, owner_id=bridge.owner_id,
-        state_version=bridge.state_version, package_revision_id=bridge.package_revision_id,
-        shot_id="FIRST_FRAME", source_mapping=mapping, canonical_product=canonical,
+        state_version=bridge.state_version, package_revision_id=package_id,
+        shot_id=shot_id, source_mapping=mapping, canonical_product=canonical,
         locked_prompt=locked, references=references, run_mode=run_mode,
-        idempotency_key=f"creative-provider:image:{task.id}:{bridge.package_revision_id}:FIRST_FRAME",
+        idempotency_key=f"creative-provider:image:{task.id}:{package_id}:{shot_id}",
         bridge_validity_token=bridge.validity_token,
         evidence_hash=await _evidence_hash(session, current, (mapping,)),
         request_hash="0" * 64, provider=options.provider, model=model, options=options,
@@ -413,10 +528,8 @@ async def compile_creative_video_request(
         bridge.first_frame.package_revision_id, bridge.first_frame.candidate_id,
         "FIRST_FRAME", bridge.first_frame,
     )
-    storyboard = _mapping(
-        bridge.storyboard.package_revision_id, bridge.storyboard.candidate_id,
-        "SHOT_01", bridge.storyboard,
-    )
+    source = bridge.storyboard or bridge.first_frame
+    storyboard = _mapping(source.package_revision_id, source.candidate_id, source.shot_id, source)
     # Same wire order as KlingOfficialApiAdapter._request_image_inputs:
     # first frame, scene reference, product reference. Shared bytes keep roles.
     references = (
@@ -424,17 +537,58 @@ async def compile_creative_video_request(
             role="FIRST_FRAME", order=1, adapter_field="first_frame_path",
             object_key=bridge.first_frame.object_key, sha256=bridge.first_frame.output_sha256,
             source_mapping=first,
+            keyframe_id=bridge.first_frame.keyframe_id,
         ),
-        ProviderReference(
-            role="STORYBOARD", order=2, adapter_field="refer_image_paths",
-            object_key=bridge.storyboard.object_key, sha256=bridge.storyboard.output_sha256,
-            source_mapping=storyboard,
-        ),
-        ProviderReference(
-            role="PRODUCT", order=3, adapter_field="product_reference_paths",
-            object_key=canonical.object_key, sha256=canonical.sha256,
-        ),
+        *(ProviderReference(
+            role="STORYBOARD", order=index, adapter_field="refer_image_paths",
+            object_key=s.object_key, sha256=s.output_sha256, keyframe_id=s.keyframe_id,
+            source_mapping=_mapping(s.package_revision_id, s.candidate_id, s.shot_id, s),
+        ) for index, s in enumerate(
+            bridge.keyframe_sources[1:] if bridge.keyframe_sources else (source,), 2,
+        ) if source is not bridge.first_frame),
     )
+    package = _package(current, bridge.package_revision_id)
+    visual = _visual_package(current_plan=current.snapshot_json["plan"], package=package)
+    references += await _product_references(
+        session, current, visual, field="product_reference_paths",
+        start_order=len(references) + 1,
+    )
+    key_slots = (
+        {r.keyframe_id: r.order for r in references if r.keyframe_id is not None}
+        if bridge.keyframe_sources else {"K01": 1}
+    )
+    try:
+        assert_reference_budget("kling", len(references))
+        assert_visual_inputs(
+            visual, key_slots, actual_slot_count=len(references), profile="kling",
+        )
+        if options.multi_shot != (len(visual.shots) > 1):
+            raise VisualPlanRejected("VIDEO_SHOT_MODE_MISMATCH")
+        if bridge.keyframe_sources and abs(
+            sum(b.duration_seconds for b in visual.beats) - options.duration
+        ) > 1e-6:
+            raise VisualPlanRejected("VIDEO_DURATION_MISMATCH")
+        timeline = compile_visual_video_prompt(
+            visual, duration_seconds=options.duration, key_slots=key_slots,
+        )
+        roles = (
+            "\n@image_2 is reviewed storyboard context; @image_3 is canonical "
+            "product design only. Neither introduces an extra shot."
+        ) if not bridge.keyframe_sources else "\n" + " ".join(
+            f"@image_{r.order} is original {r.product_view} product design only, "
+            "not another shot."
+            for r in references if r.role == "PRODUCT"
+        )
+        if options.provider != "kling_official_api":
+            timeline = timeline.replace("@image_", "reference image ")
+            roles = roles.replace("@image_", "reference image ")
+        video_prompt = (
+            timeline + "\n" + (package.get("video_prompt_context") or locked.prompt) + roles
+        )
+        if len(video_prompt) > 3072:
+            raise VisualPlanRejected("COMPILED_VIDEO_PROMPT_TOO_LONG")
+    except VisualPlanRejected as exc:
+        raise CreativeProviderRequestRejected(exc.code) from exc
     await _verify_references(references, object_store)
     identity = f"creative-provider:video:{task.id}:{bridge.package_revision_id}:SHOT_01"
     return _sealed(CreativeVideoProviderRequest(
@@ -443,13 +597,16 @@ async def compile_creative_video_request(
         shot_id="SHOT_01", source_mapping=storyboard, canonical_product=canonical,
         locked_prompt=locked, references=references, run_mode=run_mode,
         idempotency_key=identity, bridge_validity_token=bridge.validity_token,
-        evidence_hash=await _evidence_hash(session, current, (first, storyboard)),
+        evidence_hash=await _evidence_hash(session, current, tuple(
+            r.source_mapping for r in references if r.source_mapping is not None
+        )),
         request_hash="0" * 64, provider=options.provider, model=options.model, options=options,
         adapter_parameters=VideoRequestParameters(
-            prompt=locked.prompt, model=options.model, duration=options.duration,
+            prompt=video_prompt, model=options.model, duration=options.duration,
             aspect_ratio=options.aspect_ratio, resolution=options.resolution,
             audio=options.audio, task_trace_id=task.id.hex,
             external_task_id=f"creative-{digest(identity)}",
+            multi_shot=options.multi_shot,
         ),
     ))
 
@@ -470,7 +627,7 @@ async def assert_creative_provider_request_current(
               "run_mode": request.run_mode, "now": now}
     if isinstance(request, CreativeImageProviderRequest):
         current = await compile_creative_image_request(
-            session, task, options=request.options, **common
+            session, task, options=request.options, shot_id=request.shot_id, **common
         )
     else:
         current = await compile_creative_video_request(

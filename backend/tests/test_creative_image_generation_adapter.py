@@ -199,7 +199,9 @@ def test_compiles_revision_and_shot_into_provider_neutral_image_request() -> Non
     assert result.request.provider_submission_allowed is False
     assert result.request.prompt_revision == "package-shot_01"
     assert "Shot purpose: Hook" in result.request.prompt
-    assert "Shot action: turn naturally" in result.request.prompt
+    assert "Motion context for the later video only: turn naturally" in result.request.prompt
+    assert "one still at the approved entry pose" in result.request.prompt
+    assert "Exit state:" not in result.request.prompt
 
 
 def test_preserves_state_references_and_manifest_identity() -> None:

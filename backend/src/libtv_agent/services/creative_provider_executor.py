@@ -203,9 +203,11 @@ def _assert_image_contract(
 ) -> None:
     if ticket.request_kind != "image" or ticket.execution_mode != "image_edit":
         _reject("IMAGE_EXECUTION_ONLY")
-    if ticket.shot_id != "FIRST_FRAME" or request.shot_id != "FIRST_FRAME":
+    if ticket.shot_id != request.shot_id:
+        _reject("IMAGE_SLOT_MISMATCH")
+    if request.shot_id != "FIRST_FRAME" and not request.shot_id.startswith("SHOT_"):
         _reject("FIRST_FRAME_REQUIRED")
-    if preflight.request_kind != "image" or preflight.shot_id != "FIRST_FRAME":
+    if preflight.request_kind != "image" or preflight.shot_id != request.shot_id:
         _reject("FIRST_FRAME_PREFLIGHT_REQUIRED")
     if preflight.status != "READY_FOR_HUMAN_SUBMIT":
         _reject("PREFLIGHT_NOT_READY")

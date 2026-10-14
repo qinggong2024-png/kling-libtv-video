@@ -5,13 +5,15 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from libtv_agent.creative.brand_dna import validate_brand_dna
-from libtv_agent.creative.reality_evidence import render_reality_constraints
+from libtv_agent.creative.brand_dna import fit_purchase_reason, validate_brand_dna
+from libtv_agent.creative.reality_evidence import render_photographic_cues
 from libtv_agent.creative.text_contract import (
     CONTRACT_SCHEMA,
     canonical_hash,
+    validate_prompt_preservation,
     validate_text_contract,
 )
+from libtv_agent.creative.visual_plan import VisualPlan, compile_visual_video_prompt
 
 CONTENT_FIELDS = (
     "direction", "audience", "characterDNA", "sceneDNA", "cameraDNA",
@@ -289,14 +291,28 @@ def project_creative_package(
             "do not invent unseen garment details. Avoid garment deformation and "
             "abrupt camera changes. Duration and motion timing require human confirmation."
         )
-        constraints = render_reality_constraints(reality)
+        constraints = render_photographic_cues(reality)
         if constraints:
-            projection["videoPrompt"] += f"\nInherited Reality guidance:\n{constraints}"
+            projection["videoPrompt"] += f"\nInherited photographic relations:\n{constraints}"
         field_sources["videoPrompt"] = (
             f"proposed-video-handoff.v1({field_sources['direction']}, "
             "package.reality[Camera], frozen plan.source_hash)"
         )
         statuses["videoPrompt"] = "PROPOSED"
+    purchase_fit = {"status": "legacy_not_checked"}
+    visual = (
+        VisualPlan.model_validate(package["visual_plan"])
+        if package.get("visual_plan") is not None else None
+    )
+    if visual is not None and statuses["videoPrompt"] == "PROPOSED":
+        projection["videoPrompt"] += "\n" + compile_visual_video_prompt(
+            visual, duration_seconds=sum(shot.duration_seconds for shot in visual.shots),
+        )
+    if any(item.get("compiler_version") for item in reality):
+        purchase_fit, projection["videoPrompt"] = fit_purchase_reason(
+            plan, facts, projection["videoPrompt"],
+            script_locked=statuses["videoPrompt"] == "PRESENT",
+        )
     projection["shotPlan"] = _shot_plan(source, package)
     field_sources["shotPlan"] = "selected package + frozen parent chain (explicit shot_id)"
     statuses["shotPlan"] = "PRESENT"
@@ -316,6 +332,8 @@ def project_creative_package(
                         "rule_id", "rules_version", "rules_hash", "required_context",
                         "generation_constraint", "judgment_standard", "review_axis",
                         "revision_module", "causal_variable",
+                        "compiler_version", "capture_mode", "compiled_cue",
+                        "causal_trigger", "physical_relation", "visible_result",
                     ) if key in item
                 },
             }
@@ -348,6 +366,11 @@ def project_creative_package(
         "sourceMarkers": markers,
         "packageOriginEvidence": package.get("origin_evidence"),
         "fieldSources": field_sources,
+        "promptPreflight": validate_prompt_preservation(
+            package["prompt"], reality, plan.get("locks") or {},
+        ),
+        "purchaseReasonFit": purchase_fit,
+        **({"visualPlan": visual.model_dump(mode="json")} if visual is not None else {}),
     }
     # Evidence-only export never promotes results, including fake human PASS.
     synthetic = (

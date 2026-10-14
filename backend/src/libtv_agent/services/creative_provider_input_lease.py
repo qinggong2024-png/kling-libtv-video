@@ -34,7 +34,7 @@ from libtv_agent.services.creative_provider_preflight import (
     _read_approval,
     preflight_creative_provider_request,
 )
-from libtv_agent.services.creative_provider_requests import FrozenContract
+from libtv_agent.services.creative_provider_requests import ExecutionSlot, FrozenContract
 from libtv_agent.services.creative_provider_submission import (
     ProviderSubmissionAdmissionRejected,
     ProviderSubmissionTicket,
@@ -81,7 +81,7 @@ class ProviderInputLease(FrozenContract):
     owner_id: str
     creative_task_id: str
     package_revision_id: str
-    shot_id: Literal["FIRST_FRAME", "SHOT_01"]
+    shot_id: ExecutionSlot
     request_kind: Literal["image", "video"]
     execution_mode: Literal["image_edit", "director_fixed"]
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
