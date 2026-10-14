@@ -7872,6 +7872,23 @@
               }
             ],
             "title": "Impact Scope"
+          },
+          "script_beats": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Beats"
           }
         },
         "additionalProperties": false,

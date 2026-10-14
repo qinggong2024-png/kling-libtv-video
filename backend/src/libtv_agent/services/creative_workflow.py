@@ -17,7 +17,13 @@ from libtv_agent.creative.director_analysis import (
 from libtv_agent.creative.reality_evidence import registry_evidence_rules
 from libtv_agent.creative.text_contract import (
     freeze_text_contract,
+    validate_prompt_preservation,
     validate_text_contract,
+)
+from libtv_agent.creative.visual_plan import (
+    ScriptBeat,
+    VisualPlan,
+    storyboard_keyframes,
 )
 from libtv_agent.creative.workflow import (
     REALITY,
@@ -47,6 +53,7 @@ from libtv_agent.domain.models import (
     ImageGenerationOutput,
     Product,
     ProductVersion,
+    StagedUpload,
 )
 from libtv_agent.domain.schemas import ProductVersionCreate
 from libtv_agent.services.content_catalog import get_merged_site_style_profile
@@ -125,6 +132,11 @@ def freeze_package_contract(
     package: dict,
 ) -> dict:
     facts = deepcopy(snapshot.get("facts_snapshot") or facts_snapshot(snapshot))
+    semantics = validate_prompt_preservation(
+        package["prompt"], package["reality"], snapshot["plan"].get("locks", {}),
+    )
+    if semantics["status"] == "repair_required":
+        reject("PROMPT_PRESERVATION_REPAIR_REQUIRED", extra={"prompt_preflight": semantics})
     registry = registry_snapshot(task_id, snapshot["plan"], package)
     frozen = freeze_text_contract(snapshot["plan"], package, registry, facts)
     snapshot["facts_snapshot"] = facts
@@ -253,10 +265,50 @@ def selected_first_frame(snapshot: dict) -> dict:
     return output
 
 
-def validate_storyboard_shot(shot_id: str | None) -> str:
-    if shot_id != "SHOT_01":
-        reject("SHOT_ID_UNSUPPORTED")
-    return "SHOT_01"
+def validate_storyboard_shot(shot_id: str | None, snapshot: dict) -> str:
+    if snapshot["plan"].get("script_beats") is not None:
+        allowed = storyboard_keyframes(
+            VisualPlan.model_validate(snapshot["package"]["visual_plan"]),
+        )
+    else:
+        allowed = {"SHOT_01": "K01"}
+    if shot_id not in allowed:
+        reject("SHOT_ID_UNSUPPORTED", 422)
+    return shot_id
+
+
+async def script_product_references(
+    session: AsyncSession, task: CreativeTask, snapshot: dict, beats: list[dict], object_store,
+) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    """Resolve declared product views from registered, owner-scoped original uploads."""
+    sources = snapshot["product_version"].get("truth_fields", {}).get("product_view_uploads", {})
+    registered = snapshot["product_version"].get("source_asset_references", [])
+    views = {
+        m.garment_view for raw in beats for m in ScriptBeat.model_validate(raw).moments
+    } - {"front"}
+    evidence, assets = {}, {}
+    for view in sorted(views):
+        try:
+            upload_id = uuid.UUID(sources[view])
+        except (KeyError, ValueError, TypeError):
+            reject("PRODUCT_VIEW_EVIDENCE_REQUIRED")
+        upload = await session.scalar(select(StagedUpload).where(
+            StagedUpload.id == upload_id, StagedUpload.user_id == task.user_id,
+            StagedUpload.source_image_output_id.is_(None),
+        ).execution_options(populate_existing=True))
+        if upload is None or upload.object_key not in registered:
+            reject("PRODUCT_VIEW_EVIDENCE_REQUIRED")
+        with TemporaryDirectory(prefix="creative-product-view-") as directory:
+            if not await object_store.exists(upload.object_key):
+                reject("ASSET_MISSING")
+            path = await object_store.localize(upload.object_key, Path(directory) / view)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != upload.sha256:
+                reject("ASSET_HASH_MISMATCH")
+        evidence[view] = upload.sha256
+        assets[view] = {
+            "upload_id": str(upload.id), "object_key": upload.object_key, "sha256": upload.sha256,
+        }
+    return evidence, assets
 
 
 def storyboard_package(
@@ -539,6 +591,19 @@ async def execute(
             revision=2,
             locks=locks,
         )
+        if command.script_beats is not None:
+            if not 1 <= len(command.script_beats) <= 32:
+                reject("SCRIPT_BEATS_INVALID", 422)
+            beats = [
+                ScriptBeat.model_validate(b).model_dump(mode="json") for b in command.script_beats
+            ]
+            views, assets = await script_product_references(
+                session, task, snapshot, beats, object_store,
+            )
+            snapshot["plan"].update(
+                script_beats=beats, product_view_evidence=views, product_reference_assets=assets,
+                duration_seconds=sum(b["duration_seconds"] for b in beats),
+            )
         snapshot["director_analysis"] = selected_analysis.model_dump(mode="json")
         snapshot["director_analysis_hash"] = digest(snapshot["director_analysis"])
         package = compile_package(task.id, snapshot["plan"], digest(locks), 1)
@@ -550,12 +615,17 @@ async def execute(
         record(session, task.id, "director_analysis", "2", snapshot["director_analysis"])
         record(session, task.id, "package", package.package_id, snapshot["package"])
     elif action == "authorize":
-        if stage not in {"PLAN_READY", "IMAGE_REVIEW"} or command.authorization is None:
+        if (
+            stage not in {"PLAN_READY", "IMAGE_REVIEW", "STORYBOARD_REVIEW"}
+            or command.authorization is None
+        ):
             reject("AUTHORIZATION_REQUIRED")
         if snapshot.get("stopped"):
             reject("USER_STOPPED")
         director_analysis(snapshot)
         auth = command.authorization
+        if stage == "STORYBOARD_REVIEW" and auth.scope == "FIRST_FRAME":
+            reject("AUTHORIZATION_SCOPE_INVALID")
         if auth.expires_at <= now:
             reject("AUTHORIZATION_SCOPE_INVALID")
         package = snapshot["package"]
@@ -567,16 +637,16 @@ async def execute(
             ):
                 reject("AUTHORIZATION_SCOPE_INVALID")
         else:
-            validate_storyboard_shot(auth.shot_ids[0] if auth.shot_ids else None)
+            shot_id = validate_storyboard_shot(auth.shot_ids[0], snapshot)
             selected_first_frame(snapshot)
             if auth.locks_hash != package["locks_hash"]:
                 reject("AUTHORIZATION_SCOPE_INVALID")
             if auth.package_id not in {
                 package["package_id"],
-                f"{task.id}:storyboard:SHOT_01:1",
+                f"{task.id}:storyboard:{shot_id}:1",
             }:
                 reject("AUTHORIZATION_SCOPE_INVALID")
-            package = storyboard_package(session, task, snapshot, "SHOT_01")
+            package = storyboard_package(session, task, snapshot, shot_id)
             auth = auth.model_copy(update={"package_id": package["package_id"]})
         if snapshot.get("execution_state") in UNCERTAIN:
             reject("EXECUTION_UNKNOWN")
@@ -611,11 +681,11 @@ async def execute(
         storyboard_mode = snapshot.get("authorization", {}).get("scope") == "VIDEO_STORYBOARD"
         if storyboard_mode and action == "revise":
             reject("STORYBOARD_REVISION_NOT_SUPPORTED")
-        if storyboard_mode and stage != "IMAGE_REVIEW":
+        if storyboard_mode and stage not in {"IMAGE_REVIEW", "STORYBOARD_REVIEW"}:
             reject("STAGE_INVALID")
         if not storyboard_mode and stage not in {"PLAN_READY", "IMAGE_REVIEW"}:
             reject("STAGE_INVALID")
-        shot_id = "SHOT_01" if storyboard_mode else "FIRST_FRAME"
+        shot_id = snapshot["authorization"]["shot_ids"][0] if storyboard_mode else "FIRST_FRAME"
         if storyboard_mode and command.shot_id not in {None, shot_id}:
             reject("SHOT_ID_MISMATCH")
         package = (

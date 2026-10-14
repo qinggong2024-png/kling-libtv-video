@@ -23,7 +23,7 @@ from libtv_agent.services.creative_provider_preflight import (
     ProviderCostEstimate,
     ProviderHumanAuthorization,
 )
-from libtv_agent.services.creative_provider_requests import FrozenContract
+from libtv_agent.services.creative_provider_requests import ExecutionSlot, FrozenContract
 from pydantic import Field, ValidationError
 
 
@@ -58,7 +58,7 @@ class ProviderSubmissionTicket(FrozenContract):
     owner_id: str
     creative_task_id: str
     package_revision_id: str
-    shot_id: Literal["FIRST_FRAME", "SHOT_01"]
+    shot_id: ExecutionSlot
     provider: str
     model: str
     idempotency_key: str

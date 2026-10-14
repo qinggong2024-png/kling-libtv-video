@@ -157,7 +157,9 @@ def _compile_prompt(
 
     sections = [
         f"Shot purpose: {shot.purpose}",
-        f"Shot action: {shot.action}",
+        "Render one still at the approved entry pose, with one hand-contact state. "
+        "No before/after montage or action sequence.",
+        f"Motion context for the later video only: {shot.action}",
         f"Product evidence: {', '.join(shot.product_evidence) or 'none specified'}",
         f"Product references: {', '.join(asset.object_key for asset in product_assets)}",
         f"Product locks: {_json(revision.product.locks.model_dump(mode='json'))}",
@@ -176,8 +178,6 @@ def _compile_prompt(
     ]
     if shot.entry_state:
         sections.insert(1, f"Entry state: {shot.entry_state}")
-    if shot.exit_state:
-        sections.insert(2, f"Exit state: {shot.exit_state}")
     return "\n".join(sections)
 
 

@@ -166,7 +166,11 @@ async def test_video_contract_preserves_locked_storyboard_and_adapter_binding_or
     package = task.snapshot_json["storyboard"]["packages"]["SHOT_01"]
     assert request.execution_mode == "director_fixed"
     assert request.shot_id == "SHOT_01"
-    assert request.locked_prompt.prompt == request.adapter_parameters.prompt == package["prompt"]
+    assert request.locked_prompt.prompt == package["prompt"]
+    assert request.adapter_parameters.prompt != request.locked_prompt.prompt
+    assert "S01 0-5s" in request.adapter_parameters.prompt
+    assert "@image_1" in request.adapter_parameters.prompt
+    assert "Neither introduces an extra shot" in request.adapter_parameters.prompt
     assert request.locked_prompt.prompt_hash == digest(package["prompt"])
     assert request.locked_prompt.preservation_hash == package["preservation_hash"]
     frozen = json.loads(request.locked_prompt.text_contract_json)
@@ -488,8 +492,11 @@ def test_provider_options_reject_fake_replay_and_unbounded_or_unknown_fields():
         {"provider": "fake", "model": "fake"},
         {"provider": "kling_official_api", "model": "", "duration": 5},
         {"provider": "kling_official_api", "model": "kling-v3-omni", "duration": 100},
-        {"provider": "kling_official_api", "model": "kling-v3-omni", "multi_shot": True},
+        {"provider": "kling_official_api", "model": "kling-v3-omni", "multi_shot": "auto"},
     ):
         with pytest.raises(ValidationError):
             VideoProviderOptions.model_validate(value)
     assert CreativeVideoProviderRequest.model_fields["execution_mode"].default == "director_fixed"
+    assert VideoProviderOptions(
+        provider="kling_official_api", model="kling-v3-omni", multi_shot=True,
+    ).multi_shot is True

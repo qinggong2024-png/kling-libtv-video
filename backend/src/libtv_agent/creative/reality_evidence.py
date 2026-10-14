@@ -5,6 +5,7 @@ pixel verdicts. Freeze the returned snapshot with a new package's Registry.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -12,6 +13,7 @@ from typing import Any
 from libtv_agent.creative.text_contract import canonical_hash
 
 RULES_VERSION = "reality-evidence.v1"
+COMPILER_VERSION = "compact-photo.v1.13.14"
 REALITY_ORDER = (
     "Camera", "Lighting", "Composition", "Human Behavior", "Environment", "Imperfection",
 )
@@ -175,6 +177,88 @@ def render_reality_constraints(reality: Sequence[Mapping[str, str]]) -> str:
         and item.get("decision", "").strip().upper() not in {"N/A", "NA"}
     ]
     return "\n".join(lines)
+
+
+def compile_photographic_cues(
+    reality: Sequence[Mapping[str, str]], direction: Mapping[str, str],
+) -> list[dict[str, str]]:
+    """Compile proposed physical relationships, preserving inherited frozen cues."""
+    result = [dict(item) for item in reality]
+    camera = next(item for item in result if item["dimension"] == "Camera")
+    if camera.get("compiler_version"):
+        return result
+    human = next(item for item in result if item["dimension"] == "Human Behavior")
+    light = next(item for item in result if item["dimension"] == "Lighting")
+    camera_text = camera["decision"].lower()
+    mode = direction.get("photo_intent") or (
+        "mirror_self_capture" if "mirror" in camera_text and "self" in camera_text
+        else "self_capture_front" if "front" in camera_text and "self" in camera_text
+        else "casual_portrait"
+    )
+    if mode not in {
+        "candid", "casual_portrait", "identity_snapshot", "mirror_self_capture",
+        "self_capture_front", "product_only",
+    }:
+        raise ValueError("unsupported photographic intent")
+    camera.update(compiler_version=COMPILER_VERSION, capture_mode=mode)
+    if mode == "product_only" or human["decision"].strip().upper() in {"N/A", "NA"}:
+        camera["capture_mode"] = "product_only"
+        human.update(
+            decision="N/A", reason="Product-only direction: no human subject is requested.",
+        )
+    else:
+        action = human["decision"]
+        missing = []
+        if mode == "candid":
+            context = ("operator", "capture_reason", "attention", "body_state")
+            missing = [key for key in context if not direction.get(key, "").strip()]
+            intent = "; ".join(direction[key] for key in context if direction.get(key))
+        elif mode == "mirror_self_capture":
+            intent = "the subject records the outfit in the mirror"
+        elif mode == "self_capture_front":
+            intent = "the subject records the outfit with the front-facing camera"
+        else:
+            intent = "the subject knows the outfit is being photographed"
+        if re.search(r"\b(walk|walking|step|stride)\b", action.lower()):
+            relation = "weight transfers onto the supporting leg"
+            visible = "the hem and sleeves fold with that stride"
+        elif re.search(r"\b(seat|seated|sit|sitting)\b", action.lower()):
+            relation = "the torso bends at the seated waist"
+            visible = "garment folds collect at the bend rather than lying flat"
+        else:
+            relation = "gravity pulls the garment from its shoulder support"
+            visible = "fabric hangs below the shoulders and folds at the selected posture"
+        if mode == "candid" and direction.get("body_state"):
+            relation = direction["body_state"]
+        if mode == "mirror_self_capture":
+            relation = "the holding hand supports the phone in front of the mirror"
+            visible = "the phone and holding hand share the same reflection"
+        elif mode == "self_capture_front":
+            relation = "the holding arm establishes the front-camera viewpoint"
+            visible = "the holding phone stays outside its own image"
+        trigger = f"During {action}, {intent}"
+        cue = f"{trigger}; {relation}, so {visible}."
+        camera.update(
+            causal_trigger=trigger, physical_relation=relation, visible_result=visible,
+            compiled_cue=cue, unresolved_context=", ".join(missing),
+        )
+    if light["decision"].strip().upper() not in {"N/A", "NA"}:
+        trigger = f"Under {light['decision']}"
+        relation = "garment folds interrupt the incoming light"
+        visible = "crease shadows follow fold depth on the same fabric"
+        light.update(
+            causal_trigger=trigger, physical_relation=relation, visible_result=visible,
+            compiled_cue=f"{trigger}, {relation}, so {visible}.",
+        )
+    return result
+
+
+def render_photographic_cues(reality: Sequence[Mapping[str, str]]) -> str:
+    camera = next(item for item in reality if item["dimension"] == "Camera")
+    if camera.get("compiler_version") != COMPILER_VERSION:
+        return render_reality_constraints(reality)
+    cues = [item["compiled_cue"] for item in reality if item.get("compiled_cue")]
+    return f"Capture mode: {camera['capture_mode']}.\n" + "\n".join(cues[:2])
 
 
 def registry_evidence_rules(reality: Sequence[Mapping[str, str]]) -> dict[str, Any] | None:

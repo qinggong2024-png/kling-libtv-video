@@ -35,6 +35,7 @@ from libtv_agent.services.creative_provider_requests import (
     CreativeImageProviderRequest,
     CreativeProviderRequestRejected,
     CreativeVideoProviderRequest,
+    ExecutionSlot,
     FrozenContract,
     ProviderRequestContract,
     RunMode,
@@ -43,6 +44,7 @@ from libtv_agent.services.creative_provider_requests import (
 from libtv_agent.services.generation_safety import paid_generation_authorized
 from libtv_agent.services.image_quota import images_submitted_on
 from libtv_agent.services.points import business_date
+from PIL import Image, UnidentifiedImageError
 from pydantic import Field, ValidationError, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +76,7 @@ class ProviderCapabilityDeclaration(FrozenContract):
     qualities: tuple[str | None, ...] = ()
     duration_min: int | None = Field(default=None, ge=1, le=86_400)
     duration_max: int | None = Field(default=None, ge=1, le=86_400)
+    supports_multi_shot: bool = False
 
     @model_validator(mode="after")
     def validate_duration_range(self) -> ProviderCapabilityDeclaration:
@@ -96,7 +99,7 @@ class ProviderHumanAuthorization(FrozenContract):
     owner_id: str
     creative_task_id: str
     package_revision_id: str
-    shot_id: Literal["FIRST_FRAME", "SHOT_01"]
+    shot_id: ExecutionSlot
     provider: str
     model: str
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -177,7 +180,7 @@ class CreativeProviderPreflightResult(FrozenContract):
     creative_task_id: str
     owner_id: str
     package_revision_id: str
-    shot_id: Literal["FIRST_FRAME", "SHOT_01"]
+    shot_id: ExecutionSlot
     provider: str
     model: str
     idempotency_key: str
@@ -287,20 +290,24 @@ def _assert_capability(
         _reject("REFERENCE_COUNT_UNSUPPORTED")
     if expected_roles != capability.reference_roles:
         _reject("REFERENCE_ROLES_UNSUPPORTED")
+    product_count = sum(r.role == "PRODUCT" for r in request.references)
+    storyboard_count = sum(r.role == "STORYBOARD" for r in request.references)
     expected = (
-        (("PRODUCT", "images"),)
-        if kind == "image"
-        else (
-            ("FIRST_FRAME", "first_frame_path"),
-            ("STORYBOARD", "refer_image_paths"),
-            ("PRODUCT", "product_reference_paths"),
+        (("PRODUCT", "images"),) * product_count
+        + (("FIRST_FRAME", "images"),) * (request.shot_id != "FIRST_FRAME")
+        if kind == "image" else (
+            (("FIRST_FRAME", "first_frame_path"),)
+            + (("STORYBOARD", "refer_image_paths"),) * storyboard_count
+            + (("PRODUCT", "product_reference_paths"),) * product_count
         )
     )
+    if product_count < 1:
+        _reject("REFERENCE_BINDINGS_INVALID")
     if tuple((ref.role, ref.adapter_field) for ref in request.references) != expected or (
         tuple(ref.order for ref in request.references) != tuple(range(1, len(expected) + 1))
     ):
         _reject("REFERENCE_BINDINGS_INVALID")
-    if len(request.locked_prompt.prompt) > capability.prompt_max_length:
+    if len(request.adapter_parameters.prompt) > capability.prompt_max_length:
         _reject("PROMPT_TOO_LONG")
     if request.options.resolution not in capability.resolutions:
         _reject("RESOLUTION_UNSUPPORTED")
@@ -314,6 +321,10 @@ def _assert_capability(
             _reject("QUALITY_UNSUPPORTED")
         return
     video = request.options
+    if video.multi_shot and (
+        not capability.supports_multi_shot or request.provider != "kling_official_api"
+    ):
+        _reject("MULTI_SHOT_CAPABILITY_REQUIRED")
     if capability.duration_min is None or capability.duration_max is None:
         _reject("CAPABILITY_UNKNOWN")
     if not capability.duration_min <= video.duration <= capability.duration_max:
@@ -550,6 +561,9 @@ async def _materialize(
             actual = await asyncio.to_thread(_copy_and_hash, Path(localized), target)
             if actual != reference.sha256:
                 _reject("REFERENCE_HASH_MISMATCH")
+            image_suffix = await asyncio.to_thread(_image_suffix, target)
+            if target.suffix != image_suffix:
+                target = await asyncio.to_thread(target.rename, target.with_suffix(image_suffix))
             entries.append(
                 MaterializedProviderInput(
                     role=reference.role,
@@ -586,6 +600,18 @@ def _copy_and_hash(source: Path, target: Path) -> str:
     if source.resolve() != target.resolve():
         shutil.copyfile(source, target)
     return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def _image_suffix(path: Path) -> str:
+    try:
+        with Image.open(path) as image:
+            suffix = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}.get(image.format)
+            image.verify()
+        if suffix is None:
+            _reject("REFERENCE_IMAGE_INVALID")
+        return suffix
+    except (OSError, UnidentifiedImageError):
+        _reject("REFERENCE_IMAGE_INVALID")
 
 
 def _preflight_hash(
