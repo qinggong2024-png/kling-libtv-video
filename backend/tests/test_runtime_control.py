@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -18,6 +18,7 @@ from libtv_agent.domain.enums import (
     VariantKind,
 )
 from libtv_agent.domain.models import (
+    AuditEvent,
     Base,
     GenerationAttempt,
     GenerationCommand,
@@ -28,6 +29,7 @@ from libtv_agent.domain.models import (
 from libtv_agent.runner.supervisor import RunnerSupervisor
 from libtv_agent.services.capacity import acquire_capacity, release_capacity
 from libtv_agent.services.credentials import load_admin_credentials
+from libtv_agent.services.generation_safety import PAID_GENERATION_CONFIRMATION
 from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
     assess_unknown_submission_risk,
@@ -42,6 +44,7 @@ from libtv_agent.services.runtime_control import (
     update_runtime_config,
     validate_runtime_config,
 )
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000099")
@@ -49,6 +52,313 @@ USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 OPERATOR_ID = uuid.UUID("00000000-0000-0000-0000-000000000088")
 OTHER_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 THIRD_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000003")
+
+PROVIDER_CONFIGS = [
+    {"kling_provider_backend": "api", "kling_api_enabled": True},
+    {
+        "kling_provider_backend": "wavespeed",
+        "wavespeed_enabled": True,
+        "wavespeed_api_key": "isolated-unused-wavespeed-key",
+    },
+    {
+        "kling_provider_backend": "bach",
+        "bach_enabled": True,
+        "bach_access_key": "isolated-unused-bach-key",
+        "bach_secret_key": "isolated-unused-bach-secret",
+    },
+]
+
+
+def authorized_provider_settings(**options) -> Settings:
+    return Settings(
+        **{
+            "app_env": "development",
+            "shared_authentication_enabled": True,
+            "session_secret": "isolated-runtime-control-session-secret",
+            "libtv_execution_mode": "live",
+            "paid_generation_enabled": True,
+            "paid_generation_confirmation": PAID_GENERATION_CONFIRMATION,
+            **options,
+        },
+        _env_file=None,
+    )
+
+
+@pytest.fixture
+async def pilot_database(tmp_path: Path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{(tmp_path / 'pilot-safety.db').as_posix()}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add_all(
+            [
+                User(id=identity, username=str(identity), password_hash="offline-disabled")
+                for identity in (ADMIN_ID, USER_ID, OTHER_USER_ID, THIRD_USER_ID)
+            ]
+        )
+        await get_runtime_config(session, Settings(app_env="test", _env_file=None))
+        await session.commit()
+    try:
+        yield factory
+    finally:
+        await engine.dispose()
+
+
+async def configure_pilot(factory, settings: Settings, **options) -> None:
+    async with factory() as session:
+        current = await get_runtime_config(session, settings)
+        config = dict(current.config_json)
+        config.update(
+            {
+                "internalPilotEnabled": True,
+                "pilotUserIds": [str(USER_ID)],
+                "pilotBudgetLimit": 2,
+                "pilotSubmittedCount": 0,
+                **options,
+            }
+        )
+        await update_runtime_config(
+            session,
+            settings,
+            config=config,
+            actor_id=ADMIN_ID,
+            reason="isolated pilot test setup",
+            expected_version=current.version,
+        )
+        await session.commit()
+
+
+@pytest.mark.parametrize("provider_options", PROVIDER_CONFIGS, ids=["kling", "wavespeed", "bach"])
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay"])
+@pytest.mark.parametrize(
+    "missing_authorization",
+    [
+        {"libtv_execution_mode": "dry-run"},
+        {"paid_generation_enabled": False},
+        {"paid_generation_confirmation": ""},
+        {"paid_generation_confirmation": "incorrect-confirmation"},
+    ],
+    ids=["not-live", "disabled", "no-confirmation", "wrong-confirmation"],
+)
+async def test_production_synthetic_libtv_cannot_authorize_real_provider_submission_or_claim(
+    pilot_database, provider_options, libtv_mode, missing_authorization
+) -> None:
+    settings = authorized_provider_settings(
+        app_env="production",
+        libtv_adapter_mode=libtv_mode,
+        paid_submissions_paused=False,
+        **provider_options,
+        **missing_authorization,
+    )
+    async with pilot_database() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_provider_submission_allowed(
+                session, settings, settings.active_kling_provider_name, user_id=USER_ID
+            )
+        assert captured.value.code == "PAID_GENERATION_BLOCKED"
+        assert not await provider_claims_allowed(
+            session, settings, settings.active_kling_provider_name, user_id=USER_ID
+        )
+
+
+@pytest.mark.parametrize("provider_options", PROVIDER_CONFIGS, ids=["kling", "wavespeed", "bach"])
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay"])
+async def test_real_provider_stays_blocked_in_test_with_synthetic_libtv(
+    pilot_database, provider_options, libtv_mode
+) -> None:
+    settings = Settings(
+        app_env="test",
+        libtv_adapter_mode=libtv_mode,
+        paid_submissions_paused=False,
+        **provider_options,
+        _env_file=None,
+    )
+    async with pilot_database() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await ensure_provider_submission_allowed(
+                session, settings, settings.active_kling_provider_name, user_id=USER_ID
+            )
+        assert captured.value.code == "PAID_GENERATION_BLOCKED"
+        assert not await provider_claims_allowed(
+            session, settings, settings.active_kling_provider_name, user_id=USER_ID
+        )
+
+
+@pytest.mark.parametrize("provider_options", PROVIDER_CONFIGS, ids=["kling", "wavespeed", "bach"])
+async def test_authorized_real_provider_allows_submission_and_claim_without_real_libtv(
+    pilot_database, provider_options
+) -> None:
+    settings = authorized_provider_settings(paid_submissions_paused=False, **provider_options)
+    await configure_pilot(pilot_database, settings, paidSubmissionsPaused=False)
+    async with pilot_database() as session:
+        await ensure_provider_submission_allowed(
+            session, settings, settings.active_kling_provider_name, user_id=USER_ID
+        )
+        assert await provider_claims_allowed(
+            session, settings, settings.active_kling_provider_name, user_id=USER_ID
+        )
+
+
+@pytest.mark.parametrize("provider_options", PROVIDER_CONFIGS, ids=["kling", "wavespeed", "bach"])
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay"])
+async def test_runner_direct_execution_rejects_before_calling_real_provider(
+    tmp_path: Path, provider_options, libtv_mode
+) -> None:
+    settings = Settings(
+        app_env="production",
+        libtv_adapter_mode=libtv_mode,
+        runner_root=tmp_path / "runner",
+        **provider_options,
+        _env_file=None,
+    )
+    provider = Mock()
+    provider.get_provider_name.return_value = settings.active_kling_provider_name
+    provider.submit = AsyncMock()
+    object_store = AsyncMock()
+    supervisor = RunnerSupervisor(
+        Mock(), object_store, settings, kling_adapter=provider, command_host_manager=Mock()
+    )
+    supervisor._handle_error = AsyncMock()
+    session = AsyncMock()
+    command = GenerationCommand(id=uuid.uuid4(), attempt_id=uuid.uuid4())
+    attempt = GenerationAttempt(
+        id=command.attempt_id, variant_id=uuid.uuid4(), provider=settings.active_kling_provider_name
+    )
+    assert await supervisor._execute_kling(session, command, attempt) is True
+    assert supervisor._handle_error.await_args.args[-1].code == "PAID_GENERATION_BLOCKED"
+    provider.submit.assert_not_awaited()
+    object_store.localize.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"shared_authentication_enabled": True},
+        {"wavespeed_enabled": True},
+        {"shared_authentication_enabled": True, "wavespeed_enabled": True},
+        {"ai_adapter_mode": "openai"},
+    ],
+    ids=["shared", "real-provider", "shared-real-provider", "real-analysis"],
+)
+async def test_development_shared_or_real_provider_requires_pilot_allow_list_and_budget(
+    pilot_database, options
+) -> None:
+    settings = Settings(app_env="development", **options, _env_file=None)
+    async with pilot_database() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=1)
+        assert captured.value.code == "INTERNAL_PILOT_DISABLED"
+        await session.rollback()
+    await configure_pilot(pilot_database, settings)
+    async with pilot_database() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await reserve_internal_pilot_budget(session, settings, user_id=OTHER_USER_ID, units=1)
+        assert captured.value.code == "INTERNAL_PILOT_USER_NOT_ALLOWED"
+        await session.rollback()
+    async with pilot_database() as session:
+        with pytest.raises(RuntimeControlBlockedError) as captured:
+            await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=3)
+        assert captured.value.code == "PILOT_BUDGET_EXCEEDED"
+        await session.rollback()
+    async with pilot_database() as session:
+        current = await get_runtime_config(session, settings)
+        assert current.config_json["pilotSubmittedCount"] == 0
+
+
+async def test_shared_development_real_pilot_admission_records_actual_actor(pilot_database) -> None:
+    settings = authorized_provider_settings(wavespeed_enabled=True)
+    await configure_pilot(pilot_database, settings)
+    async with pilot_database() as session:
+        admitted = await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=2)
+        await session.commit()
+        assert admitted.config_json["pilotSubmittedCount"] == 2
+        assert admitted.changed_by == USER_ID
+        events = list(
+            await session.scalars(
+                select(AuditEvent).where(AuditEvent.reason.like("internal pilot admission%"))
+            )
+        )
+        assert len(events) == 1
+        assert events[0].actor_id == USER_ID
+        assert events[0].entity_id == str(admitted.version)
+
+
+async def test_shared_development_pilot_budget_serializes_competing_users(pilot_database) -> None:
+    settings = authorized_provider_settings(wavespeed_enabled=True)
+    await configure_pilot(
+        pilot_database,
+        settings,
+        pilotUserIds=[str(USER_ID), str(OTHER_USER_ID), str(THIRD_USER_ID)],
+        pilotBudgetLimit=1,
+    )
+    start = asyncio.Event()
+
+    async def admit(user_id):
+        async with pilot_database() as session:
+            await start.wait()
+            try:
+                await reserve_internal_pilot_budget(session, settings, user_id=user_id, units=1)
+                await session.commit()
+                return user_id, "ADMITTED"
+            except RuntimeControlBlockedError as exc:
+                await session.rollback()
+                return user_id, exc.code
+
+    pending = [
+        asyncio.create_task(admit(identity)) for identity in (USER_ID, OTHER_USER_ID, THIRD_USER_ID)
+    ]
+    start.set()
+    results = await asyncio.gather(*pending)
+    admitted = [identity for identity, result in results if result == "ADMITTED"]
+    assert len(admitted) == 1
+    assert sum(result == "PILOT_BUDGET_EXCEEDED" for _, result in results) == 2
+    async with pilot_database() as session:
+        current = await get_runtime_config(session, settings)
+        assert current.config_json["pilotSubmittedCount"] == 1
+        assert current.changed_by == admitted[0]
+        events = list(
+            await session.scalars(
+                select(AuditEvent).where(AuditEvent.reason.like("internal pilot admission%"))
+            )
+        )
+        assert len(events) == 1
+        assert events[0].actor_id == admitted[0]
+
+
+async def test_pilot_budget_and_actor_audit_roll_back_together(pilot_database) -> None:
+    settings = authorized_provider_settings(wavespeed_enabled=True)
+    await configure_pilot(pilot_database, settings)
+    async with pilot_database() as session:
+        await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=1)
+        await session.rollback()
+    async with pilot_database() as session:
+        current = await get_runtime_config(session, settings)
+        assert current.config_json["pilotSubmittedCount"] == 0
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.reason.like("internal pilot admission%"))
+            )
+            == 0
+        )
+
+
+@pytest.mark.parametrize("environment", ["development", "test"])
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay"])
+async def test_local_synthetic_modes_keep_pilot_and_submission_compatibility(
+    pilot_database, environment, libtv_mode
+) -> None:
+    settings = Settings(app_env=environment, libtv_adapter_mode=libtv_mode, _env_file=None)
+    async with pilot_database() as session:
+        current = await get_runtime_config(session, settings)
+        admitted = await reserve_internal_pilot_budget(session, settings, user_id=USER_ID, units=3)
+        assert admitted.version == current.version
+        assert admitted.config_json["pilotSubmittedCount"] == 0
+        await ensure_provider_submission_allowed(session, settings, "libtv", user_id=USER_ID)
+        assert await provider_claims_allowed(session, settings, "libtv", user_id=USER_ID)
 
 
 def test_runtime_config_allows_pass_only_auto_confirmation() -> None:
@@ -340,11 +650,10 @@ async def test_single_unknown_does_not_pause_other_tasks_or_mutate_global_config
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    settings = Settings(
+    settings = authorized_provider_settings(
         kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
-        _env_file=None,
     )
     now = datetime.now(UTC)
     async with factory() as session:
@@ -400,11 +709,10 @@ async def test_two_unknown_variants_of_one_parent_count_as_one_task(tmp_path: Pa
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    settings = Settings(
+    settings = authorized_provider_settings(
         kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
-        _env_file=None,
     )
     now = datetime.now(UTC)
     task = ParentTask(
@@ -453,11 +761,10 @@ async def test_user_unknown_circuit_isolated_by_provider_and_user(tmp_path: Path
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    settings = Settings(
+    settings = authorized_provider_settings(
         kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
-        _env_file=None,
     )
     now = datetime.now(UTC)
     async with factory() as session:
@@ -524,11 +831,10 @@ async def test_provider_unknown_circuit_requires_multi_user_burst_and_minimum_sa
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    settings = Settings(
+    settings = authorized_provider_settings(
         kling_api_enabled=True,
         paid_submissions_paused=False,
         object_store_mode="local",
-        _env_file=None,
     )
     now = datetime.now(UTC)
     users = [USER_ID, OTHER_USER_ID, THIRD_USER_ID, USER_ID, OTHER_USER_ID]
@@ -585,11 +891,10 @@ async def test_manual_paid_pause_blocks_confirmation_but_not_already_queued_clai
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    settings = Settings(
+    settings = authorized_provider_settings(
         kling_api_enabled=True,
         paid_submissions_paused=True,
         object_store_mode="local",
-        _env_file=None,
     )
     async with factory() as session:
         with pytest.raises(RuntimeControlBlockedError) as captured:

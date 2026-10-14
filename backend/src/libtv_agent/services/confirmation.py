@@ -39,6 +39,7 @@ from libtv_agent.services.runtime_control import (
     get_runtime_config,
 )
 from libtv_agent.services.state_machine import cas_task_phase
+from libtv_agent.services.video_input_qualification import validate_task_video_sources
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -68,6 +69,7 @@ async def confirm_task(
     automatic: bool = False,
     on_preparing: Callable[[], None] | None = None,
 ) -> None:
+    await validate_task_video_sources(session, task)
     available_variant_kinds = {variant.variant_type for variant in task.variants}
     requested_variant_kinds = (
         set(selected_variant_kinds)

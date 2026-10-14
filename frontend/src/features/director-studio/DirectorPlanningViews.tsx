@@ -94,27 +94,27 @@ export function DirectorDirectionCard({ direction, workflow, selected, confirmed
         <span className="director-direction__heading"><strong>{direction.title || '未提供'}</strong><small>名称 · 创意提案</small></span>
       </span>
       <span className="director-direction__section">
-        <span className="director-direction__label">Creative Summary <em>{result ? '结果整理' : 'Unknown'}</em></span>
+        <span className="director-direction__label">创意定位 <em>Creative Summary · {result ? '结果整理' : 'Unknown'}</em></span>
         <span className="director-direction__value">{result ? direction.summary || '未提供' : '未提供'}</span>
       </span>
       <span className="director-direction__check">{confirmed ? <><Check size={16} />已确认</> : selected ? <><Check size={16} />已选择</> : '选择'}</span>
     </button>
     <div className="director-direction__section">
-      <span className="director-direction__label">Execution Concept <em>{result ? resultSource : 'Unknown'}</em></span>
+      <span className="director-direction__label">执行概念 <em>Execution Concept · {result ? resultSource : 'Unknown'}</em></span>
       <dl className="director-direction__facts">
-        <div><dt>Scene · 场景</dt><dd>{result?.scene || '未提供'}</dd></div>
-        <div><dt>Behavior · 行为</dt><dd>{result?.behavior || '未提供'}</dd></div>
+        <div><dt>场景 <small>Scene</small></dt><dd>{result?.scene || '未提供'}</dd></div>
+        <div><dt>人物行为 <small>Behavior</small></dt><dd>{result?.behavior || '未提供'}</dd></div>
       </dl>
     </div>
     <div className="director-direction__section">
-      <span className="director-direction__label">Visual Proposal <em>创意提案</em></span>
+      <span className="director-direction__label">视觉语言 <em>Visual Proposal · 创意提案</em></span>
       <dl className="director-direction__facts">
-        <div><dt>Camera · 镜头</dt><dd>{direction.camera || '未提供'}</dd></div>
-        <div><dt>Emotion · 情绪</dt><dd>{direction.emotion || '未提供'}</dd></div>
+        <div><dt>镜头语言 <small>Camera</small></dt><dd>{direction.camera || '未提供'}</dd></div>
+        <div><dt>情绪 <small>Emotion</small></dt><dd>{direction.emotion || '未提供'}</dd></div>
       </dl>
     </div>
     <details className="director-direction__sources">
-      <summary>Information Source · 信息来源</summary>
+      <summary>来源与技术信息 · Information Source</summary>
       <dl className="director-direction__source-list">
         <div><dt>{result ? resultSource : 'Unknown'}</dt><dd>{result ? '场景 / 行为：服务端结果。摘要：前端按结果整理。' : '尚无服务端方向结果。'}</dd></div>
         <div><dt>Creative Proposal · 创意提案</dt><dd>名称 / 镜头 / 情绪：本地规划参考，非 AI 分析结果。</dd></div>

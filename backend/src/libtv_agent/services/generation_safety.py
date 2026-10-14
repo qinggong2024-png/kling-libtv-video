@@ -25,9 +25,7 @@ def paid_generation_authorized(settings: Settings) -> bool:
 
 
 def real_provider_submission_authorized(settings: Settings) -> bool:
-    """Allow synthetic providers to run while keeping every real submit gated."""
-    if settings.app_env == "test" or settings.libtv_adapter_mode in {"fake", "replay"}:
-        return True
+    """Real providers never inherit the unrelated LibTV synthetic adapter exemption."""
     return paid_generation_authorized(settings)
 
 

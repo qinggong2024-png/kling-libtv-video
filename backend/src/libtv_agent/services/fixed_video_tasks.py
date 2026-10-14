@@ -26,6 +26,11 @@ from libtv_agent.services.content_catalog import (
     get_merged_site_style_profile,
     motion_action_library,
 )
+from libtv_agent.services.creative_production_context import (
+    CreativeProductionBlockedError,
+    production_prompt,
+    resolve_production_package,
+)
 from libtv_agent.services.feedback_learning import apply_video_learning
 from libtv_agent.services.generation_safety import write_preview_file
 from libtv_agent.services.kling_preparation import prepare_kling_task
@@ -39,6 +44,10 @@ from libtv_agent.services.runtime_control import (
 )
 from libtv_agent.services.subject_elements import automatic_element_metadata
 from libtv_agent.services.tasks import get_task
+from libtv_agent.services.video_input_qualification import (
+    VideoInputBlockedError,
+    validate_video_sources,
+)
 from libtv_agent.templates.site_style_profiles import SiteStyleProfile
 from libtv_agent.templates.video_templates import get_video_template
 from sqlalchemy import select
@@ -244,6 +253,38 @@ async def create_fixed_video_task(
             "STORYBOARD_UPLOAD_UNAVAILABLE",
             "一个或多个分镜图已失效、已被使用或不属于当前用户",
         )
+    try:
+        lineage = await validate_video_sources(session, user_id, uploads)
+        storyboard_orders = {str(item.upload_id): item.order for item in ordered_inputs}
+        lineage = [
+            {**source, "storyboardOrder": storyboard_orders.get(source["inputId"])}
+            for source in lineage
+        ]
+        bound_package = None
+        package_projection = None
+        if payload.creative_package is not None:
+            bound_package, package_projection = await resolve_production_package(
+                session, user_id, payload.creative_package,
+            )
+            story_sources = [
+                source for source in lineage
+                if source["sourceImageOutputId"] in {
+                    str(by_id[item.upload_id].source_image_output_id) for item in ordered_inputs
+                }
+            ]
+            if len(story_sources) != len(ordered_inputs) or any(
+                source.get("creativePackage", {}).get("packageId") != bound_package["packageId"]
+                or source.get("creativePackage", {}).get("workflowId")
+                != bound_package["workflowId"]
+                or source.get("creativePackage", {}).get("shotId") != bound_package["shotId"]
+                for source in story_sources
+            ):
+                raise CreativeProductionBlockedError(
+                    "CREATIVE_VIDEO_SOURCE_MISMATCH",
+                    "every storyboard must be a qualified image from the requested package/shot",
+                )
+    except (VideoInputBlockedError, CreativeProductionBlockedError) as exc:
+        raise FixedVideoTaskValidationError(exc.code, str(exc)) from exc
 
     descriptors = [
         MaterialDescriptor(
@@ -339,6 +380,27 @@ async def create_fixed_video_task(
                 for plan, prompt_text in zip(plans, prompt_texts, strict=True)
             ],
         }
+    elif payload.generation_mode == "director_fixed":
+        assert package_projection is not None and bound_package is not None
+        if not isinstance(package_projection.get("videoPrompt"), str):
+            raise FixedVideoTaskValidationError(
+                "CREATIVE_VIDEO_PROMPT_UNRESOLVED",
+                "package must contain a resolved video prompt before video production",
+            )
+        final_prompt = _validate_final_prompt_length(
+            production_prompt(package_projection["videoPrompt"]),
+            code="DIRECTOR_PROMPT_TOO_LONG",
+            message="Director package video prompt exceeds the existing provider limit",
+        )
+        prompt_texts = [final_prompt for _ in range(payload.result_count)]
+        variant_seeds = [
+            {"variantIndex": index, "mode": "director_fixed", "promptMutated": False}
+            for index in range(1, payload.result_count + 1)
+        ]
+        plan_json = {
+            "compiler": "director-package-binding-v1", "finalPrompt": final_prompt,
+            "creativePackage": bound_package, "sourceLineage": lineage,
+        }
     else:
         custom_prompt = payload.custom_prompt or ""
         final_prompt = f"{custom_prompt} {role_prompt}"
@@ -374,6 +436,8 @@ async def create_fixed_video_task(
         "subtitles": template.subtitles,
         "smartStoryboard": template.smart_storyboard,
         "multiShot": template.smart_storyboard,
+        "sourceLineage": lineage,
+        **({"creativePackage": bound_package} if bound_package else {}),
     }
     asset_hash = ordered_assets_hash(
         [
@@ -456,11 +520,7 @@ async def create_fixed_video_task(
             variant_seed_json=variant_seed,
             prompt_text=prompt_text,
             prompt_hash=sha256_json(prompt_text),
-            prompt_template_version=(
-                AUTOMATIC_PROMPT_COMPILER_VERSION
-                if payload.generation_mode == "automatic"
-                else CUSTOM_PROMPT_COMPILER_VERSION
-            ),
+            prompt_template_version=plan_json["compiler"],
             generation_config_json={**settings_json, "variantIndex": index},
             generation_config_hash=sha256_json({**settings_json, "variantIndex": index}),
             ordered_storyboard_assets_hash=asset_hash,

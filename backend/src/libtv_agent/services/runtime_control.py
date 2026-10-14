@@ -19,7 +19,7 @@ from libtv_agent.services.generation_safety import (
     paid_generation_authorized,
     real_provider_submission_authorized,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -244,15 +244,32 @@ async def reserve_internal_pilot_budget(
 ) -> RuntimeConfigVersion | None:
     """Atomically admit a real pilot submission and consume its budget.
 
-    Development and test adapters intentionally bypass this gate. Production
-    defaults remain closed until an administrator explicitly configures the
-    pilot switch, allow-list, and non-zero budget.
+    Only local synthetic development/test configurations bypass admission.
+    Shared use and real provider capabilities require the pilot allow-list
+    and budget regardless of the development environment label.
     """
 
-    if settings.app_env in {"development", "test"}:
+    if settings.offline_authentication and not settings.real_provider_enabled:
         return await get_runtime_config(session, settings)
     if units < 1:
         raise ValueError("pilot budget units must be positive")
+    current = await get_runtime_config(session, settings)
+    if current is None:
+        raise RuntimeControlBlockedError("RUNTIME_CONFIG_MISSING", "runtime config is unavailable")
+    # Lock a stable row across version appends and users. A no-op UPDATE also
+    # acquires SQLite's writer lock; SELECT FOR UPDATE alone would not.
+    await session.execute(
+        update(RuntimeConfigVersion)
+        .where(
+            RuntimeConfigVersion.id
+            == select(RuntimeConfigVersion.id)
+            .order_by(RuntimeConfigVersion.version)
+            .limit(1)
+            .scalar_subquery()
+        )
+        .values(version=RuntimeConfigVersion.version)
+        .execution_options(synchronize_session=False)
+    )
     current = await get_runtime_config(session, settings)
     if current is None:
         raise RuntimeControlBlockedError("RUNTIME_CONFIG_MISSING", "runtime config is unavailable")
@@ -279,7 +296,7 @@ async def reserve_internal_pilot_budget(
         session,
         settings,
         config=config,
-        actor_id=None,
+        actor_id=user_id,
         reason=f"internal pilot admission for {units} unit(s)",
         expected_version=current.version,
     )

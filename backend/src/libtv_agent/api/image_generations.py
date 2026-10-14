@@ -26,6 +26,12 @@ from libtv_agent.domain.models import (
     ImageGenerationItem,
     ImageGenerationOutput,
 )
+from libtv_agent.domain.schemas import CreativePackageInput
+from libtv_agent.services.creative_production_context import (
+    CreativeProductionBlockedError,
+    production_prompt,
+    resolve_production_package,
+)
 from libtv_agent.services.image_generations import (
     ImageBatchConflictError,
     ImageItemSpec,
@@ -180,6 +186,7 @@ class ImageBatchManifest(ManifestModel):
     paidSubmissionConsent: Literal[True]
     expectedGenerationCount: int = Field(ge=1, le=40)
     items: list[ImageBatchManifestItem] = Field(min_length=1, max_length=20)
+    creativePackage: CreativePackageInput | None = None
 
     @model_validator(mode="after")
     def validate_provider_options(self) -> ImageBatchManifest:
@@ -417,6 +424,9 @@ def batch_response(batch: Any) -> dict[str, Any]:
                             output.reviewed_at.isoformat() if output.reviewed_at else None
                         ),
                         "humanReviewSeconds": output.human_review_seconds,
+                        "productionContext": (prediction.request_json or {}).get(
+                            "creativePackage"
+                        ) or (batch.request_json or {}).get("creativePackage"),
                     }
                 )
         error = next(
@@ -448,6 +458,7 @@ def batch_response(batch: Any) -> dict[str, Any]:
         "provider": batch.provider,
         "status": _public_status(batch.status),
         "expectedGenerationCount": batch.expected_generation_count,
+        "productionContext": (batch.request_json or {}).get("creativePackage"),
         "items": items,
         "createdAt": batch.created_at.isoformat() if batch.created_at else None,
         "updatedAt": (
@@ -562,7 +573,10 @@ async def create_image_generation_batch(
                     "message": availability.reason or "WaveSpeed is unavailable",
                 },
             )
+    actor_id = actor.id
     manifest_json = manifest.model_dump(mode="json")
+    if manifest.creativePackage is None:
+        manifest_json.pop("creativePackage")
     uploaded_files = list(files or [])
     if len(uploaded_files) > 64:
         raise HTTPException(
@@ -581,6 +595,41 @@ async def create_image_generation_batch(
             max_bytes=request.app.state.settings.max_input_image_bytes,
             root=Path(temporary_directory),
         )
+        package_specs = None
+        if manifest.creativePackage is not None:
+            try:
+                bound, projection = await resolve_production_package(
+                    session, actor_id, manifest.creativePackage,
+                )
+                if len(manifest.items) != 1 or hashes != [bound["sourceHash"]]:
+                    raise CreativeProductionBlockedError(
+                        "CREATIVE_SOURCE_HASH_MISMATCH",
+                        "package image request requires its exact canonical source image",
+                    )
+                item = manifest.items[0]
+                if item.referenceFileIndexes != [0]:
+                    raise CreativeProductionBlockedError(
+                        "CREATIVE_SOURCE_MAPPING_INVALID", "canonical image must be reference 0",
+                    )
+                prompt = production_prompt(projection["imagePrompt"])
+                manifest_json["creativePackage"] = {
+                    **bound, "promptHash": hashlib.sha256(prompt.encode()).hexdigest(),
+                    "sourceLineage": [{"role": "PRODUCT", "sha256": hashes[0], "fileIndex": 0}],
+                }
+                package_specs = [ImageItemSpec(
+                    client_task_id=item.clientTaskId, outfit_id=bound["productId"],
+                    outfit_name=item.outfitName, sku=item.sku,
+                    kind="CREATIVE_FIRST_FRAME" if bound["shotId"] == "FIRST_FRAME"
+                    else "CREATIVE_STORYBOARD",
+                    view="front", label=bound["shotId"], prompt=prompt,
+                    reference_file_indexes=(0,),
+                ) for _ in range(manifest.resultCount)]
+                if manifest.expectedGenerationCount != len(package_specs):
+                    raise CreativeProductionBlockedError(
+                        "CREATIVE_GENERATION_COUNT_INVALID", "package output count is inconsistent",
+                    )
+            except CreativeProductionBlockedError as exc:
+                raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
         referenced_indexes = {
             index for item in manifest.items for index in item.referenceFileIndexes
         }
@@ -593,11 +642,11 @@ async def create_image_generation_batch(
                 },
             )
         fingerprint = request_fingerprint(manifest_json, hashes)
-        await lock_image_quota_user(session, user_id=actor.id)
+        await lock_image_quota_user(session, user_id=actor_id)
         try:
             existing = await find_idempotent_batch(
                 session,
-                user_id=actor.id,
+                user_id=actor_id,
                 idempotency_key=idempotency_key,
                 request_hash=fingerprint,
             )
@@ -624,7 +673,9 @@ async def create_image_generation_batch(
             )
             return batch_response(existing)
         try:
-            specs = _expand_manifest(manifest, len(paths))
+            specs = package_specs if package_specs is not None else _expand_manifest(
+                manifest, len(paths),
+            )
         except ValueError as exc:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -637,17 +688,17 @@ async def create_image_generation_batch(
         try:
             await assert_image_quota_available(
                 session,
-                user_id=actor.id,
+                user_id=actor_id,
                 requested_images=len(specs),
                 daily_limit=settings.daily_user_image_limit,
             )
         except ImageQuotaExceededError as exc:
             session.add(
                 AuditEvent(
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     action="IMAGE_QUOTA_REJECTED",
                     entity_type="IMAGE_GENERATION_BATCH",
-                    entity_id=str(actor.id),
+                    entity_id=str(actor_id),
                     from_state=None,
                     to_state="REJECTED",
                     reason="daily image quota exceeded",
@@ -677,7 +728,7 @@ async def create_image_generation_batch(
             await reserve_internal_pilot_budget(
                 session,
                 settings,
-                user_id=actor.id,
+                user_id=actor_id,
                 units=len(specs),
             )
         except RuntimeControlBlockedError as exc:
@@ -686,7 +737,7 @@ async def create_image_generation_batch(
                 detail={"code": exc.code, "message": str(exc), "retryable": False},
             ) from exc
         batch = create_batch_record(
-            user_id=actor.id,
+            user_id=actor_id,
             idempotency_key=idempotency_key,
             request_hash=fingerprint,
             manifest=manifest_json,
@@ -701,7 +752,7 @@ async def create_image_generation_batch(
             await session.rollback()
             existing = await find_idempotent_batch(
                 session,
-                user_id=actor.id,
+                user_id=actor_id,
                 idempotency_key=idempotency_key,
                 request_hash=fingerprint,
             )
@@ -777,6 +828,7 @@ async def put_image_quality_decision(
             .join(ImageGenerationItem, ImageGenerationItem.id == ImageGenerationOutput.item_id)
             .join(ImageGenerationBatch, ImageGenerationBatch.id == ImageGenerationItem.batch_id)
             .where(ImageGenerationOutput.id == output_id)
+            .with_for_update(of=ImageGenerationOutput)
         )
     else:
         statement = (
@@ -787,6 +839,7 @@ async def put_image_quality_decision(
                 ImageGenerationOutput.id == output_id,
                 ImageGenerationBatch.user_id == actor.id,
             )
+            .with_for_update(of=ImageGenerationOutput)
         )
     row = (await session.execute(statement)).first()
     output = row[0] if row else None

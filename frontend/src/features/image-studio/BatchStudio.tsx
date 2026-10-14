@@ -15,7 +15,7 @@ export function BatchStudio({ children, view, onOpen, saveState }: {
   saveState: 'saved' | 'saving' | 'error'
 }) {
   const title = modes.find(mode => mode.view === view)?.label
-  return <section className="image-batch-studio" aria-labelledby="image-batch-title">
+  return <section className="image-batch-studio image-studio-batch" aria-labelledby="image-batch-title">
     <header className="image-batch-studio__header">
       <div>
         <h2 id="image-batch-title">{title}</h2>

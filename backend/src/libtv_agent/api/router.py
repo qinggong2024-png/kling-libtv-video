@@ -1,9 +1,11 @@
 from fastapi import APIRouter
 from libtv_agent.api.admin import router as admin_router
+from libtv_agent.api.ai_usage import router as ai_usage_router
 from libtv_agent.api.auth import router as auth_router
 from libtv_agent.api.confirmations import router as confirmations_router
 from libtv_agent.api.controlled_image_bridge import router as controlled_image_bridge_router
 from libtv_agent.api.creative_workflow import router as creative_workflow_router
+from libtv_agent.api.cutflow_handoffs import router as cutflow_handoffs_router
 from libtv_agent.api.downloads import router as downloads_router
 from libtv_agent.api.events import router as events_router
 from libtv_agent.api.health import router as health_router
@@ -23,6 +25,7 @@ from libtv_agent.api.video_tasks import router as video_tasks_router
 from libtv_agent.api.video_templates import router as video_templates_router
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(ai_usage_router)
 api_router.include_router(health_router)
 api_router.include_router(image_generations_router)
 api_router.include_router(kling_router)
@@ -35,6 +38,7 @@ api_router.include_router(events_router)
 api_router.include_router(admin_router)
 api_router.include_router(users_router)
 api_router.include_router(confirmations_router)
+api_router.include_router(cutflow_handoffs_router)
 api_router.include_router(video_templates_router)
 api_router.include_router(motion_actions_router)
 api_router.include_router(prompt_presets_router)

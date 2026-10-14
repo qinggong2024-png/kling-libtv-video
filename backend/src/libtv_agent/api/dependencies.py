@@ -39,6 +39,10 @@ async def get_actor(
         if user is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "session is invalid or expired")
         return user
+    if not settings.offline_authentication:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "offline identity is disabled; use shared authentication"
+        )
     if not x_user_id:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "X-User-Id is required in phase-one offline mode"
@@ -50,7 +54,7 @@ async def get_actor(
     user = await session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
     if (
         user is None
-        and settings.app_env in {"development", "test"}
+        and settings.offline_authentication
         and x_user_id
         in {
             settings.dev_user_id,

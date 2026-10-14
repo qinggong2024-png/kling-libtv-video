@@ -5,6 +5,11 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from libtv_agent.config import Settings
+from libtv_agent.services.generation_safety import (
+    PAID_GENERATION_CONFIRMATION,
+    real_provider_submission_authorized,
+)
 
 
 def _load_acceptance_module():
@@ -41,8 +46,12 @@ async def test_paid_execution_rejects_incomplete_confirmation_before_app_start(
         await module.execute(args)
 
 
-def test_acceptance_lock_rejects_a_second_process(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_acceptance_lock_rejects_a_second_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     module = _load_acceptance_module()
+    monkeypatch.setattr(module, "STATE_ROOT", tmp_path)
+    monkeypatch.setattr(module, "LOCK_PATH", tmp_path / "operation.lock")
     monkeypatch.setattr(module, "_try_lock", lambda _handle: (_ for _ in ()).throw(OSError()))
 
     with pytest.raises(RuntimeError, match="another LibTV acceptance process is active"):
@@ -127,3 +136,36 @@ def test_offline_prepare_settings_never_enable_remote_lib_tv_access() -> None:
     assert settings.paid_generation_enabled is False
     assert settings.paid_generation_confirmation == ""
     assert settings.paid_submissions_paused is True
+
+
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay", "real"])
+@pytest.mark.parametrize("environment", ["development", "production"])
+@pytest.mark.parametrize(
+    ("execution", "enabled", "confirmation", "expected"),
+    [
+        ("dry-run", True, PAID_GENERATION_CONFIRMATION, False),
+        ("prepare-only", True, PAID_GENERATION_CONFIRMATION, False),
+        ("live", False, PAID_GENERATION_CONFIRMATION, False),
+        ("live", True, "", False),
+        ("live", True, "wrong-confirmation", False),
+        ("live", True, PAID_GENERATION_CONFIRMATION, True),
+    ],
+)
+def test_real_provider_authorization_is_independent_of_libtv_adapter(
+    libtv_mode, environment, execution, enabled, confirmation, expected
+) -> None:
+    settings = Settings(
+        app_env=environment,
+        libtv_adapter_mode=libtv_mode,
+        libtv_execution_mode=execution,
+        paid_generation_enabled=enabled,
+        paid_generation_confirmation=confirmation,
+        _env_file=None,
+    )
+    assert real_provider_submission_authorized(settings) is expected
+
+
+@pytest.mark.parametrize("libtv_mode", ["fake", "replay", "real"])
+def test_test_environment_never_authorizes_real_provider(libtv_mode) -> None:
+    settings = Settings(app_env="test", libtv_adapter_mode=libtv_mode, _env_file=None)
+    assert real_provider_submission_authorized(settings) is False

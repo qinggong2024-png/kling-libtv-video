@@ -303,16 +303,22 @@ async def test_live_director_runs_analysis_and_returns_direction_candidates_with
 
 
 @pytest.mark.asyncio
-async def test_live_director_still_blocks_paid_generation(workflow):
+async def test_live_director_planning_is_available_with_paid_switch_but_fake_execution_is_blocked(
+    workflow,
+):
     flow = Flow(*workflow)
     flow.settings.director_workflow_mode = "live_director"
     flow.settings.paid_generation_enabled = True
+    await flow.plan()
     response = await flow.client.get(
-        "/api/v1/creative-workflow/tasks/00000000-0000-0000-0000-000000000000",
+        f"/api/v1/creative-workflow/tasks/{flow.task_id}",
         headers=flow.headers,
     )
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "PAID_MODE_NOT_ALLOWED"
+    assert response.status_code == 200
+    blocked = await flow.command(
+        "generate", package_id=flow.package["package_id"], expected_status=403,
+    )
+    assert blocked.json()["detail"]["code"] == "OFFLINE_COMMAND_NOT_ALLOWED"
 
 
 @pytest.mark.asyncio

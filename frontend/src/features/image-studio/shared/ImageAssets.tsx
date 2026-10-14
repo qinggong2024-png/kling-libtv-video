@@ -107,16 +107,16 @@ export function OrderedAssetUpload({ idPrefix, title, description, headerAccesso
   >
     <header>
       <div className="ordered-asset-upload__title"><strong>{title}</strong><small>{description}</small></div>
-      {headerAccessory}
       <span>{count}/3</span>
     </header>
+    {headerAccessory}
     <button type="button" className="ordered-asset-dropzone" disabled={count >= 3} onClick={() => inputRef.current?.click()}>
       <span><UploadCloud size={20} /></span>
       <span><strong>{count ? '继续添加图片' : '拖拽或点击批量上传'}</strong><small>JPG、PNG、WEBP，最多 3 张</small></span>
     </button>
     <div className="ordered-asset-slot-guide" aria-label={`${title}上传槽位说明`}>
       {IMAGE_ASSET_SLOT_LABELS.map((label, index) => <span key={label} className={files[index] ? 'is-filled' : index === 0 ? 'is-required' : 'is-optional'}>
-        <strong>{label}</strong>
+        <strong>{index + 1} · {label}</strong>
         <small>{files[index] ? '已上传' : index === 0 ? '必填' : '可选'}</small>
       </span>)}
     </div>
@@ -156,11 +156,11 @@ export function OutfitCard({ outfit, index, onChange }: {
     <OrderedAssetUpload
       idPrefix={outfit.id}
       title="产品图片"
-      description="图二固定为球衣正面，图三固定为球衣背面；侧面为补充参考"
+      description="本套商品按正面、背面、侧面排列；正面必填"
       headerAccessory={<div className="outfit-card__meta">
         <span className="outfit-card__number">{String(index + 1).padStart(2, '0')}</span>
-        <label><span className="sr-only">套装名称</span><input value={outfit.name} maxLength={80} title="套装名称" onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
-        <label><span className="sr-only">商品 SKU</span><input value={outfit.sku} maxLength={80} title="商品 SKU" placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
+        <label><span>套装名称</span><input value={outfit.name} maxLength={80} title="套装名称" onChange={(event) => onChange({ ...outfit, name: event.target.value })} /></label>
+        <label><span>商品 SKU</span><input value={outfit.sku} maxLength={80} title="商品 SKU" placeholder="SKU（可选）" onChange={(event) => onChange({ ...outfit, sku: event.target.value })} /></label>
       </div>}
       assets={outfit}
       onChange={(assets) => onChange({ ...outfit, ...assets })}

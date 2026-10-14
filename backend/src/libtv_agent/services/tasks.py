@@ -4,7 +4,14 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from libtv_agent.domain.contracts import ordered_assets_hash, sha256_json
-from libtv_agent.domain.enums import CANCELLABLE_PHASES, ParentTaskPhase
+from libtv_agent.domain.enums import (
+    CANCELLABLE_PHASES,
+    DownloadStatus,
+    GenerationStatus,
+    ParentTaskPhase,
+    QualityDecisionStatus,
+    ValidationStatus,
+)
 from libtv_agent.domain.models import (
     Asset,
     AuditEvent,
@@ -29,6 +36,8 @@ from libtv_agent.domain.schemas import (
     VariantRead,
 )
 from libtv_agent.services.analysis_lifecycle import is_retryable_analysis_failure
+from libtv_agent.services.state_machine import delivery_state, technically_successful
+from libtv_agent.services.video_input_qualification import validate_video_sources
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -55,8 +64,20 @@ async def list_tasks(
     limit: int = 100,
     cursor_updated_at: datetime | None = None,
     cursor_id: uuid.UUID | None = None,
+    review_required: bool = False,
 ) -> list[ParentTask]:
     statement = select(ParentTask).where(ParentTask.user_id == user_id)
+    if review_required:
+        statement = statement.where(ParentTask.variants.any(
+            (GenerationVariant.generation_status.in_([
+                GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL,
+            ]))
+            & (GenerationVariant.download_status == DownloadStatus.READY)
+            & (GenerationVariant.validation_status.in_([
+                ValidationStatus.PASSED, ValidationStatus.WARNING,
+            ]))
+            & (GenerationVariant.final_approval_status == QualityDecisionStatus.PENDING)
+        ))
     if cursor_updated_at is not None and cursor_id is not None:
         updated_at_column = ParentTask.updated_at
         updated_at_cursor: object = cursor_updated_at
@@ -102,6 +123,14 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
     by_id = {upload.id: upload for upload in uploads}
     if set(by_id) != set(upload_ids):
         raise ValueError("one or more uploads are unavailable or belong to another user")
+    lineage = await validate_video_sources(session, user_id, uploads)
+    generation_input_ids = {
+        str(item.upload_id) for item in payload.storyboards
+    } | (
+        {str(item.upload_id) for item in payload.product_images}
+        if payload.generation_provider == "kling" else set()
+    )
+    lineage = [source for source in lineage if source["inputId"] in generation_input_ids]
     hashes = [by_id[item.upload_id].sha256 for item in payload.storyboards]
     if len(set(hashes)) != len(hashes):
         raise ValueError("duplicate storyboard images must be removed before task creation")
@@ -164,6 +193,7 @@ async def create_task(session: AsyncSession, user_id: uuid.UUID, payload: TaskCr
     preference_snapshot = {
         "analysisModel": payload.analysis_model,
         "generationProvider": payload.generation_provider,
+        "sourceLineage": lineage,
     }
     task.variants = [
         GenerationVariant(variant_type=kind, generation_config_json=preference_snapshot)
@@ -442,6 +472,14 @@ def _build_task_read(
                 download_status=variant.download_status,
                 validation_status=variant.validation_status,
                 final_approval_status=variant.final_approval_status,
+                technical_success=technically_successful(variant),
+                review_required=delivery_state(variant) == "REVIEW_REQUIRED",
+                delivery_state=delivery_state(variant),
+                production_context={
+                    "sourceLineage": variant.generation_config_json.get("sourceLineage", []),
+                    **({"creativePackage": variant.generation_config_json["creativePackage"]}
+                       if variant.generation_config_json.get("creativePackage") else {}),
+                },
                 quality_gates=dict(variant.quality_gates_json or {}),
                 final_approved_by=variant.final_approved_by,
                 final_approved_at=variant.final_approved_at,

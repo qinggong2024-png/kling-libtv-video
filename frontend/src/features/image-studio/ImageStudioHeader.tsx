@@ -38,7 +38,7 @@ export function ImageStudioHeader({ view, taskCount, onOpen }: {
           onOpen(modes[next].view)
           buttons.current[next]?.focus()
         }}>
-        <Icon size={17} aria-hidden="true" /><span>{label}</span>
+        <Icon size={17} aria-hidden="true" /><span>{label}</span>{mode === 'text-to-image' ? <small className="image-studio-mode-note" aria-hidden="true">仅草稿</small> : null}
       </button>)}
     </div>
   </header>

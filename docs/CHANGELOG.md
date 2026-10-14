@@ -15,6 +15,93 @@
 - 范围、独立验证和同步结果见
   `SPRINT_REPORT_DIRECTOR_KEYFRAME_EXECUTION_20261014.md`。
 
+## 2026-10-14
+
+### AI 风险额度：分析与 Prompt Assistant 最小闭环
+
+- 新增独立的 `AIUsageReservation`、`AIUsageQuotaSummary` 和 append-only
+  `AIUsageLedger`，不改动视频 `PointsReservation`。
+- 分析、Prompt Assistant `ADVISE` / `REGENERATE` 在 OpenAI Provider 调用前短事务预占
+  风险单位；成功结算，明确未提交释放，timeout/未知提交保留 `UNKNOWN` 风险占用。
+- 增加用户/日和全局/日风险额度、输入字符/图像规模/max output/fallback 预留计算；
+  Fake/Replay 使用离线结算状态，不冒充真实费用。
+- Prompt Assistant 增加 `Idempotency-Key` 请求头并同步前端调用；同键重放不重复 Provider
+  调用或风险预占。
+- 新增 Alembic migration `c8e9f0a1b2c3`，基于现有 Cutflow head
+  `c7d8e9f0a1b2`，保留 Cutflow migration 不变。
+- testing focused workflow 与 service 测试通过；Feedback Learning 不接入本包，留待下一包。
+- 未读取真实 `.env`，未调用真实 Provider，未执行线上迁移、部署或服务重启。
+- PostgreSQL、多 worker 和正式运行时并发恢复未验证；隔离 SQLite 证据不能替代这些结论。
+
+## 2026-10-14
+
+### Backend Production Readiness Repair
+
+- Creative Package 进入图片和视频生产请求，持久化 workflow/package/shot/source lineage，
+  并沿用现有 Provider Executor。
+- 视频任务在创建、Worker 执行和 Provider submit 边界重新校验图片 `QUALIFIED`；
+  资格撤销会阻塞生成并记录原因。
+- 增加独立 Review queue 和技术成功、最终审批、可交付状态投影。
+- Director 分析失败持久化为 `ANALYSIS_FAILED`，支持复用同一 Product/Workflow 的幂等重试；
+  recovery 继续按 user ownership 校验。
+- 详见 `SPRINT_REPORT_BACKEND_READINESS_REPAIR_20261014.md`。本轮未修改前端、Provider、
+  Creative State、数据库结构，未执行真实付费生成或线上部署。
+
+## 2026-10-14
+
+### Cutflow · 部署环境核查
+
+- 准备 NAS 单次发送部署包与 `CUTFLOW_ONE_MESSAGE_DEPLOYMENT.md`：
+  只携带既有 Bridge 文件、补丁、哈希和完整执行指令，不改业务功能。
+- 打包脚本拒绝覆盖既有输出；Bridge 离线测试 6 项通过，未执行两端安装、
+  配置、迁移或重启，部署包不代表真实闭环通过。
+- 已登录 Cutflow 只读核查确认同一 NAS root、test 子目录可见、8 个可用母版；
+  普通 Worker 和分析/剪辑/渲染服务显示在线，bridge worker 未核实。
+- 空 POST bridge 路由探针返回 HTML 404；Codex 显示需要重新连接。
+  衣影工坊仍 query-only/readiness 503，新增迁移后预期 head 已变更，未迁移。
+- 用户补齐真实 NAS root 和 Cutflow URL 后，本机账号完成 NAS 唯一探测文件
+  创建/读取/hash/删除；远程和服务账号权限待核实。
+- Cutflow 首页 200，bridge 根路径 GET/OPTIONS 为 HTML 404；衣影工坊仍为
+  query-only/readiness 503，未提交真实 handoff。复查证据更新到部署结果报告。
+- 新增 `REAL_CUTFLOW_LAN_DEPLOYMENT_RESULT.md`，仅核查部署环境，未改业务代码。
+- 注册表确认服务代码来自 main、DataRoot 为独立数据目录；纠正旧验收推断。
+- 服务配置实际为 SQLite，只读查询确认交接表不存在；未自动迁移或重启。
+- 发现 NAS 候选 `192.168.120.60` 可达，但 `creative-handoff` 共享不可访问；
+  Cutflow 地址与远程入口未确定，真实 handoff 提交次数为 0。
+
+### Cutflow · 真实局域网验收实查
+
+- 新增 `REAL_CUTFLOW_HANDOFF_ACCEPTANCE.md`，记录正式入口与实际服务配置证据。
+- 正式 API 为 query-only，readiness 为 503；后续核查纠正 DataRoot 与源码目录混淆。
+- 尚缺真实 NAS/Cutflow 地址、用户映射及视频选择，闭环状态为 BLOCKED / NOT RUN。
+- 所有视频阶段耗时与 hash 未采集，人工质量待审核；未改架构、配置或运行服务。
+
+### P0 · 身份安全
+
+- 共享环境继续强制会话身份；`X-User-Id`、开发固定 ID 和自动建用户仅用于
+  development/test 离线模式，共享请求不接受 Header 身份覆盖或角色提升。
+- 非 test 环境开启真实 Provider、反馈学习模型调用或付费/live 开关时，
+  启动校验拒绝无共享鉴权的组合；API/Runner 加载管理员配置后再次校验。
+- 保留 test Mock 兼容和既有付费禁令；没有实现 AI 风险额度或改变计费合同。
+- 首轮 testing/main 新增身份测试各 99 项通过，相关回归分别 137/136 项通过，
+  两侧 Ruff 通过，源码局部同步成功。详见
+  `SPRINT_REPORT_IDENTITY_SAFETY_P0_20261014.md`；未部署或重启服务。
+- PM 复验修复真实 Provider 授权绕过：LibTV Fake/Replay 不再授权
+  Kling/WaveSpeed/Bach；提交、队列 claim 和 Runner 执行都检查 paid/live/确认短语。
+- 共享或具备真实 Provider 能力的 development/test 不再跳过现有 pilot
+  白名单和预算；预占按稳定配置行串行检查并记录实际用户的 actor 审计。
+- 保留纯本地 synthetic Fake/Replay 行为与 test 真实付费禁令；
+  PM 复验两侧各 230 项相关 pytest 和 Ruff 通过，源码同步成功。
+
+### Cutflow · 局域网交接
+
+- 新增默认关闭的数据库交接队列、独立 NAS 传输/对账进程及账号隔离接口。
+- 配套 Cutflow 接收适配器缓存到租户 SSD，保留母版、分组、渲染和 QA。
+- 视频结果卡新增继续剪辑、持久状态、重试及独立待审成片预览/下载。
+- 原视频和原交付批准保持独立；未部署、未执行生产迁移或真实付费剪辑。
+- 配置、验证和限制见 `CUTFLOW_LAN_IMPLEMENTATION_20261014.md`、
+  `SPRINT_REPORT_CUTFLOW_LAN_20261014.md`。
+
 ### Director · 后端关键帧与提交约束
 
 - 撤下前端拆镜、合帧和参考图预算控件；后端冻结结构化节拍、镜头、
@@ -43,8 +130,6 @@
 - 无同款、同受众、时间窗、购买数与归因来源的证据时标 hypothesis；没有具体
   商品特征则保持 unresolved，不把点击、品牌风格或别款结果当购买结论。
 - 验证与源码同步记录见 `SPRINT_REPORT_DIRECTOR_PLUGIN_11315_20261014.md`。
-
-## 2026-10-14
 
 ### 正式服务恢复与开机托管
 

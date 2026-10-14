@@ -238,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "var/runtime/bach-config.json"
     ):
         load_bach_admin_config(app_settings)
+    app_settings.validate_shared_environment()
     configure_logging()
 
     @asynccontextmanager

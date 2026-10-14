@@ -90,6 +90,10 @@ class AnalysisTimeoutError(TimeoutError):
     pass
 
 
+class AnalysisNotSubmittedError(RuntimeError):
+    """The request failed local preflight before an OpenAI call was sent."""
+
+
 def fake_analysis(asset_ids: list[str], user_requirement: str = "") -> AnalysisResult:
     facts = [
         StoryboardFact(asset_id=asset_id, order=index + 1)
@@ -183,10 +187,12 @@ class OpenAIAnalysisAdapter:
         self.settings = settings
         self.client = client
         self.provider_response_id: str | None = None
+        self.actual_input_tokens: int | None = None
+        self.actual_output_tokens: int | None = None
 
     async def analyze(self, prompt: str, images: list[AnalysisImageInput]) -> AnalysisResult:
         if self.client is None and not self.settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for real AI analysis")
+            raise AnalysisNotSubmittedError("OPENAI_API_KEY is required for real AI analysis")
         if not images:
             raise ValueError("at least one ordered analysis image is required")
         orders = [item.order for item in images]
@@ -204,6 +210,7 @@ class OpenAIAnalysisAdapter:
                 api_key=self.settings.openai_api_key,
                 base_url=self.settings.openai_base_url,
                 timeout=request_timeout,
+                max_retries=0,
             )
         else:
             request_timeout = self.settings.analysis_timeout_for_image_count(len(images))
@@ -232,6 +239,9 @@ class OpenAIAnalysisAdapter:
             ) from exc
         response_id = getattr(response, "id", None)
         self.provider_response_id = response_id if isinstance(response_id, str) else None
+        usage = getattr(response, "usage", None)
+        self.actual_input_tokens = getattr(usage, "input_tokens", None)
+        self.actual_output_tokens = getattr(usage, "output_tokens", None)
         if response.output_parsed is None:
             raise RuntimeError("OpenAI response did not contain a valid structured result")
         return response.output_parsed

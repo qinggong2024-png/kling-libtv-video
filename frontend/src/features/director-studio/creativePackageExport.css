@@ -1,5 +1,7 @@
 .creative-package-export {
   min-width: 0;
+  max-width: 920px;
+  margin: 0 auto;
 }
 
 .creative-package-export summary {
@@ -40,7 +42,7 @@
   padding: 0;
   flex-shrink: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-button);
   color: var(--text);
   background: var(--surface);
   cursor: pointer;
@@ -114,6 +116,10 @@
   padding: 16px 0;
 }
 
+.creative-package-section--primary {
+  padding-top: 20px;
+}
+
 .creative-package-section h3,
 .director-handoff-summary h3 {
   margin: 0 0 8px;
@@ -145,7 +151,7 @@
   padding: 12px;
   margin-top: 12px !important;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-button);
   background: var(--surface-soft);
 }
 
@@ -189,6 +195,7 @@
 
 .creative-package-technical {
   min-width: 0;
+  margin-top: 20px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
@@ -201,9 +208,23 @@
   font-size: 13px;
 }
 
-.creative-package-technical > pre {
+.creative-package-technical > pre,
+.creative-package-technical__body > pre {
   max-height: 360px;
   overflow: auto;
+}
+
+.creative-package-technical__body {
+  padding-top: 12px;
+}
+
+.creative-package-technical__body > section + section {
+  margin-top: var(--space-5);
+}
+
+.creative-package-technical__body > h3,
+.creative-package-technical__body > h4 {
+  margin: 8px 0 0;
 }
 
 .director-handoff-summary__facts {

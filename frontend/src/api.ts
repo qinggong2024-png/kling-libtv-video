@@ -186,6 +186,20 @@ async function requestBlob(path: string, policy: RequestPolicy = {}): Promise<Bl
 
 const key = () => createUuid()
 
+export interface CutflowHandoff {
+  id: string
+  handoffKey: string
+  sourceArtifactId: string
+  status: string
+  cutflowBatchId: string | null
+  cutflowEditorUrl: string | null
+  errorMessage: string | null
+  outputs: Array<{ id: string; sha256: string; reviewStatus: string; durationSeconds: number; createdAt: string; mediaUrl: string }>
+}
+export const listCutflowHandoffs = (variantId: string, signal?: AbortSignal) => request<{ enabled: boolean; handoffs: CutflowHandoff[] }>(`/api/v1/cutflow-handoffs?variant_id=${encodeURIComponent(variantId)}`, { signal })
+export const createCutflowHandoff = (taskId: string, variantId: string) => request<CutflowHandoff>('/api/v1/cutflow-handoffs', { method: 'POST', body: JSON.stringify({ taskId, variantId }) })
+export const retryCutflowHandoff = (id: string) => request<CutflowHandoff>(`/api/v1/cutflow-handoffs/${encodeURIComponent(id)}/retry`, { method: 'POST' })
+
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
 export const getHumanReviewHistory = (query: HumanReviewQuery) => request<HumanReviewHistory>(`/api/v1/human-reviews?${humanReviewQueryString(query)}`)
@@ -465,6 +479,7 @@ export const runPromptAssistant = (
   targetVariant?: VariantKind,
 ) => request<PromptAssistantResponse>(`/api/v1/tasks/${task.id}/prompt-assistant`, {
   method: 'POST',
+  headers: { 'Idempotency-Key': key() },
   body: JSON.stringify({
     expectedStateVersion: task.stateVersion,
     action,

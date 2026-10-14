@@ -210,6 +210,13 @@ class ReservationStatus(StrEnum):
     UNCERTAIN = "UNCERTAIN"
 
 
+class AIUsageReservationStatus(StrEnum):
+    RESERVED = "RESERVED"
+    SETTLED = "SETTLED"
+    RELEASED = "RELEASED"
+    UNKNOWN = "UNKNOWN"
+
+
 class BillingSource(StrEnum):
     TASK_BILLING = "TASK_BILLING"
     PRICE_SNAPSHOT = "PRICE_SNAPSHOT"

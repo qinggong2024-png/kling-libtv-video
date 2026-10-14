@@ -10,6 +10,7 @@ from libtv_agent.adapters.kling_official_cli import KlingCliError
 from libtv_agent.adapters.object_store import ObjectStore
 from libtv_agent.adapters.openai_analysis import (
     AnalysisImageInput,
+    AnalysisNotSubmittedError,
     AnalysisResult,
     FakeAnalysisAdapter,
     OpenAIAnalysisAdapter,
@@ -18,13 +19,20 @@ from libtv_agent.adapters.openai_analysis import (
 from libtv_agent.adapters.video_provider import VideoProviderAdapter
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import ordered_assets_hash, sha256_json
-from libtv_agent.domain.enums import ParentTaskPhase, VariantKind
+from libtv_agent.domain.enums import AIUsageReservationStatus, ParentTaskPhase, VariantKind
 from libtv_agent.domain.models import (
     Asset,
     AuditEvent,
     ModelSchemaSnapshot,
     ParentTask,
     VisualFactCache,
+)
+from libtv_agent.services.ai_pricing import estimate_text_price
+from libtv_agent.services.ai_usage import (
+    get_ai_usage_reservation,
+    reserve_priced_ai_usage,
+    settle_ai_usage,
+    settle_provider_usage,
 )
 from libtv_agent.services.analysis_lifecycle import (
     ANALYSIS_STAGE_COMPLETED,
@@ -355,6 +363,7 @@ async def _run_openai_analysis_request(
     prompt: str,
     images: list[AnalysisImageInput],
     asset_ids: list[str],
+    usage_reservation_id: uuid.UUID,
 ) -> AnalysisResult:
     adapter = OpenAIAnalysisAdapter(
         settings.model_copy(
@@ -390,7 +399,21 @@ async def _run_openai_analysis_request(
             prompt,
             images,
         )
-    except Exception as exc:
+    except (Exception, asyncio.CancelledError) as exc:
+        await settle_ai_usage(
+            session,
+            usage_reservation_id,
+            status=(
+                AIUsageReservationStatus.RELEASED
+                if isinstance(exc, AnalysisNotSubmittedError)
+                else AIUsageReservationStatus.UNKNOWN
+            ),
+            actual_cost_status=(
+                "NOT_SUBMITTED"
+                if isinstance(exc, AnalysisNotSubmittedError)
+                else "UNKNOWN_COST"
+            ),
+        )
         await touch_analysis_run(
             session,
             task.id,
@@ -414,6 +437,13 @@ async def _run_openai_analysis_request(
         await session.commit()
         raise
     response_id = adapter.provider_response_id
+    await settle_provider_usage(
+        session,
+        usage_reservation_id,
+        input_tokens=adapter.actual_input_tokens,
+        output_tokens=adapter.actual_output_tokens,
+        provider_response_id=response_id,
+    )
     session.add(
         AuditEvent(
             action="OPENAI_ANALYSIS_REQUEST_SUCCEEDED",
@@ -440,6 +470,7 @@ async def analyze_task(
     kling_adapter: VideoProviderAdapter | None = None,
     *,
     analysis_run_id: uuid.UUID,
+    ai_usage_request_key: str | None = None,
 ) -> None:
     if task.phase != ParentTaskPhase.ANALYZING or task.analysis_run_id != analysis_run_id:
         raise StaleAnalysisRunError(f"analysis run {analysis_run_id} is no longer current")
@@ -515,8 +546,24 @@ async def analyze_task(
         },
     }
     cache_entry = await session.get(VisualFactCache, cache_key)
+    usage_request_key = ai_usage_request_key or analysis_run_id.hex
+    primary_usage = await get_ai_usage_reservation(
+        session,
+        user_id=task.user_id,
+        operation_type="AI_ANALYSIS",
+        idempotency_key=usage_request_key,
+        task_id=task.id,
+    )
     now = datetime.now(UTC)
     if cache_entry is not None and _cache_entry_is_current(cache_entry, now):
+        if primary_usage is not None:
+            await settle_ai_usage(
+                session,
+                primary_usage.id,
+                status=AIUsageReservationStatus.RELEASED,
+                actual_cost_status="CACHE_HIT",
+            )
+            await session.commit()
         analysis_json = _replace_asset_ids(cache_entry.facts_json, canonical_to_current)
         await touch_analysis_run(
             session,
@@ -525,6 +572,8 @@ async def analyze_task(
             ANALYSIS_STAGE_VALIDATING,
         )
     else:
+        if settings.ai_adapter_mode == "openai" and primary_usage is None:
+            raise RuntimeError("AI analysis risk reservation is missing")
         if settings.ai_adapter_mode == "replay":
             adapter = ReplayAnalysisAdapter(settings.ai_replay_fixture, asset_ids)
         elif settings.ai_adapter_mode == "fake":
@@ -557,6 +606,7 @@ async def analyze_task(
                     prompt,
                     images,
                     asset_ids,
+                    primary_usage.id if primary_usage is not None else uuid.uuid4(),
                 )
                 analysis_json = normalize_analysis_motion(
                     result.model_dump(mode="json", by_alias=True)
@@ -581,6 +631,35 @@ async def analyze_task(
                     )
                 )
                 await session.commit()
+                fallback_key = f"{usage_request_key}:fallback"
+                fallback_quote = estimate_text_price(
+                    settings,
+                    provider="openai",
+                    model=fallback_model,
+                    input_chars=len(prompt),
+                    input_image_count=len(images),
+                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
+                )
+                fallback_usage = await reserve_priced_ai_usage(
+                    session,
+                    settings,
+                    user_id=task.user_id,
+                    task_id=task.id,
+                    operation_type="AI_ANALYSIS_FALLBACK",
+                    quote=fallback_quote,
+                    input_chars=len(prompt),
+                    input_image_count=len(images),
+                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
+                    idempotency_key=fallback_key,
+                    request_hash=sha256_json(
+                        {
+                            "primaryRequestKey": usage_request_key,
+                            "model": fallback_model,
+                            "prompt": prompt,
+                        }
+                    ),
+                )
+                await session.commit()
                 result = await _run_openai_analysis_request(
                     session,
                     task,
@@ -592,20 +671,41 @@ async def analyze_task(
                     prompt,
                     images,
                     asset_ids,
+                    fallback_usage.reservation.id,
                 )
                 analysis_json = normalize_analysis_motion(
                     result.model_dump(mode="json", by_alias=True)
                 )
                 _validated_analysis_timelines(analysis_json, required_ids)
         else:
-            result = await _await_provider_with_heartbeat(
-                session,
-                task.id,
-                analysis_run_id,
-                adapter,
-                prompt,
-                images,
-            )
+            try:
+                result = await _await_provider_with_heartbeat(
+                    session,
+                    task.id,
+                    analysis_run_id,
+                    adapter,
+                    prompt,
+                    images,
+                )
+            except Exception:
+                if primary_usage is not None:
+                    await settle_ai_usage(
+                        session,
+                        primary_usage.id,
+                        status=AIUsageReservationStatus.UNKNOWN,
+                        actual_cost_status="OFFLINE_UNKNOWN",
+                    )
+                    await session.commit()
+                raise
+            if primary_usage is not None:
+                await settle_ai_usage(
+                    session,
+                    primary_usage.id,
+                    status=AIUsageReservationStatus.SETTLED,
+                    actual_risk_units=0,
+                    actual_cost_status="OFFLINE",
+                )
+                await session.commit()
             analysis_json = normalize_analysis_motion(result.model_dump(mode="json", by_alias=True))
             _validated_analysis_timelines(analysis_json, required_ids)
         current_to_canonical = {value: key for key, value in canonical_to_current.items()}
@@ -645,6 +745,10 @@ async def analyze_task(
     )
     generation_sound = settings.active_video_audio if generation_provider == "kling" else "off"
     config = {
+        "sourceLineage": next(
+            (variant.generation_config_json["sourceLineage"] for variant in task.variants
+             if "sourceLineage" in variant.generation_config_json), [],
+        ),
         "preset": "DEFAULT_10S_9X16",
         "analysisModel": analysis_model,
         "generationProvider": generation_provider,

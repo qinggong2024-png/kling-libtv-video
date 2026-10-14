@@ -68,7 +68,7 @@ function PackageExportContent({ document, packageId, spatialPlan, children }: {
       <button type="button" title="下载 Creative Package JSON" aria-label="下载 Creative Package JSON" onClick={download}><Download size={16} /></button>
       <span role="status" aria-live="polite">{notice}</span>
     </div>
-    <section className="creative-package-section" aria-label="制作要求">
+    <section className="creative-package-section creative-package-section--primary" aria-label="制作要求">
       <h3>制作要求</h3>
       <dl className="creative-package-export__fields">
         <div><dt>商品约束</dt><dd>未提供独立约束摘要；保留要求以冻结图片提示词原文为准。</dd></div>
@@ -132,11 +132,13 @@ function PackageExportContent({ document, packageId, spatialPlan, children }: {
     </section>
     <details className="creative-package-technical">
       <summary>技术详情</summary>
-      {children}
-      <h3>来源与合同</h3>
-      <pre>{JSON.stringify(Object.fromEntries(Object.entries(document).filter(([key]) => !packageFields.some(([field]) => field === key))), null, 2)}</pre>
-      <h4>冻结镜头包关联</h4>
-      <pre>{JSON.stringify(document.shotPlan, null, 2)}</pre>
+      <div className="creative-package-technical__body">
+        {children}
+        <h3>来源与合同</h3>
+        <pre>{JSON.stringify(Object.fromEntries(Object.entries(document).filter(([key]) => !packageFields.some(([field]) => field === key))), null, 2)}</pre>
+        <h4>冻结镜头包关联</h4>
+        <pre>{JSON.stringify(document.shotPlan, null, 2)}</pre>
+      </div>
     </details>
   </section>
 }

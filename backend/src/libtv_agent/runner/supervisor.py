@@ -30,6 +30,7 @@ from libtv_agent.domain.enums import (
 )
 from libtv_agent.domain.models import (
     Asset,
+    AuditEvent,
     DownloadArtifact,
     GenerationAttempt,
     GenerationCommand,
@@ -54,10 +55,12 @@ from libtv_agent.services.points import business_date, settle_points
 from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
 from libtv_agent.services.runtime_control import (
+    RuntimeControlBlockedError,
     provider_claims_allowed,
     set_libtv_auth_required,
 )
 from libtv_agent.services.state_machine import aggregate_parent_phase
+from libtv_agent.services.video_input_qualification import validate_task_video_sources
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -473,6 +476,11 @@ class RunnerSupervisor:
         attempt = await session.get(GenerationAttempt, command.attempt_id)
         if attempt is None:
             return True
+        if not await self._guard_command(session, command, launching=False):
+            return None
+        if not await self._guard_video_inputs(session, command, attempt):
+            return True
+        await session.commit()
         if attempt.provider != "libtv":
             return await self._execute_kling(session, command, attempt)
         if self.settings.libtv_adapter_mode == "real":
@@ -490,6 +498,8 @@ class RunnerSupervisor:
             return None
         attempt.launch_started_at = command.launch_started_at
         await session.commit()
+        if not await self._guard_video_inputs(session, command, attempt):
+            return True
         if self.settings.libtv_adapter_mode == "real":
             try:
                 manifest = self.command_host_manager.launch_generation(
@@ -716,6 +726,8 @@ class RunnerSupervisor:
                 return None
             attempt.launch_started_at = command.launch_started_at
             await session.commit()
+            if not await self._guard_video_inputs(session, command, attempt):
+                return True
             submission = await kling_adapter.submit(request)
         except KlingCliError as exc:
             if command.status != CommandStatus.LAUNCH_STARTED:
@@ -793,6 +805,32 @@ class RunnerSupervisor:
             await session.commit()
             return False
         await session.refresh(attempt)
+        return True
+
+    async def _guard_video_inputs(
+        self, session: AsyncSession, command: GenerationCommand, attempt: GenerationAttempt,
+    ) -> bool:
+        variant = await session.get(GenerationVariant, attempt.variant_id)
+        task = await session.get(ParentTask, variant.parent_task_id) if variant else None
+        if task is None:
+            await self._handle_error(
+                session, command, attempt,
+                LibTVError("VIDEO_TASK_MISSING", "video task is missing"),
+            )
+            return False
+        try:
+            await validate_task_video_sources(session, task)
+        except RuntimeControlBlockedError as exc:
+            await self._handle_error(session, command, attempt, LibTVError(exc.code, str(exc)))
+            task.phase_reason_code = exc.code
+            session.add(AuditEvent(
+                actor_id=task.user_id, action="VIDEO_SOURCE_BLOCKED",
+                entity_type="parent_task", entity_id=str(task.id),
+                from_state=None, to_state=task.phase.value, reason=exc.code,
+                correlation_id=str(uuid.uuid4()), evidence_refs_json=[],
+            ))
+            await session.commit()
+            return False
         return True
 
     async def poll_kling_tasks(self, session: AsyncSession) -> int:

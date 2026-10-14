@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Any
 
 from libtv_agent.domain.enums import (
+    AIUsageReservationStatus,
     AttemptStatus,
     BillingSource,
     CanvasExecutionState,
@@ -761,6 +762,103 @@ class UserDailyPointsSummary(Base):
     )
 
 
+class AIUsageReservation(Base):
+    __tablename__ = "ai_usage_reservation"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "operation_type",
+            "idempotency_key",
+            name="uq_ai_usage_reservation_request",
+        ),
+        Index("ix_ai_usage_reservation_user_created", "user_id", "created_at"),
+        Index("ix_ai_usage_reservation_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), index=True
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("parent_task.id", ondelete="SET NULL"), index=True
+    )
+    operation_type: Mapped[str] = mapped_column(String(60))
+    provider: Mapped[str] = mapped_column(String(60))
+    model: Mapped[str] = mapped_column(String(160))
+    input_chars: Mapped[int] = mapped_column(Integer, default=0)
+    input_image_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_output_tokens: Mapped[int] = mapped_column(Integer)
+    risk_units: Mapped[int] = mapped_column(Integer)
+    accounting_version: Mapped[str] = mapped_column(String(40), default="USD_MILLIDOLLAR_V1")
+    business_date: Mapped[date | None] = mapped_column(Date)
+    estimated_cost_microusd: Mapped[int | None] = mapped_column(BigInteger)
+    actual_cost_microusd: Mapped[int | None] = mapped_column(BigInteger)
+    pricing_snapshot_json: Mapped[dict | None] = mapped_column(JSON)
+    actual_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    actual_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    actual_risk_units: Mapped[int | None] = mapped_column(Integer)
+    actual_cost_status: Mapped[str] = mapped_column(String(40), default="PENDING")
+    provider_response_id: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[AIUsageReservationStatus] = enum_column(
+        AIUsageReservationStatus, default=AIUsageReservationStatus.RESERVED
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AIUsageQuotaSummary(Base):
+    __tablename__ = "ai_usage_quota_summary"
+    __table_args__ = (
+        UniqueConstraint("scope_key", "business_date", name="uq_ai_usage_scope_date"),
+        Index("ix_ai_usage_quota_user_date", "user_id", "business_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scope_key: Mapped[str] = mapped_column(String(80))
+    scope_type: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    business_date: Mapped[date] = mapped_column(Date, index=True)
+    limit_units: Mapped[int] = mapped_column(Integer)
+    reserved_units: Mapped[int] = mapped_column(Integer, default=0)
+    consumed_units: Mapped[int] = mapped_column(Integer, default=0)
+    unknown_units: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AIUsageLedger(Base):
+    __tablename__ = "ai_usage_ledger"
+    __table_args__ = (
+        Index("ix_ai_usage_ledger_reservation_created", "reservation_id", "created_at"),
+        Index("ix_ai_usage_ledger_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    reservation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ai_usage_reservation.id", ondelete="RESTRICT"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="RESTRICT"), index=True
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("parent_task.id", ondelete="SET NULL"), index=True
+    )
+    operation_type: Mapped[str] = mapped_column(String(60))
+    entry_type: Mapped[str] = mapped_column(String(20))
+    risk_units: Mapped[int] = mapped_column(Integer)
+    accounting_version: Mapped[str] = mapped_column(String(40), default="USD_MILLIDOLLAR_V1")
+    cost_microusd: Mapped[int | None] = mapped_column(BigInteger)
+    actual_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    actual_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    actual_cost_status: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class DownloadArtifact(Base):
     __tablename__ = "download_artifact"
     __table_args__ = (
@@ -783,6 +881,48 @@ class DownloadArtifact(Base):
     revision: Mapped[int] = mapped_column(Integer, default=1)
     deletion_pending_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CutflowHandoff(Base):
+    __tablename__ = "cutflow_handoff"
+    __table_args__ = (
+        UniqueConstraint("user_id", "artifact_id", name="uq_cutflow_handoff_user_artifact"),
+        Index("ix_cutflow_handoff_user_created", "user_id", "created_at"),
+        Index("ix_cutflow_handoff_status_updated", "status", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True
+    )
+    parent_task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("parent_task.id", ondelete="CASCADE"), index=True
+    )
+    variant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("generation_variant.id", ondelete="CASCADE"), index=True
+    )
+    artifact_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("download_artifact.id", ondelete="CASCADE"), index=True
+    )
+    handoff_key: Mapped[str] = mapped_column(String(160), unique=True)
+    contract_version: Mapped[str] = mapped_column(String(40), default="libtv-to-cutflow/1.0")
+    status: Mapped[str] = mapped_column(String(32), default="QUEUED", index=True)
+    manifest_path: Mapped[str] = mapped_column(String(1000), default="")
+    manifest_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    cutflow_batch_id: Mapped[str | None] = mapped_column(String(160))
+    cutflow_editor_url: Mapped[str | None] = mapped_column(String(1000))
+    output_path: Mapped[str | None] = mapped_column(String(1000))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    outputs_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    lease_token: Mapped[str | None] = mapped_column(String(40))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

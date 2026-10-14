@@ -5,7 +5,7 @@ export function GenerationConfig({ config, onChange, advanced = false }: {
   onChange: (config: Partial<ImageCenterConfig>) => void
   advanced?: boolean
 }) {
-  return <div className="image-simple-config">
+  return <div className={`image-simple-config${advanced ? ' image-simple-config--advanced' : ''}`}>
     {advanced ? <>
       <label>模型<select aria-label="模型" value={config.provider} onChange={event => onChange({ provider: event.target.value as ImageCenterConfig['provider'] })}>
         <option value="nanobanana">Nano Banana 2</option><option value="gpt">GPT Image 2</option>

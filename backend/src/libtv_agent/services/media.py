@@ -101,7 +101,13 @@ async def technical_validate(
         stderr=asyncio.subprocess.PIPE,
         creationflags=_hidden_process_creation_flags(),
     )
-    stdout, stderr = await process.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+    except (TimeoutError, asyncio.CancelledError):
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise
     if process.returncode != 0:
         raise ValueError(f"video is not decodable: {stderr.decode('utf-8', errors='replace')}")
     metadata = json.loads(stdout)
