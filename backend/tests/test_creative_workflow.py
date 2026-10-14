@@ -277,6 +277,45 @@ async def test_owner_isolation_and_production_endpoint_disabled(workflow):
 
 
 @pytest.mark.asyncio
+async def test_live_director_runs_analysis_and_returns_direction_candidates_without_generation(
+    workflow,
+):
+    flow = Flow(*workflow)
+    flow.settings.director_workflow_mode = "live_director"
+
+    created = await flow.create()
+    assert created.json()["mode"] == "LIVE_DIRECTOR"
+
+    analyzed = await flow.command("analyze")
+    assert analyzed.json()["mode"] == "LIVE_DIRECTOR"
+    assert analyzed.json()["status"] == "AWAITING_DIRECTION"
+    snapshot = analyzed.json()["snapshot"]
+    assert snapshot["director_analysis"]["schema_version"] == "director-analysis.v1"
+    assert [direction["id"] for direction in snapshot["plan"]["directions"]] == ["A", "B", "C"]
+    assert snapshot["candidates"] == []
+    assert "package" not in snapshot
+
+    selected = await flow.command("select_direction", direction_id="B")
+    assert selected.json()["mode"] == "LIVE_DIRECTOR"
+    assert selected.json()["status"] == "PLAN_READY"
+    assert selected.json()["snapshot"]["plan"]["selected_direction"] == "B"
+    assert selected.json()["snapshot"]["package"]["package_id"]
+
+
+@pytest.mark.asyncio
+async def test_live_director_still_blocks_paid_generation(workflow):
+    flow = Flow(*workflow)
+    flow.settings.director_workflow_mode = "live_director"
+    flow.settings.paid_generation_enabled = True
+    response = await flow.client.get(
+        "/api/v1/creative-workflow/tasks/00000000-0000-0000-0000-000000000000",
+        headers=flow.headers,
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "PAID_MODE_NOT_ALLOWED"
+
+
+@pytest.mark.asyncio
 async def test_idempotent_replay_conflict_and_stale_version(workflow):
     flow = Flow(*workflow)
     await flow.plan()

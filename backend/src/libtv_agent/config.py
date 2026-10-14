@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     feedback_learning_llm_enabled: bool = True
     feedback_learning_max_history: int = Field(default=40, ge=1, le=200)
     feedback_learning_max_attempts: int = Field(default=3, ge=1, le=10)
+    director_workflow_mode: Literal["offline_demo", "live_director"] = "offline_demo"
     ai_adapter_mode: Literal["fake", "replay", "openai"] = "fake"
     ai_replay_fixture: Path = Path("backend/tests/fixtures/ai/analysis.json")
 

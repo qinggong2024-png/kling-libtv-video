@@ -173,7 +173,7 @@ export interface DirectorTaskResponse {
   status: string
   state_version: number
   snapshot: DirectorTaskSnapshot
-  mode: 'OFFLINE_FAKE_ONLY' | string
+  mode: 'OFFLINE_FAKE_ONLY' | 'LIVE_DIRECTOR' | string
 }
 
 export interface DirectorProductResponse {
