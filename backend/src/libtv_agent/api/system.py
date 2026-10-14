@@ -23,6 +23,7 @@ def _config_revision(settings: Settings) -> str:
             "environment": settings.app_env,
             "deploymentId": settings.deployment_id,
             "aiAdapterMode": settings.ai_adapter_mode,
+            "directorWorkflowMode": settings.director_workflow_mode,
             "libtvAdapterMode": settings.libtv_adapter_mode,
             "libtvExecutionMode": settings.libtv_execution_mode,
             "paidGenerationEnabled": settings.paid_generation_enabled,
@@ -147,6 +148,7 @@ async def system_status(request: Request, session: Session) -> dict[str, object]
         "sharedAuthentication": settings.shared_authentication,
         "csrfCookieName": settings.csrf_cookie_name,
         "aiAdapter": settings.ai_adapter_mode,
+        "directorWorkflowMode": settings.director_workflow_mode,
         "videoGeneration": video_generation,
         # Retained for older frontends while they migrate to the provider-neutral field.
         "kling": video_generation,

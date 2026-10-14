@@ -134,6 +134,7 @@ export function DirectorStudio() {
       ? 'direction'
       : 'package'
   const activeStage = viewedStage ?? derivedStage
+  const isLiveDirector = workflow?.mode === 'LIVE_DIRECTOR'
   const stageAvailability: Record<DirectorStageKey, boolean> = {
     brief: true,
     direction: hasAnalysis,
@@ -588,7 +589,7 @@ export function DirectorStudio() {
         <h1>导演台</h1>
         <p>从商品输入、创意方向到生产方案。</p>
       </div>
-      <span className="director-studio__contract"><LockKeyhole size={14} />离线 Fake 模式 · 不可交付</span>
+      <span className="director-studio__contract"><LockKeyhole size={14} />{isLiveDirector ? 'Live Director · 仅导演分析' : 'Offline Demo · 不可交付'}</span>
     </header>
 
     <ol className="director-studio__steps" aria-label="导演创作阶段">
@@ -737,7 +738,7 @@ export function DirectorStudio() {
           </button>
         </div> : null}
         <DirectorPackageEvidence workflow={workflow} shotId="FIRST_FRAME" />
-        {workflow?.snapshot.package && !firstFrameCandidates.length ? <div className="director-package-actions">
+        {workflow?.mode === 'OFFLINE_FAKE_ONLY' && workflow?.snapshot.package && !firstFrameCandidates.length ? <div className="director-package-actions">
           {!workflow.snapshot.authorization ? <button type="button" className="primary-button director-action" onClick={() => {
             const expiresAt = new Date()
             expiresAt.setTime(expiresAt.getTime() + 60 * 60 * 1000)

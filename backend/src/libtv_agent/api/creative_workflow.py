@@ -17,17 +17,24 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-router = APIRouter(prefix="/creative-workflow", tags=["creative-workflow-offline"])
+router = APIRouter(prefix="/creative-workflow", tags=["creative-workflow"])
 
 
-def offline_only(request: Request) -> None:
+def director_response_mode(request: Request) -> str:
     settings = request.app.state.settings
-    if settings.app_env != "test" or settings.ai_adapter_mode not in {"fake", "replay"}:
-        reject("OFFLINE_WORKFLOW_DISABLED", 403)
-    if settings.paid_generation_enabled:
-        reject("PAID_MODE_NOT_ALLOWED", 403)
-    if settings.object_store_mode != "local":
-        reject("LOCAL_OBJECT_STORE_REQUIRED", 403)
+    if settings.director_workflow_mode == "offline_demo":
+        if settings.app_env != "test" or settings.ai_adapter_mode not in {"fake", "replay"}:
+            reject("OFFLINE_WORKFLOW_DISABLED", 403)
+        if settings.paid_generation_enabled:
+            reject("PAID_MODE_NOT_ALLOWED", 403)
+        if settings.object_store_mode != "local":
+            reject("LOCAL_OBJECT_STORE_REQUIRED", 403)
+        return "OFFLINE_FAKE_ONLY"
+    if settings.director_workflow_mode == "live_director":
+        if settings.paid_generation_enabled:
+            reject("PAID_MODE_NOT_ALLOWED", 403)
+        return "LIVE_DIRECTOR"
+    reject("DIRECTOR_WORKFLOW_MODE_INVALID", 500)
 
 
 @router.post("/tasks", status_code=201)
@@ -40,7 +47,7 @@ async def create(
     brand_profile_id: Annotated[str | None, Form(max_length=80)] = None,
     brand_profile_version: Annotated[str | None, Form(max_length=40)] = None,
 ) -> dict:
-    offline_only(request)
+    mode = director_response_mode(request)
     require_review_write(actor)
     product = await session.scalar(select(Product).where(
         Product.id == product_id, Product.user_id == actor.id,
@@ -73,16 +80,17 @@ async def create(
         owner_id=actor.id, object_key=key, sha256=sha, width=width, height=height,
     ), client_key=client_key, product_version_id=product_version_id,
         brand_profile_id=brand_profile_id, brand_profile_version=brand_profile_version)
+    result["mode"] = mode
     return with_creative_package_exports(result)
 
 
 @router.get("/tasks/{task_id}")
 async def read(task_id: uuid.UUID, request: Request, actor: Actor, session: Session) -> dict:
-    offline_only(request)
+    mode = director_response_mode(request)
     task = await owned(session, task_id, actor.id)
     return with_creative_package_exports({
         "id": str(task.id), "status": task.status, "state_version": task.state_version,
-        "snapshot": task.snapshot_json, "mode": "OFFLINE_FAKE_ONLY",
+        "snapshot": task.snapshot_json, "mode": mode,
     })
 
 
@@ -90,13 +98,14 @@ async def read(task_id: uuid.UUID, request: Request, actor: Actor, session: Sess
 async def command(
     task_id: uuid.UUID, payload: Command, request: Request, actor: Actor, session: Session,
 ) -> dict:
-    offline_only(request)
+    mode = director_response_mode(request)
     require_review_write(actor)
     task = await owned(session, task_id, actor.id)
     try:
         result = await execute(
             session, task, payload, request.app.state.object_store, actor.id,
         )
+        result["mode"] = mode
         return with_creative_package_exports(result)
     except OperationalError:
         await session.rollback()

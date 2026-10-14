@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-14
+
+### Director Studio V2 Sprint 6
+
+- 新增 `DIRECTOR_WORKFLOW_MODE`，区分默认 `offline_demo` 与显式 `live_director`。
+- Offline Demo 保留 `OFFLINE_WORKFLOW_DISABLED` 阻断；Live Director 复用现有
+  Director `analyze`、方向候选和 `select_direction` 链路。
+- Live Director 只开放导演分析与方向选择，不开放 Provider、图片/视频生成、计费或交付；
+  前端隐藏 Offline Fake 生成入口并显示运行状态。
+- testing/main 的后端定向测试、Ruff、前端 408 项单测、build 和 lint 通过；
+  详细范围与限制见 `SPRINT_REPORT_DIRECTOR_STUDIO_V2_SPRINT6_20261014.md`。
+
 ## 2026-10-13
 
 ### Image Studio 分栏直达与统一参考图

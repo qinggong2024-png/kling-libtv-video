@@ -22,6 +22,7 @@ def test_contract_defaults() -> None:
     assert settings.analysis_stale_after_seconds == 660
     assert settings.libtv_adapter_mode == "fake"
     assert settings.libtv_execution_mode == "dry-run"
+    assert settings.director_workflow_mode == "offline_demo"
     assert settings.paid_generation_enabled is False
     assert settings.download_concurrency == 4
     assert settings.technical_validation_concurrency == 2
@@ -210,3 +211,13 @@ def test_test_environment_cannot_enable_paid_generation() -> None:
             paid_generation_enabled=True,
             _env_file=None,
         )
+
+
+def test_director_workflow_mode_is_explicit_and_provider_neutral() -> None:
+    settings = Settings(
+        director_workflow_mode="live_director",
+        paid_generation_enabled=False,
+        _env_file=None,
+    )
+
+    assert settings.director_workflow_mode == "live_director"
