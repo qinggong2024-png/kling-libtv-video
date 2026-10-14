@@ -263,17 +263,19 @@
    这里提到 (0,4,0) 稳定压过两者：禁用态落回中性面，不再显示满饱和品牌蓝（评审 I5）。 */
 .app-shell--video .composer--studio .primary-button:disabled { border-color: var(--line); background: var(--surface-soft); color: var(--muted); box-shadow: none; opacity: 1; }
 
-/* ── 评审修复：D1 待处理卡版式 / D2 结果区降级 / L4 切换模式高度稳定 ─────────────── */
+/* ── 评审修复：D1 待处理卡版式 / D2 结果区降级 ─────────────────────────────────── */
 
-/* L4 · 两种生成方式的配置区高度不同（自定义多一个文本框），切换时整页跳约 80px。
-   做法：把两个 body 放进**同一个网格单元**，行高自然取两者较大值，切换时高度恒定；
-   非激活的那个用 visibility 占位（不参与交互、不进无障碍树、不可聚焦）。
-   这比写死一个 min-height 更稳 —— 断点变化时文本框高度会变，写死值会失配。 */
-.composer--studio .generation-route--custom .generation-route-body,
-.composer--studio .generation-route--automatic .generation-route-body { grid-area: 1 / 1 / 2 / -1; }
-/* 注意必须保持 `display: grid`（styles.css:643 的原值）：这个 body 是网格容器，
-   改成 block 会让它自身高度变化 16px，等于换了个地方继续跳。 */
-.composer--studio .generation-route.is-inactive .generation-route-body { display: grid; visibility: hidden; }
+/* L4 ·「切换生成方式整页跳高」已**回退**，继续沿用 videoStudio.css 里
+   `.composer--studio .generation-route.is-inactive .generation-route-body { display: none }`
+   的原行为。回退依据（2026-10-14 实测，1024×768 空态）：
+   自动模式 body 自然高 148px、自定义模式 204px（多出「提示词方案」整块，无法压到 148）。
+   让两个 body 共用一个网格单元 + 非激活侧 visibility 占位，确实能让切换高度恒定，
+   代价是**自动模式下凭空多 56px 留白**，把「开始生成」推到首屏之外
+   （按钮 bottom 801 > 视口 768，超出 33px；回退后为 745，余量 23px）。
+   仓库自带 scripts/ui-video-studio-check.mjs:129 断言的就是这一条，回退后 25/25 通过。
+   补充：这 80px 跳高里约一半来自阻塞项条数变化（空态 1 条 → 自定义态 2 条），
+   那部分属于正常内容增长，占位法本来就盖不住。
+   结论：不为一个 56px 的切换位移，换来默认态永久多 56px 的空白。 */
 
 /* D2 · 这一批结果的封面全都读不出来时，说明是服务侧故障而不是"没有图"：
    给一行状态条 + 统一重试出口，并把封面压扁，避免滚动一屏零信息量的空卡。 */
