@@ -6,7 +6,9 @@ param(
     [int]$Port = 5173,
     [string]$NodePath,
     [string]$TaskName = 'LibTV Frontend Host',
-    [int]$StartupTimeoutSeconds = 40
+    [int]$StartupTimeoutSeconds = 40,
+    [ValidateRange(30, 3600)]
+    [int]$HeartbeatSeconds = 300
 )
 
 # Frontend-only host. It keeps the Vite entry point on the LAN up after logon
@@ -31,6 +33,41 @@ $scriptPath = $MyInvocation.MyCommand.Path
 $logTarget = Get-StackLogPath -ProjectRoot $ProjectRoot -Name 'frontend.host.log'
 $frontendLogPath = $logTarget.Path
 
+# Heartbeat state, mirroring the supervision loop below. A quiet log is not
+# evidence of health for an unattended host; the serving probe remains the
+# authoritative check for port 5173.
+$script:startedAt = [DateTimeOffset]::Now
+$script:lastHeartbeat = $script:startedAt
+$script:iteration = 0
+$script:lastMode = 'starting'
+
+function Write-FrontendLog([string]$Message) {
+    Write-StackLog -Path $frontendLogPath -Text @(
+        ("[{0}] {1}" -f [DateTimeOffset]::Now.ToString('o'), $Message)
+    )
+}
+
+function Write-HeartbeatIfDue {
+    $now = [DateTimeOffset]::Now
+    if (($now - $script:lastHeartbeat).TotalSeconds -lt $HeartbeatSeconds) { return }
+    $uptime = [int]($now - $script:startedAt).TotalSeconds
+    Write-FrontendLog (
+        "alive: iteration=$($script:iteration) uptime=${uptime}s mode=$($script:lastMode) " +
+        "port=$Port heartbeat=${HeartbeatSeconds}s"
+    )
+    $script:lastHeartbeat = $now
+}
+
+function Wait-WithHeartbeat([int]$Seconds) {
+    $remaining = $Seconds
+    while ($remaining -gt 0) {
+        $chunk = [Math]::Min($remaining, $HeartbeatSeconds)
+        Start-Sleep -Seconds $chunk
+        $remaining -= $chunk
+        Write-HeartbeatIfDue
+    }
+}
+
 function Stop-FrontendStartup([string]$Message) {
     # Logged before throwing: the scheduled task runs this in a hidden window
     # with no output redirection, so an unlogged throw leaves no evidence.
@@ -50,17 +87,31 @@ function Resolve-NodeExecutable([string]$Explicit) {
     foreach ($scope in @('Machine', 'User')) {
         $value = [Environment]::GetEnvironmentVariable('Path', $scope)
         if (-not $value) { continue }
-        foreach ($dir in ($value -split ';')) { $candidates += (Join-Path $dir.Trim() 'node.exe') }
+        foreach ($dir in ($value -split ';')) {
+            $trimmed = $dir.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+            try { $candidates += (Join-Path -Path $trimmed -ChildPath 'node.exe') } catch { continue }
+        }
     }
-    foreach ($dir in ($env:PATH -split ';')) { $candidates += (Join-Path $dir.Trim() 'node.exe') }
+    foreach ($dir in ($env:PATH -split ';')) {
+        $trimmed = $dir.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+        try { $candidates += (Join-Path -Path $trimmed -ChildPath 'node.exe') } catch { continue }
+    }
 
     foreach ($candidate in $candidates) {
         if (-not $candidate) { continue }
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         $version = $null
-        try { $version = (& $candidate --version 2>&1 | Select-Object -First 1) }
+        # Let the native process finish before selecting its first output line.
+        # Select-Object in the native pipeline can terminate it with exit -1.
+        try {
+            $output = @(& $candidate --version 2>&1)
+            $exitCode = $LASTEXITCODE
+            $version = $output | Select-Object -First 1
+        }
         catch { continue }
-        if ($LASTEXITCODE -eq 0 -and $version) {
+        if ($exitCode -eq 0 -and $version) {
             return [pscustomobject]@{
                 Path = (Resolve-Path -LiteralPath $candidate).Path
                 Version = [string]$version
@@ -98,12 +149,19 @@ function Get-FrontendHostStatus {
         $lastResult = '0x{0:X8}' -f [uint32]$info.LastTaskResult
         $triggerCount = @($task.Triggers).Count
     }
+    $lastResultNote = if ($lastResult -eq '0x800710E0') {
+        'expected by design: PT1M trigger refused because the resident host is still running'
+    }
+    elseif ($lastResult) { 'see scripts/manage-frontend-host.ps1 and the task History tab' }
+    else { '' }
     return [pscustomobject]@{
         TaskName = $TaskName
         TaskState = $taskState
         TriggerCount = $triggerCount
         LastRunTime = $lastRun
         LastTaskResult = $lastResult
+        LastTaskResultNote = $lastResultNote
+        HeartbeatSeconds = $HeartbeatSeconds
         Listening = $identity.Listening
         OwnedByWorkspace = $identity.OwnedByWorkspace
         ProcessId = $identity.ProcessId
@@ -118,7 +176,7 @@ function Invoke-FrontendServe {
     $frontendRoot = Join-Path $ProjectRoot 'frontend'
     Set-Location -LiteralPath $frontendRoot
     Write-StackLogHeader -Path $frontendLogPath -Component 'frontend-host' `
-        -Detail "projectRoot=$ProjectRoot cwd=$frontendRoot host=$HostAddress port=$Port"
+        -Detail "projectRoot=$ProjectRoot cwd=$frontendRoot host=$HostAddress port=$Port heartbeat=${HeartbeatSeconds}s"
 
     # Vite resolves its project root from the working directory, exactly as
     # 'npm.cmd run dev --prefix frontend' does. Running it from the repository
@@ -150,22 +208,20 @@ function Invoke-FrontendServe {
         # listener with no supervisor behind it" is a normal state, not a healthy
         # one. Exiting here would hand the repeating trigger a no-op and leave
         # that orphan unguarded; waiting turns this instance into its supervisor.
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] frontend already served by PID {1}; supervising it until it exits" -f `
-                [DateTimeOffset]::Now.ToString('o'), $existing.ProcessId)
+        Write-FrontendLog (
+            "frontend already served by PID $($existing.ProcessId); supervising it until it exits"
         )
+        $script:lastMode = 'supervising'
         while ($true) {
-            Start-Sleep -Seconds 10
+            $script:iteration++
+            Wait-WithHeartbeat 10
             $probe = Get-WorkspacePortIdentity -Port $Port -ProjectRoot $ProjectRoot
             if (-not $probe.Listening) { break }
             if (-not $probe.OwnedByWorkspace) {
                 Stop-FrontendStartup "Port $Port was taken over by a process outside this workspace; not starting a second copy."
             }
         }
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] previous listener is gone; falling through to start one" -f `
-                [DateTimeOffset]::Now.ToString('o'))
-        )
+        Write-FrontendLog 'previous listener is gone; falling through to start one'
     }
 
     $env:VITE_HOST = $HostAddress
@@ -183,20 +239,19 @@ function Invoke-FrontendServe {
     # of a tight spin.
     $delay = 5
     while ($true) {
-        $startedAt = Get-Date
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] starting vite (host {1}, port {2})" -f `
-                [DateTimeOffset]::Now.ToString('o'), $HostAddress, $Port)
-        )
+        $script:iteration++
+        $script:lastMode = 'serving-vite'
+        $runStartedAt = Get-Date
+        # The native output pipeline blocks heartbeat emission until Vite exits.
+        # Probe HTTP externally while this branch is running.
+        Write-HeartbeatIfDue
+        Write-FrontendLog "starting vite (host $HostAddress, port $Port); the stream below blocks heartbeats until it exits"
         & $node.Path $viteEntry '--host' $HostAddress '--port' ([string]$Port) '--strictPort' 2>&1 |
             Write-StackLogRecord -Path $frontendLogPath
         $exitCode = $LASTEXITCODE
-        $uptimeSeconds = [int]((Get-Date) - $startedAt).TotalSeconds
-        Write-StackLog -Path $frontendLogPath -Text @(
-            ("[{0}] vite exited with code {1} after {2}s; restarting in {3}s" -f `
-                [DateTimeOffset]::Now.ToString('o'), $exitCode, $uptimeSeconds, $delay)
-        )
-        Start-Sleep -Seconds $delay
+        $uptimeSeconds = [int]((Get-Date) - $runStartedAt).TotalSeconds
+        Write-FrontendLog "vite exited with code $exitCode after ${uptimeSeconds}s; restarting in ${delay}s"
+        Wait-WithHeartbeat $delay
         if ($uptimeSeconds -ge 120) { $delay = 5 } else { $delay = [Math]::Min(60, $delay * 2) }
     }
 }
@@ -286,24 +341,36 @@ function Stop-FrontendHost {
     Get-FrontendHostStatus
 }
 
-switch ($Action) {
-    'Status' { Get-FrontendHostStatus | Format-List }
-    'Serve' { Invoke-FrontendServe }
-    'Install' { Install-FrontendHost | Format-List }
-    'Uninstall' {
-        Stop-FrontendHost | Out-Null
-        if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+try {
+    switch ($Action) {
+        'Status' { Get-FrontendHostStatus | Format-List }
+        'Serve' { Invoke-FrontendServe }
+        'Install' { Install-FrontendHost | Format-List }
+        'Uninstall' {
+            Stop-FrontendHost | Out-Null
+            if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            }
+            Get-FrontendHostStatus | Format-List
         }
-        Get-FrontendHostStatus | Format-List
+        'Start' {
+            # Re-enable first: Stop disables the task, and a disabled task ignores
+            # Start-ScheduledTask.
+            Enable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+            Start-ScheduledTask -TaskName $TaskName
+            Start-Sleep -Seconds 2
+            Get-FrontendHostStatus | Format-List
+        }
+        'Stop' { Stop-FrontendHost | Format-List }
     }
-    'Start' {
-        # Re-enable first: Stop disables the task, and a disabled task ignores
-        # Start-ScheduledTask.
-        Enable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
-        Start-ScheduledTask -TaskName $TaskName
-        Start-Sleep -Seconds 2
-        Get-FrontendHostStatus | Format-List
+}
+catch {
+    $detail = $_.Exception.ToString()
+    try {
+        Write-StackLog -Path $frontendLogPath -Text @(
+            ("[{0}] UNHANDLED: {1}" -f [DateTimeOffset]::Now.ToString('o'), $detail)
+        )
     }
-    'Stop' { Stop-FrontendHost | Format-List }
+    catch { }
+    throw
 }

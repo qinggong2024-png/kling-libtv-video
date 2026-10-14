@@ -2,6 +2,14 @@
 
 ## 2026-10-14
 
+### 正式服务恢复与开机托管
+
+- 修复前端宿主因 SYSTEM PATH 空项退出的故障，补充未捕获启动异常日志。
+- 将测试版已有的宿主心跳与重复触发状态说明同步到正式版，保留正式目录和任务配置。
+- 新增 Windows PowerShell 5.1 回归脚本；两侧通过空 PATH 解析和失败日志检查。
+- 正式前端、API live/ready 和代理均返回 200；核对 SYSTEM 开机任务及 API 延迟自启和恢复策略。
+- 限制与常开服务器准备见 `SPRINT_REPORT_PRODUCTION_RECOVERY_20261014.md`；未执行整机重启演练。
+
 ### Director Studio V2 Sprint 6
 
 - 新增 `DIRECTOR_WORKFLOW_MODE`，区分默认 `offline_demo` 与显式 `live_director`。
