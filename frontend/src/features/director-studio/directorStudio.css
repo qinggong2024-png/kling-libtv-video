@@ -205,12 +205,12 @@
 .director-preflight-checks dt span { color: var(--muted); font-size: 11px; font-weight: 400; }
 .director-execution-warning { padding: 12px 16px; border-left: 3px solid var(--danger); color: var(--danger); background: var(--surface-soft); font-size: 13px; line-height: 1.6; }
 .director-upload:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
-.director-upload-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-.director-upload-slot { min-width: 0; }
 .director-upload-label { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; color: var(--text); font-size: 12px; font-weight: 700; }
-.director-upload-label small, .director-file-name--optional { color: var(--muted); font-weight: 400; }
-.director-upload--optional { border-style: dashed; }
-.director-file-name--optional { min-height: 1.5em; }
+.director-upload-label small { color: var(--muted); font-weight: 400; }
+.director-upload--combined { width: 100%; }
+.director-upload-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.director-upload-status span { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); background: var(--surface-soft); overflow-wrap: anywhere; }
+.director-upload-status span.is-present { color: var(--text); border-color: color-mix(in srgb, var(--primary) 30%, var(--line)); }
 .director-media-mode { display: inline-flex; gap: 4px; margin-bottom: 10px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
 .director-media-mode button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 650; }
 .director-media-mode button.is-selected { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
@@ -564,7 +564,6 @@
   .image-center .director-panel--intake .director-upload img { height: 112px; }
   .director-panel--intake .director-action { margin-top: 12px; }
   .director-intake-layout { gap: 12px; }
-  .director-upload-pair { gap: 8px; }
 
   .director-studio__steps {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -600,9 +599,7 @@
 }
 
 @media (max-width: 420px) {
-  .director-upload-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .director-upload-pair .director-upload { min-height: 96px; }
-  .director-upload-pair .director-upload img { height: 96px; }
+  .director-upload-status { grid-template-columns: 1fr; gap: 4px; }
   .image-center .director-panel--intake .director-panel__heading { margin-bottom: var(--space-2); }
   .image-center .director-panel--intake .director-upload { min-height: 96px; }
   .image-center .director-panel--intake .director-upload img { height: 96px; }
