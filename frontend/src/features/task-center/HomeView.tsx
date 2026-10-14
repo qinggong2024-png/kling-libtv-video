@@ -52,7 +52,7 @@ export function AttentionItem({ task, onOpen, onDismiss }: { task: Task; onOpen:
   return <article className="attention-item">
     <button type="button" className="attention-item-dismiss" onClick={onDismiss} aria-label={`关闭“${task.title}”的提醒`} title="关闭此提醒"><X size={16} /></button>
     <TaskThumb task={task} />
-    <div><strong title={task.title}>{task.title}</strong><span>{reason} · {isWaiting ? '已等待' : '已用时'} <TaskElapsed task={task} /></span></div>
+    <div className="attention-item-content"><strong title={task.title}>{task.title}</strong><span>{reason} · {isWaiting ? '已等待' : '已用时'} <TaskElapsed task={task} /></span></div>
     <button type="button" className="primary-button" onClick={onOpen}>{action}<ArrowRight size={15} /></button>
   </article>
 }
