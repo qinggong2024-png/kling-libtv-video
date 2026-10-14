@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, LoaderCircle, Pencil, Plus, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Modal } from './shared/components/ui/Modal'
 
@@ -73,9 +73,18 @@ function PromptPresetDialog({ scope, target, initialContent, onClose, onSave, on
   </Modal>, document.body)
 }
 
+/**
+ * 服务状态类信息（维护模式、通道未配置）不是用户把字段填错了，不能渲染成红色 field-error
+ * —— 那会让整屏看起来「出事了」，而红字紧挨灰色空态还会读成「空态本身是错误」（评审 V2）。
+ */
+function isServiceStateMessage(message: string) {
+  return /维护模式|暂不可用|尚未配置|未验证|不可用/.test(message)
+}
+
 export function CustomPromptField({ scope, label, value, disabled = false, placeholder, describedBy, onChange }: {
   scope: PromptPresetScope
-  label: string
+  /** 允许富标签，便于把内部模型代号放进辅助行而不是拼进标题（评审 V5）。 */
+  label: ReactNode
   value: string
   disabled?: boolean
   placeholder: string
@@ -136,7 +145,9 @@ export function CustomPromptField({ scope, label, value, disabled = false, place
       {loading ? <span className="prompt-preset-loading"><LoaderCircle className="spin" size={14} />读取中</span> : null}
       {!loading && presets.length ? <div className="prompt-preset-list">{presets.map((preset) => <span key={preset.id} className={selectedPresetId === preset.id ? 'is-selected' : ''}><button type="button" disabled={disabled} title={preset.content} onClick={() => { onChange(preset.content); setSelectedPresetId(preset.id) }}>{preset.name}</button><button type="button" className="prompt-preset-edit" disabled={disabled} onClick={() => setEditorTarget(preset)} aria-label={`编辑${preset.name}`} title="编辑方案"><Pencil size={13} /></button></span>)}</div> : null}
       {!loading && !presets.length ? <span className="prompt-preset-empty">暂无已保存方案</span> : null}
-      {error ? <small className="field-error" role="alert">{error}</small> : null}
+      {error ? (isServiceStateMessage(error)
+        ? <small className="field-note" role="status">{error}</small>
+        : <small className="field-error" role="alert">{error}</small>) : null}
     </div>
     {editorTarget !== undefined ? <PromptPresetDialog scope={scope} target={editorTarget} initialContent={value} onClose={() => setEditorTarget(undefined)} onSave={savePreset} onDelete={editorTarget ? removePreset : null} /> : null}
   </>

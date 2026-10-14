@@ -1,16 +1,17 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 import { CheckCircle2, Download, Eye, Film, LoaderCircle, Play, RotateCcw, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { saveArtifact, setVariantFeedback, setVariantFinalApproval } from '../../api'
 import { type FeedbackValue, type Task, type Variant } from '../../types'
 import { GenerationFeedbackPanel } from '../../GenerationFeedback'
 import { StatusBadge } from '../../shared/components/Badges'
 import { AuthenticatedImage } from '../../shared/components/Media'
+import { type MediaFailure } from '../../shared/components/mediaFailure'
 import { formatTime, variantDisplayName, variantFileToken, variantLabelClass, variantShortLabel } from '../../domain/taskPresentation'
 import { HumanReviewPanel } from '../human-review/HumanReviewPanel'
 import { CutflowControl } from './CutflowControl'
 
-export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged, canReview = false, cutflowEnabled = false, cutflowCanWrite = true }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean; cutflowEnabled?: boolean; cutflowCanWrite?: boolean }) {
+export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackChanged, canReview = false, cutflowEnabled = false, cutflowCanWrite = true, onCoverUnavailableChange, retryCoversToken = 0 }: { task: Task; variant: Variant; onPlay: () => void; onRemix: () => void; onOpen: () => void; onFeedbackChanged: (task: Task) => void; canReview?: boolean; cutflowEnabled?: boolean; cutflowCanWrite?: boolean; onCoverUnavailableChange?: (variantId: string, unavailable: boolean) => void; retryCoversToken?: number }) {
   const product = [...task.assets].sort((a, b) => a.order - b.order)[0]
   const ready = Boolean(variant.downloadArtifactId)
   const [feedbackBusy, setFeedbackBusy] = useState<FeedbackValue | null>(null)
@@ -25,6 +26,20 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
   const [editingAssemblyPass, setEditingAssemblyPass] = useState(false)
   const [humanCriticalPass, setHumanCriticalPass] = useState(false)
   const [reviewNotes, setReviewNotes] = useState('')
+  /** 封面素材读不出来时，这张卡片的封面按钮就变成「重试」出口（评审 I1）。 */
+  const [coverFailed, setCoverFailed] = useState(false)
+  const [coverRetryToken, setCoverRetryToken] = useState(0)
+  const coverReady = ready && !coverFailed
+  // 结果区需要知道「这一批卡是不是全都读不出封面」，才能在故障期整体降级（评审 D2）。
+  const reportCoverFailure = useCallback((failure: MediaFailure | null) => {
+    const unavailable = Boolean(failure)
+    setCoverFailed(unavailable)
+    onCoverUnavailableChange?.(variant.id, unavailable)
+  }, [onCoverUnavailableChange, variant.id])
+  const activateCover = () => {
+    if (coverFailed) { setCoverRetryToken((value) => value + 1); return }
+    if (ready) onPlay(); else onOpen()
+  }
   const reviewStartedAtRef = useRef<number | null>(null)
   const feedbackAnchorRef = useRef<HTMLDivElement>(null)
   const submitFeedback = async (value: FeedbackValue) => {
@@ -105,13 +120,13 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
     }
   }
   return <article className={`result-card${feedbackPanel ? ' has-feedback-panel' : ''}`}>
-    <button className="result-cover" onClick={ready ? onPlay : onOpen} aria-label={ready ? `播放 ${task.title}` : `查看 ${task.title}`}>
-      {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} /> : <Film size={30} />}
+    <button className="result-cover" onClick={activateCover} title={coverFailed ? '封面读取失败，点击重试' : ready ? undefined : '视频暂不可用，可查看任务详情'} aria-label={coverFailed ? `封面读取失败，点击重试 ${task.title}` : ready ? `播放 ${task.title}` : `查看 ${task.title}（视频暂不可用）`}>
+      {product ? <AuthenticatedImage src={product.thumbnailUrl} alt={`${task.title} 视频封面`} size="lg" retryToken={coverRetryToken + retryCoversToken} onFailureChange={reportCoverFailure} /> : <Film size={30} />}
       <span className={`variant-label ${variantLabelClass(variant)}`}>{variantShortLabel(variant)}</span>
-      {ready ? <span className="play-button"><Play size={21} fill="currentColor" /></span> : <span className="result-state"><StatusBadge value={variant.generationStatus} retryable={variant.retryable ?? variant.providerErrorRetryable} hasArtifact={ready} /></span>}
-      {typeof task.settings?.durationSeconds === 'number' ? <span className="duration">{task.settings.durationSeconds}s</span> : null}
+      {coverReady ? <span className="play-button"><Play size={21} fill="currentColor" /></span> : <span className="result-state"><StatusBadge value={variant.generationStatus} retryable={variant.retryable ?? variant.providerErrorRetryable} hasArtifact={ready} /></span>}
+      {typeof task.settings?.durationSeconds === 'number' ? <span className="duration" title={`请求时长 ${task.settings.durationSeconds} 秒（非成片实际时长）`}>{task.settings.durationSeconds} 秒</span> : null}
     </button>
-    <div className="result-body"><div><strong>{task.title}</strong><span>{variantDisplayName(variant)} · {formatTime(task.updatedAt)}</span></div>
+    <div className="result-body"><div><strong title={task.title}>{task.title}</strong><span>{variantDisplayName(variant)} · {formatTime(task.updatedAt)}</span></div>
     {ready ? <div ref={feedbackAnchorRef} className="result-feedback">
       <div className={`final-approval-status is-${variant.finalApprovalStatus?.toLowerCase() ?? 'pending'}`}>
         <ShieldCheck size={16} />
@@ -127,7 +142,9 @@ export function ResultCard({ task, variant, onPlay, onRemix, onOpen, onFeedbackC
         <label><span>审核备注{reviewNotes.trim() ? '' : '（拒绝时必填）'}</span><textarea value={reviewNotes} maxLength={500} onChange={(event) => setReviewNotes(event.target.value)} /></label>
         <div><button type="button" className="secondary-button" disabled={reviewBusy} onClick={() => void submitFinalApproval('REJECTED')}>拒绝交付</button><button type="button" className="primary-button" disabled={reviewBusy || !productFidelityPass || !editingAssemblyPass || !humanCriticalPass} onClick={() => void submitFinalApproval('APPROVED')}>{reviewBusy ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}批准交付</button></div>
       </section> : null}
-      <span className="feedback-copy" aria-live="polite">{feedbackMessage || (variant.feedback ? '反馈已记录' : '这个结果怎么样？')}</span>
+      {/* live region 常驻但默认留空：9 张卡不再各显一句「这个结果怎么样？」，
+          屏读器只会播报真实发生的反馈变化（评审 I6）。 */}
+      <span className="feedback-copy" aria-live="polite">{feedbackMessage}</span>
       <span className="feedback-buttons">
         <button className={`feedback-button${variant.feedback === 'LIKE' ? ' is-selected is-positive' : ''}${animatedFeedback === 'LIKE' ? ' is-animating' : ''}`} disabled={feedbackBusy !== null} onClick={() => void submitFeedback('LIKE')} aria-label={variant.feedback === 'LIKE' ? '取消点赞' : '点赞此视频'} aria-pressed={variant.feedback === 'LIKE'} title="点赞"><span>{feedbackBusy === 'LIKE' ? <LoaderCircle className="spin" size={17} /> : <ThumbsUp size={18} />}</span></button>
         <button className={`feedback-button${variant.feedback === 'DISLIKE' ? ' is-selected is-negative' : ''}${animatedFeedback === 'DISLIKE' ? ' is-animating' : ''}`} disabled={feedbackBusy !== null} onClick={() => void submitFeedback('DISLIKE')} aria-label={variant.feedback === 'DISLIKE' ? '取消点踩' : '点踩此视频'} aria-pressed={variant.feedback === 'DISLIKE'} title="点踩"><span>{feedbackBusy === 'DISLIKE' ? <LoaderCircle className="spin" size={17} /> : <ThumbsDown size={18} />}</span></button>

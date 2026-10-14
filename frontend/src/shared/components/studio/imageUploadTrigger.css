@@ -26,16 +26,20 @@
 .studio-image-upload__icon { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; color: var(--image-upload-primary); }
 .studio-image-upload__icon img { width: 40px; height: 40px; object-fit: contain; border-radius: 4px; }
 .studio-image-upload__copy { display: grid; gap: 4px; min-width: 0; }
-.studio-image-upload__copy strong { color: var(--image-upload-text); font-size: 14px; line-height: 1.4; font-weight: 650; }
+.studio-image-upload__copy strong { color: var(--image-upload-text); font-size: 14px; line-height: 1.4; font-weight: 600; }
 .studio-image-upload__copy small { color: var(--image-upload-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .studio-image-upload:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-soft); }
 .studio-image-upload:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.studio-image-upload:disabled { opacity: .6; cursor: not-allowed; }
+/* 与全局 button:disabled 的 .48 对齐（评审 I5：同一个「禁用」概念不该有两套透明度）。 */
+.studio-image-upload:disabled { opacity: .48; cursor: not-allowed; }
 .image-center .studio-image-upload { min-height: 72px; }
 
 /* The director used a tall preview label; its trigger now shares the same geometry. */
 .image-center .director-intake-primary .director-upload.studio-image-upload { flex-direction: row; justify-content: flex-start; min-height: 72px; border-radius: 8px; padding: 12px 16px; gap: 12px; text-align: left; border-color: var(--image-upload-border); background: var(--image-upload-surface); }
 .director-intake-primary .director-upload.studio-image-upload img { width: 40px; height: 40px; }
 .director-intake-primary .director-upload.studio-image-upload strong { font-size: 14px; }
-.composer--studio .studio-upload-actions > .studio-image-upload { flex: 0 1 320px; width: 320px; min-height: 72px; }
-.composer--studio .upload-panel--has-items .studio-upload-actions > .studio-image-upload { flex: 0 1 320px; width: 320px; min-height: 72px; }
+/* 空态：铺满整行。这里曾经硬编码 `flex: 0 1 320px; width: 320px`，而 .studio-upload-actions 所在的
+   单列网格在 1600 视口下有约 1200px 宽，于是最严重时右侧留白 868px（评审 L1）。改成 flex-grow 参与分配、并放开 max-width。 */
+.composer--studio .studio-upload-actions > .studio-image-upload { flex: 1 1 320px; width: auto; max-width: none; min-height: 72px; justify-content: center; }
+/* 已有素材：上传入口退到右上角，不再抢整行宽度。 */
+.composer--studio .upload-panel--has-items .studio-upload-actions > .studio-image-upload { flex: 0 1 240px; width: auto; max-width: 240px; min-height: 72px; justify-content: flex-start; }

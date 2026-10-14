@@ -1,7 +1,7 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 // 代码为逐字搬运，未经逻辑改写。
-import { ArrowRight, ChevronRight, Clock3, Film, X } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowRight, ChevronRight, Clock3, Film, RefreshCw, X } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { type SystemStatus, type Task, type Variant } from '../../types'
 import { providerProgress, variantExecutionMessage } from '../../providerPresentation'
 import { readJsonStorage, readStorage, writeJsonStorage, writeStorage } from '../../safeStorage'
@@ -73,7 +73,7 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
     .filter((task) => dismissedAttentionItems[task.id] !== attentionSignatureFor(task))
     .slice(0, 3)
   const background = tasks.filter((task) => ACTIVE_PHASES.has(task.phase) && !needsAction.some((item) => item.id === task.id)).slice(0, Math.max(0, 5 - needsAction.length))
-  const results = tasks.filter((task) => RESULT_PHASES.has(task.phase)).flatMap((task) => task.variants.map((variant) => ({ task, variant }))).filter(({ variant }) => variant.downloadArtifactId && variant.generationStatus === 'SUCCEEDED').slice(0, 6)
+  const results = tasks.filter((task) => RESULT_PHASES.has(task.phase) || task.phase === 'PARTIALLY_DELIVERABLE').flatMap((task) => task.variants.map((variant) => ({ task, variant }))).filter(({ variant }) => variant.downloadArtifactId && variant.generationStatus === 'SUCCEEDED').slice(0, 6)
   const attentionSignature = needsAction.map((task) => `${task.id}:${task.phase}:${task.variants.some((variant) => variant.generationStatus === 'UNKNOWN')}`).sort().join('|')
   const [dismissedAttention, setDismissedAttention] = useState(() => readStorage('session', DISMISSED_ATTENTION_STORAGE_KEY) ?? '')
   const showAttention = Boolean(needsAction.length && attentionSignature !== dismissedAttention)
@@ -88,6 +88,15 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
       return next
     })
   }
+  // 结果区降级判断（评审 D2）：如果这一批结果的封面全都读不出来，说明是服务侧故障而不是"没有图"，
+  // 此时平铺 N 张空卡等于零信息量 —— 改成一行状态条 + 压缩封面高度，并给出统一重试出口。
+  const [unavailableCovers, setUnavailableCovers] = useState<Record<string, boolean>>({})
+  const [coverRetryKey, setCoverRetryKey] = useState(0)
+  const reportCoverUnavailable = useCallback((variantId: string, unavailable: boolean) => {
+    setUnavailableCovers((current) => current[variantId] === unavailable ? current : { ...current, [variantId]: unavailable })
+  }, [])
+  const unavailableCount = results.filter(({ variant }) => unavailableCovers[variant.id]).length
+  const resultsDegraded = results.length > 0 && unavailableCount === results.length
   return <div className="home-view video-studio" hidden={!active}>
     <div className="home-title"><div><h1>视频工作室</h1><span className="studio-kicker">Video Studio</span></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
@@ -100,6 +109,13 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
       <div className="attention-list">{needsAction.map((task) => <AttentionItem key={task.id} task={task} onOpen={() => onOpen(task)} onDismiss={() => dismissAttentionItem(task)} />)}</div>
     </section> : null}
     {background.length ? <section className="home-section background-work"><SectionHeading title="生成队列" count={background.length} action={<button className="text-button" onClick={() => onView('records')}>查看全部<ChevronRight size={15} /></button>} /><div className="studio-task-list" aria-live="polite">{background.map((task) => <TaskCard key={task.id} task={task} onOpen={() => onOpen(task)} />)}</div></section> : null}
-    <section className="home-section studio-result-gallery" aria-label="生成结果"><SectionHeading title="生成结果" action={<button className="text-button" onClick={() => onView('records')}>查看全部记录<ChevronRight size={15} /></button>} />{results.length ? <div className="results-grid">{results.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} canReview={canReview} cutflowEnabled={system?.cutflowHandoffEnabled} cutflowCanWrite={cutflowCanWrite} />)}</div> : <EmptyState icon={<Film size={24} />} title="还没有生成结果" description="" />}</section>
+    <section className="home-section studio-result-gallery" aria-label="生成结果"><SectionHeading title="生成结果" action={<button className="text-button" onClick={() => onView('records')}>查看全部记录<ChevronRight size={15} /></button>} />{results.length ? <>
+      {resultsDegraded ? <div className="inline-alert results-gallery-degraded" role="status">
+        <RefreshCw size={17} aria-hidden="true" />
+        <span><strong>视频预览服务维护中</strong><small>这 {unavailableCount} 个结果的封面暂时读不出来，任务本身和成片都不受影响。可用下方「查看全部记录」进入任务详情。</small></span>
+        <button type="button" className="secondary-button" onClick={() => { setUnavailableCovers({}); setCoverRetryKey((value) => value + 1) }}><RefreshCw size={15} aria-hidden="true" />重新读取</button>
+      </div> : null}
+      <div className={`results-grid${resultsDegraded ? ' results-grid--degraded' : ''}`}>{results.map(({ task, variant }) => <ResultCard key={variant.id} task={task} variant={variant} onPlay={() => onPlay(task, variant)} onRemix={() => onRemix(task)} onOpen={() => onOpen(task)} onFeedbackChanged={onFeedbackChanged} onCoverUnavailableChange={reportCoverUnavailable} retryCoversToken={coverRetryKey} canReview={canReview} cutflowEnabled={system?.cutflowHandoffEnabled} cutflowCanWrite={cutflowCanWrite} />)}</div>
+    </> : <EmptyState icon={<Film size={24} />} title="还没有生成结果" description="" />}</section>
   </div>
 }
