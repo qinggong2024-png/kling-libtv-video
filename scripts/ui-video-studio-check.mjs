@@ -16,13 +16,17 @@ await mkdir(reportDir, { recursive: true })
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE)
 const browser = await chromium.launch({ channel: process.env.UI_BROWSER_CHANNEL || 'msedge', headless: true })
 const fixture = await createStudioFixtureServer({ cacheDir: resolve(reportDir, 'vite-cache') })
+// Parallel edits must not hot-reload a scenario halfway through its workflow.
+await fixture.server.watcher.close()
 const mediaPage = await browser.newPage()
 await mediaPage.goto(fixture.origin)
 const videoBytes = await mediaPage.evaluate(async () => {
   const canvas = document.createElement('canvas')
   canvas.width = 240; canvas.height = 320
+  document.body.append(canvas)
   const ctx = canvas.getContext('2d')
-  const stream = canvas.captureStream(20)
+  const stream = canvas.captureStream(0)
+  const track = stream.getVideoTracks()[0]
   const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' })
   const parts = []
   recorder.ondataavailable = (event) => parts.push(event.data)
@@ -33,14 +37,33 @@ const videoBytes = await mediaPage.evaluate(async () => {
     ctx.fillStyle = '#257d63'; ctx.fillRect(60 + Math.sin(frame++ / 8) * 12, 55, 120, 220)
   }
   draw()
-  const timer = setInterval(draw, 50)
   recorder.start()
-  await new Promise((resolve) => setTimeout(resolve, 1200))
+  for (let index = 0; index < 24; index += 1) {
+    draw()
+    track.requestFrame()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
   recorder.stop()
   await done
-  clearInterval(timer)
   stream.getTracks().forEach((track) => track.stop())
-  return Array.from(new Uint8Array(await new Blob(parts).arrayBuffer()))
+  const blob = new Blob(parts, { type: 'video/webm' })
+  const url = URL.createObjectURL(blob)
+  const video = document.createElement('video')
+  document.body.append(video)
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Synthetic video did not decode')), 10000)
+      video.onloadeddata = () => { clearTimeout(timer); resolve() }
+      video.onerror = () => { clearTimeout(timer); reject(new Error('Synthetic video contains no decodable frames')) }
+      video.src = url
+    })
+    if (video.videoWidth !== 240 || video.videoHeight !== 320) throw new Error('Synthetic video has incorrect dimensions')
+  } finally {
+    URL.revokeObjectURL(url)
+    video.remove()
+    canvas.remove()
+  }
+  return Array.from(new Uint8Array(await blob.arrayBuffer()))
 })
 fixture.state.video = Buffer.from(videoBytes)
 await writeFile(resolve(reportDir, 'fixture-result.webm'), fixture.state.video)
@@ -86,8 +109,24 @@ async function run(width, mode = 'success') {
     assert.equal(await subjectDisclosure.getAttribute('open'), null, 'Optional subject inputs start collapsed')
     assert(!(await page.getByRole('button', { name: '历史主体', exact: true }).isVisible()))
     await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '服装多镜头展示', exact: true }).waitFor({ state: 'attached' })
+    const correction = page.locator('.composer-next-action')
+    await correction.getByText('请至少上传 1 张分镜图', { exact: true }).waitFor()
+    await correction.getByRole('button', { name: '添加素材', exact: true }).click()
+    assert(await page.locator('.studio-upload-actions button').evaluate((el) => el === document.activeElement), 'Correction returns focus to the upload action')
+    // A rejected upload must not hide the next required step.
+    await page.locator('.upload-panel input[type=file]').first().setInputFiles({ name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('invalid') })
+    await page.getByText('1 个文件不是支持的 JPG、PNG 或 WEBP 图片', { exact: true }).waitFor()
+    assert(await correction.getByText('请至少上传 1 张分镜图', { exact: true }).isVisible())
+    assert(await generate.isDisabled())
+    assert(await generate.evaluate((el) => el.getAttribute('aria-describedby').split(' ').every((id) => document.getElementById(id))), 'Submit describes both blockers and payment consent')
+    await page.screenshot({ path: resolve(reportDir, `blocked-upload-${width}.png`), fullPage: true })
+    await page.locator('.upload-panel input[type=file]').first().setInputFiles([])
     assert(await page.locator('.composer-submit-summary').evaluate((el) => el.getBoundingClientRect().width >= 200), 'Empty-state payment summary must not collapse')
     assert(await page.locator('.composer-submit-summary small').isVisible(), 'Payment consent stays visible')
+    assert.equal(await page.locator('.studio-upload-actions .upload-batch-button').count(), 0, 'Batch import is a material toolbar action, not a storyboard upload peer')
+    assert.equal(await page.locator('.upload-panel-head .upload-batch-button').count(), 1)
+    assert.equal(await page.locator('.generation-workflow-heading [role="radiogroup"]').count(), 1)
+    if (width >= 1024) assert(await generate.evaluate((el) => el.getBoundingClientRect().bottom <= innerHeight), 'Empty desktop submit stays in the first viewport')
     await page.screenshot({ path: resolve(reportDir, `empty-${width}.png`), fullPage: true })
     const bytes = await page.evaluate(() => {
       const canvas = document.createElement('canvas')
@@ -141,6 +180,12 @@ async function run(width, mode = 'success') {
     await page.getByRole('button', { name: '删除图片 3', exact: true }).click()
     assert.equal(await page.locator('.studio-shot').count(), 2)
     await page.getByRole('combobox', { name: '视频模板', exact: true }).selectOption('second-template')
+    await page.getByRole('button', { name: '删除图片 2', exact: true }).click()
+    await correction.getByText('当前模板接受 2–7 张分镜图', { exact: true }).waitFor()
+    await correction.getByRole('button', { name: '调整模板', exact: true }).click()
+    assert(await page.getByRole('combobox', { name: '视频模板', exact: true }).evaluate((el) => el === document.activeElement))
+    assert(await generate.isDisabled())
+    await page.locator('.upload-panel input[type=file]').first().setInputFiles(files[0])
     await page.getByRole('button', { name: '查看配方', exact: true }).click()
     await page.getByRole('dialog').getByText('保持完整服装轮廓可见', { exact: true }).waitFor()
     await page.keyboard.press('Escape')
@@ -148,6 +193,10 @@ async function run(width, mode = 'success') {
     await page.keyboard.press('Enter')
     assert(await page.getByRole('button', { name: '历史主体', exact: true }).isVisible())
     await page.getByRole('button', { name: '历史主体', exact: true }).click()
+    await subjectSummary.click()
+    await correction.getByRole('button', { name: '编辑主体', exact: true }).click()
+    assert.notEqual(await subjectDisclosure.getAttribute('open'), null, 'Correction opens the collapsed subject without clearing input')
+    assert(await subjectDisclosure.locator('.subject-input-panel button').first().evaluate((el) => el === document.activeElement))
     await page.getByRole('button', { name: '人物参考', exact: true }).click()
     await subjectSummary.click()
     assert.equal(await subjectDisclosure.getAttribute('open'), null)
@@ -162,6 +211,10 @@ async function run(width, mode = 'success') {
       await page.getByRole('region', { name: '制作帮助' }).getByRole('button', { name: '关闭' }).click()
     }
     await page.getByRole('radio', { name: '自定义提示词', exact: true }).click()
+    await correction.getByRole('button', { name: '填写提示词', exact: true }).click()
+    assert(await page.getByPlaceholder('输入画面动作、镜头和节奏要求').evaluate((el) => el === document.activeElement))
+    assert(await page.getByPlaceholder('输入画面动作、镜头和节奏要求').evaluate((el) => Boolean(document.getElementById(el.getAttribute('aria-describedby')))), 'Invalid prompt is linked to its correction message')
+    assert(await generate.isDisabled())
     await page.getByPlaceholder('输入画面动作、镜头和节奏要求').fill('保持服装轮廓，缓慢转身，镜头稳定。')
     await page.evaluate(() => scrollTo(0, 0))
     const customMode = page.getByRole('radio', { name: '自定义提示词', exact: true })
@@ -170,6 +223,7 @@ async function run(width, mode = 'success') {
     assert.equal(await page.getByRole('radio', { name: '自动化生成', exact: true }).getAttribute('aria-checked'), 'true')
     await page.keyboard.press('Home')
     assert.equal(await customMode.getAttribute('aria-checked'), 'true')
+    assert.equal(await page.getByPlaceholder('输入画面动作、镜头和节奏要求').inputValue(), '保持服装轮廓，缓慢转身，镜头稳定。', 'Mode switch keeps the prompt draft')
     assert.equal(await page.getByRole('radio', { name: '自动化生成', exact: true }).getAttribute('tabindex'), '-1')
     const savePrompt = page.getByRole('button', { name: '保存当前方案', exact: true })
     await savePrompt.focus()
@@ -195,6 +249,7 @@ async function run(width, mode = 'success') {
       return getComputedStyle(label).outlineStyle === 'solid' && parseFloat(getComputedStyle(label).outlineWidth) >= 2
     }), 'Keyboard focus remains visible on hidden native result radios')
     result.modeKeyboardAndTouchTargets = true
+    result.correctionFocusAndNoticePriority = true
     await page.evaluate(() => scrollTo(0, 0))
     await page.screenshot({ path: resolve(reportDir, `custom-config-${width}.png`), fullPage: true })
     await page.getByRole('radio', { name: '自动化生成', exact: true }).click()
@@ -228,6 +283,9 @@ async function run(width, mode = 'success') {
     assert.equal(result.configuredLayout.sourceRepresentations, 2, 'One thumbnail per source')
     assert.equal(result.configuredLayout.permanentSourceCanvas, 0)
     assert(result.configuredLayout.resultCountsFit, 'All result-count options fit and remain touchable')
+    assert(await page.locator('.composer-duration-field > span:last-child').evaluate((el) => (
+      el.querySelector('select').getBoundingClientRect().right + 4 <= el.querySelector('small').getBoundingClientRect().left
+    )), 'Duration focus outline has clearance from the seconds unit')
     assert(result.configuredLayout.submissionSummary.width >= 200, 'Payment summary has usable width')
     assert(await page.locator('.composer-submit-summary small').isVisible())
     assert(result.configuredLayout.submit.y >= Math.max(result.configuredLayout.assets.bottom, result.configuredLayout.production.bottom), 'Submission follows both preparation areas')
@@ -235,6 +293,7 @@ async function run(width, mode = 'success') {
     assert(Math.abs(result.configuredLayout.assets.width - result.configuredLayout.production.width) < 1, 'Material and creative bands span the same work area')
     assert(result.configuredLayout.subject.height <= 48, 'Collapsed subject does not reserve empty image slots')
     assert(result.configuredLayout.storyboard.height <= 190, 'Two-shot upload area remains compact')
+    if (width >= 1024) assert(result.configuredLayout.submit.bottom <= result.configuredLayout.viewport.height, 'Configured desktop submit visible without scrolling at intermediate widths')
     if (width >= 1280) {
       assert(result.configuredLayout.submit.bottom <= result.configuredLayout.viewport.height, 'Desktop submit visible without scrolling')
       assert(result.configuredLayout.results.y < result.configuredLayout.viewport.height, 'Result workspace begins in the desktop viewport')
@@ -321,6 +380,7 @@ async function run(width, mode = 'success') {
     result.passed = true
   } catch (error) {
     result.failure = error.message
+    result.failureStack = error.stack
     result.pageErrors = errors
     await page.screenshot({ path: resolve(reportDir, `${mode}-${width}-failure.png`), fullPage: true }).catch(() => {})
   } finally {
@@ -337,8 +397,16 @@ async function runGuard(mode, width = 390) {
   fixture.state.writes = []
   fixture.state.unexpected = []
   fixture.state.failAt = mode === 'batch-partial' ? 2 : null
+  const originalStatus = structuredClone(fixture.responses.get('/api/v1/system/status'))
+  const originalTemplates = structuredClone(fixture.responses.get('/api/v1/video-templates'))
+  if (mode === 'unapproved-template') {
+    fixture.responses.get('/api/v1/video-templates')[0].status = 'draft'
+  } else if (mode === 'provider-unavailable') {
+    Object.assign(fixture.responses.get('/api/v1/system/status').videoGeneration, { available: false, authenticated: false })
+  }
   const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
   const page = await context.newPage()
+  page.setDefaultTimeout(15000)
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   const result = { width, mode, passed: false }
@@ -354,7 +422,38 @@ async function runGuard(mode, width = 390) {
     await page.goto(`${fixture.origin}/studio/video`)
     await page.getByRole('heading', { name: '视频工作室', exact: true }).waitFor()
     const generate = page.getByRole('button', { name: '开始生成', exact: true })
-    if (mode === 'seven-shots') {
+    if (mode === 'subject-missing-front') {
+      await page.locator('.upload-panel input[type=file]').first().setInputFiles([file('storyboard.png')])
+      const subject = page.locator('.studio-subject-disclosure')
+      await subject.locator('summary').click()
+      await subject.locator('input[id$="-back"]').setInputFiles(file('subject-back.png'))
+      const correction = page.locator('.composer-next-action')
+      await correction.getByText('请上传一张清晰的服装正面图。', { exact: true }).waitFor()
+      await subject.locator('summary').click()
+      assert.equal(await subject.getAttribute('open'), null)
+      assert(await generate.isDisabled())
+      await correction.getByRole('button', { name: '编辑主体', exact: true }).click()
+      assert.notEqual(await subject.getAttribute('open'), null)
+      const front = subject.locator('input[id$="-front"]')
+      assert(await front.evaluate((input) => input === document.activeElement), 'Missing front image receives keyboard focus')
+      const tile = front.locator('..')
+      assert(await tile.evaluate((el) => getComputedStyle(el).outlineStyle === 'solid'), 'Focused upload tile remains visibly outlined')
+      const rect = await tile.boundingBox()
+      const bounds = await page.evaluate(() => ({
+        top: document.querySelector('.mobile-topbar')?.getBoundingClientRect().bottom ?? 0,
+        bottom: document.querySelector('.mobile-nav')?.getBoundingClientRect().top || innerHeight,
+      }))
+      assert(rect.y >= bounds.top && rect.y + rect.height <= bounds.bottom, 'Correction target remains inside the usable viewport')
+      await page.screenshot({ path: resolve(reportDir, `subject-correction-viewport-${width}.png`) })
+      assert(await subject.getByRole('img', { name: '背面图预览：subject-back.png', exact: true }).isVisible(), 'Correction preserves the uploaded back image')
+      assert.equal(fixture.state.writes.length, 0, 'Focus correction performs no API writes')
+      await front.setInputFiles(file('subject-front.png'))
+      await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
+      assert(await subject.getByRole('img', { name: '背面图预览：subject-back.png', exact: true }).isVisible())
+      assert.equal(await page.locator('.studio-shot__name').innerText(), 'storyboard.png')
+      assert.equal(fixture.state.writes.length, 0, 'Completing the subject does not submit automatically')
+      result.missingFrontFocusAndPreservation = true
+    } else if (mode === 'seven-shots') {
       await page.locator('.upload-panel input[type=file]').first().setInputFiles(Array.from({ length: 7 }, (_, index) => file(`shot-${index + 1}.png`)))
       const shots = page.locator('.upload-panel--storyboard .studio-shot')
       assert.equal(await shots.count(), 7)
@@ -377,6 +476,7 @@ async function runGuard(mode, width = 390) {
     } else if (mode.startsWith('batch')) {
       const names = ['alpha_front.png', 'alpha_shot_1.png', 'beta_shot_1.png']
       if (mode !== 'batch-invalid') names.push('beta_front.png')
+      if (mode === 'batch-duration') names.push('beta_shot_2.png')
       await page.locator('.upload-panel input[type=file]').nth(1).setInputFiles(names.map(file))
       await page.getByText('批量识别', { exact: true }).waitFor()
       const inspect = page.getByRole('button', { name: '查看图片 1 大图', exact: true })
@@ -386,9 +486,27 @@ async function runGuard(mode, width = 390) {
       assert(await page.getByRole('button', { name: '删除图片 1', exact: true }).isDisabled())
       assert.equal(await page.locator('.studio-shot .material-card').first().getAttribute('draggable'), 'false')
       result.batchInspectionWithoutMutation = true
-      if (mode === 'batch-invalid') {
+      if (mode === 'batch-duration') {
+        const duration = page.getByRole('combobox', { name: '视频时长', exact: true })
+        await duration.selectOption('10')
+        const correction = page.locator('.composer-next-action')
+        await correction.getByText('beta 当前支持 5 秒，不支持 10 秒。', { exact: true }).waitFor()
+        assert(await generate.isDisabled())
+        assert.equal(fixture.state.writes.length, 0)
+        await correction.getByRole('button', { name: '调整时长', exact: true }).click()
+        assert(await duration.evaluate((el) => el === document.activeElement))
+        await page.screenshot({ path: resolve(reportDir, `batch-duration-correction-${width}.png`) })
+        await duration.selectOption('5')
+        await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
+        assert(await page.getByText('当前预览：alpha · 批量 2 组', { exact: true }).isVisible(), 'Duration correction retains both groups')
+        assert.equal(fixture.state.writes.length, 0, 'Compatible duration does not submit automatically')
+        result.batchDurationRecovery = true
+      } else if (mode === 'batch-invalid') {
         assert(await generate.isDisabled())
         assert.equal(creates().length, 0)
+        assert((await page.locator('.composer-next-action').innerText()).includes('beta'), 'Batch feedback identifies the failing group')
+        await page.locator('.composer-next-action').getByRole('button', { name: '检查批量素材', exact: true }).click()
+        assert(await page.getByRole('button', { name: '退出批量，编辑当前组', exact: true }).evaluate((el) => el === document.activeElement))
         await page.getByRole('button', { name: '退出批量，编辑当前组', exact: true }).click()
         await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
         assert(await generate.isEnabled())
@@ -409,7 +527,31 @@ async function runGuard(mode, width = 390) {
       }
     } else {
       await page.locator('.upload-panel input[type=file]').first().setInputFiles([file('product.png')])
-      if (mode === 'no-template') {
+      if (mode === 'unapproved-template') {
+        const correction = page.locator('.composer-next-action')
+        await correction.getByText('当前视频模板尚未通过生产验收。', { exact: true }).waitFor()
+        assert(await generate.isDisabled())
+        assert(!(await correction.innerText()).includes('站点风格'), 'Unapproved template is attributed to the template')
+        await correction.getByRole('button', { name: '调整模板', exact: true }).click()
+        const template = page.getByRole('combobox', { name: '视频模板', exact: true })
+        assert(await template.evaluate((el) => el === document.activeElement))
+        await page.screenshot({ path: resolve(reportDir, `template-correction-${width}.png`) })
+        await page.locator('.upload-panel input[type=file]').first().setInputFiles([file('detail.png')])
+        await template.selectOption('second-template')
+        await page.waitForFunction(() => !document.querySelector('.composer-submit-row > button')?.disabled)
+        assert.equal(await page.locator('.studio-shot').count(), 2, 'Template correction preserves storyboard inputs')
+        assert.equal(fixture.state.writes.length, 0)
+        result.templateApprovalRecovery = true
+      } else if (mode === 'provider-unavailable') {
+        const correction = page.locator('.composer-next-action')
+        await correction.getByText('当前不可用。请让管理员配置凭据、启用通道并验证连接。', { exact: false }).waitFor()
+        assert(await generate.isDisabled())
+        assert.equal(await correction.getByRole('button').count(), 0, 'Provider outage does not suggest editing valid input')
+        await page.locator('.composer-submit-row > button').evaluate((el) => el.click())
+        assert.equal(await page.locator('.studio-shot__name').innerText(), 'product.png')
+        assert.equal(fixture.state.writes.length, 0, 'Unavailable provider prevents uploads and generation')
+        result.providerUnavailableGuard = true
+      } else if (mode === 'no-template') {
         await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '暂无可用模板', exact: true }).waitFor({ state: 'attached' })
         assert(await generate.isDisabled())
         assert.equal(creates().length, 0)
@@ -448,16 +590,21 @@ async function runGuard(mode, width = 390) {
     result.failure = error.message
     await page.screenshot({ path: resolve(reportDir, `${mode}-${width}-failure.png`), fullPage: true }).catch(() => {})
   } finally {
+    fixture.responses.set('/api/v1/system/status', originalStatus)
+    fixture.responses.set('/api/v1/video-templates', originalTemplates)
     report.cases.push(result)
     await context.close()
     console.log(`${result.passed ? 'PASS' : 'FAIL'} ${mode}-${width}${result.failure ? `: ${result.failure}` : ''}`)
   }
 }
 try {
-  for (const width of [1440, 1102, 1024, 768, 390]) await run(width)
+for (const width of [1440, 1102, 1024, 834, 820, 800, 768, 390, 360]) await run(width)
   await run(390, 'unknown')
   for (const mode of ['no-template', 'catalog-failure', 'batch-invalid', 'batch-partial', 'rejected']) await runGuard(mode)
   for (const width of [1440, 390]) await runGuard('seven-shots', width)
+  for (const width of [1440, 390]) {
+    for (const mode of ['subject-missing-front', 'unapproved-template', 'provider-unavailable', 'batch-duration']) await runGuard(mode, width)
+  }
   report.passed = report.cases.every((test) => test.passed) && report.externalRequests.length === 0
   await writeFile(resolve(reportDir, 'result.json'), JSON.stringify(report, null, 2))
   assert(report.passed, 'Video Studio fixture acceptance failed')
