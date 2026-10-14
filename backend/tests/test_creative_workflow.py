@@ -49,7 +49,7 @@ class Flow:
         self.headers = {"X-User-Id": settings.dev_user_id}
         self.result = None
 
-    async def create(self, client_key=None):
+    async def create(self, client_key=None, include_back=False):
         product = await self.client.post(
             "/api/v1/products", headers=self.headers,
             json={"internalSkuId": str(uuid.uuid4())},
@@ -58,12 +58,17 @@ class Flow:
         self.product_id = product.json()["id"]
         data = io.BytesIO()
         Image.new("RGB", (64, 96), "red").save(data, "PNG")
+        files = {"front": ("front.png", data.getvalue(), "image/png")}
+        if include_back:
+            back = io.BytesIO()
+            Image.new("RGB", (64, 96), "blue").save(back, "PNG")
+            files["back"] = ("back.png", back.getvalue(), "image/png")
         response = await self.client.post(
             "/api/v1/creative-workflow/tasks", headers=self.headers,
             data={"product_id": self.product_id, **(
                 {"client_key": client_key} if client_key else {}
             )},
-            files={"front": ("front.png", data.getvalue(), "image/png")},
+            files=files,
         )
         assert response.status_code == 201, response.text
         self.task_id = response.json()["id"]
@@ -168,6 +173,25 @@ async def test_front_only_closed_loop_and_append_only_evidence(workflow):
                   and row.payload_json["reviewer_kind"] == "FAKE_CRITIC")
     assert critic.payload_json["decision"] == "UNVERIFIED"
     assert set(critic.payload_json["axes"].values()) == {"unverified"}
+
+
+@pytest.mark.asyncio
+async def test_optional_back_upload_is_bound_as_observed_product_evidence(workflow):
+    flow = Flow(*workflow)
+    await flow.create(include_back=True)
+    await flow.command("analyze")
+    snapshot = flow.result["snapshot"]
+    assert snapshot["product_assets"]["front"]["view"] == "front"
+    assert snapshot["product_assets"]["back"]["view"] == "back"
+    assert snapshot["product_assets"]["back"]["object_key"] != snapshot["product_assets"]["front"]["object_key"]
+    assert snapshot["product_version"]["source_asset_references"] == [
+        snapshot["product_assets"]["front"]["object_key"],
+        snapshot["product_assets"]["back"]["object_key"],
+    ]
+
+    claims = flow.result["snapshot"]["plan"]["claims"]
+    assert any(claim["claim_id"] == "back-source" for claim in claims)
+    assert claims[0]["unknown_or_assumption"] == "back view observed from uploaded reference"
 
 
 @pytest.mark.asyncio

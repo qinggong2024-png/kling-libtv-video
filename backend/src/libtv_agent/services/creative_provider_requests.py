@@ -309,9 +309,25 @@ async def _product_references(
     plan = task.snapshot_json["plan"]
     version = task.snapshot_json["product_version"]
     view_sources = version.get("truth_fields", {}).get("product_view_uploads", {})
+    task_assets = task.snapshot_json.get("product_assets", {})
     required_views = {m.garment_view for beat in visual.beats for m in beat.moments} - {"front"}
     for view in sorted(required_views):
         stored = plan.get("product_reference_assets", {}).get(view, {})
+        direct_asset = task_assets.get(view)
+        if direct_asset:
+            if (
+                not stored
+                or stored.get("object_key") != direct_asset.get("object_key")
+                or stored.get("sha256") != direct_asset.get("sha256")
+                or direct_asset.get("object_key") not in version.get("source_asset_references", [])
+            ):
+                raise CreativeProviderRequestRejected("PRODUCT_VIEW_REFERENCE_STALE")
+            refs.append(ProviderReference(
+                role="PRODUCT", order=start_order + len(refs), adapter_field=field,
+                object_key=direct_asset["object_key"], sha256=direct_asset["sha256"],
+                product_view=view,
+            ))
+            continue
         if not stored or view_sources.get(view) != stored.get("upload_id"):
             raise CreativeProviderRequestRejected("ADDITIONAL_REFERENCE_BINDING_REQUIRED")
         upload = await session.scalar(select(StagedUpload).where(

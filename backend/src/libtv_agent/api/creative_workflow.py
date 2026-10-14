@@ -94,6 +94,7 @@ async def create(
     request: Request, actor: Actor, session: Session,
     product_id: Annotated[uuid.UUID, Form()],
     front: Annotated[UploadFile, File()],
+    back: Annotated[UploadFile | None, File()] = None,
     client_key: Annotated[str | None, Form()] = None,
     product_version_id: Annotated[uuid.UUID | None, Form()] = None,
     brand_profile_id: Annotated[str | None, Form(max_length=80)] = None,
@@ -106,31 +107,37 @@ async def create(
     ))
     if product is None:
         reject("PRODUCT_NOT_FOUND", 404)
-    await front.seek(0)
-    data = await front.read(10 * 1024 * 1024 + 1)
-    if not data or len(data) > 10 * 1024 * 1024:
-        reject("IMAGE_SIZE_INVALID", 422)
-    try:
-        with Image.open(io.BytesIO(data)) as image:
-            if image.format not in {"PNG", "JPEG", "WEBP"}:
-                reject("IMAGE_FORMAT_INVALID", 422)
-            width, height = image.size
-            if width * height > 40_000_000:
-                reject("IMAGE_DIMENSIONS_INVALID", 422)
-            image.verify()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-        reject("IMAGE_INVALID", 422)
-    sha = hashlib.sha256(data).hexdigest()
-    key = f"creative-offline/{actor.id}/{sha}"
     store = request.app.state.object_store
-    # Reuse the local store's normal put_file contract; uploaded files never become URLs.
     with TemporaryDirectory(prefix="cw-upload-") as directory:
-        local = Path(directory) / "front"
-        local.write_bytes(data)
-        await store.put_file(local, key, "application/octet-stream")
-    result = await create_task(session, actor.id, product_id, AssetLink(
-        owner_id=actor.id, object_key=key, sha256=sha, width=width, height=height,
-    ), client_key=client_key, product_version_id=product_version_id,
+        async def save_upload(upload: UploadFile, view: str) -> AssetLink:
+            await upload.seek(0)
+            data = await upload.read(10 * 1024 * 1024 + 1)
+            if not data or len(data) > 10 * 1024 * 1024:
+                reject("IMAGE_SIZE_INVALID", 422)
+            try:
+                with Image.open(io.BytesIO(data)) as image:
+                    if image.format not in {"PNG", "JPEG", "WEBP"}:
+                        reject("IMAGE_FORMAT_INVALID", 422)
+                    width, height = image.size
+                    if width * height > 40_000_000:
+                        reject("IMAGE_DIMENSIONS_INVALID", 422)
+                    image.verify()
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+                reject("IMAGE_INVALID", 422)
+            sha = hashlib.sha256(data).hexdigest()
+            key = f"creative-offline/{actor.id}/{sha}-{view}"
+            local = Path(directory) / view
+            local.write_bytes(data)
+            await store.put_file(local, key, "application/octet-stream")
+            return AssetLink(
+                owner_id=actor.id, object_key=key, sha256=sha, width=width, height=height,
+                view=view,
+            )
+
+        front_asset = await save_upload(front, "front")
+        back_asset = await save_upload(back, "back") if back is not None else None
+    result = await create_task(session, actor.id, product_id, front_asset,
+        back_asset=back_asset, client_key=client_key, product_version_id=product_version_id,
         brand_profile_id=brand_profile_id, brand_profile_version=brand_profile_version)
     result["mode"] = mode
     return with_creative_package_exports(result)

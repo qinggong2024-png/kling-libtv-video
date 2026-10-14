@@ -57,7 +57,7 @@ class AssetLink(Contract):
     height: int = Field(gt=0)
     source_type: Literal["USER_UPLOAD"] = "USER_UPLOAD"
     role: Literal["PRODUCT"] = "PRODUCT"
-    view: Literal["front"] = "front"
+    view: Literal["front", "back"] = "front"
     evidence_status: Literal["OBSERVED_REFERENCE"] = "OBSERVED_REFERENCE"
     materialized: bool = True
     revoked: bool = False

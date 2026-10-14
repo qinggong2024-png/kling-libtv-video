@@ -103,6 +103,25 @@ describe('Director Studio offline API adapter', () => {
     })
   })
 
+  it('adds an optional back image without changing the command contract', async () => {
+    const front = new File(['front'], 'front.png', { type: 'image/png' })
+    const back = new File(['back'], 'back.png', { type: 'image/png' })
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      id: 'task-1', status: 'DRAFT', state_version: 0, snapshot: {}, mode: 'OFFLINE_FAKE_ONLY',
+    }, 201))
+
+    await createDirectorTask({
+      productId: 'product-1',
+      front,
+      back,
+      clientKey: 'director-client-1',
+    })
+
+    const form = vi.mocked(fetch).mock.calls[0][1]?.body as FormData
+    expect((form.get('front') as File).name).toBe('front.png')
+    expect((form.get('back') as File).name).toBe('back.png')
+  })
+
   it('keeps structured offline errors visible to the page', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
       detail: { code: 'OFFLINE_WORKFLOW_DISABLED', message: 'offline only' },
