@@ -61,7 +61,9 @@ def test_test_stack_forces_offline_provider_modes() -> None:
         "$env:WAVESPEED_ENABLED = 'false'",
     }
     assert required_assignments <= set(script.splitlines())
-    assert "'--app-dir', $appDir" in script
+    # Check the existing command-string launcher still points uvicorn at the source.
+    assert '--app-dir "{1}"' in script
+    assert "-f $python, $appDir," in script
 
 
 def test_local_frontend_is_loopback_by_default_and_lan_is_explicit() -> None:

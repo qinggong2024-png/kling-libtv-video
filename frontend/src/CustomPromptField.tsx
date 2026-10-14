@@ -73,12 +73,13 @@ function PromptPresetDialog({ scope, target, initialContent, onClose, onSave, on
   </Modal>, document.body)
 }
 
-export function CustomPromptField({ scope, label, value, disabled = false, placeholder, onChange }: {
+export function CustomPromptField({ scope, label, value, disabled = false, placeholder, describedBy, onChange }: {
   scope: PromptPresetScope
   label: string
   value: string
   disabled?: boolean
   placeholder: string
+  describedBy?: string
   onChange: (value: string) => void
 }) {
   const [presets, setPresets] = useState<PromptPreset[]>([])
@@ -128,7 +129,7 @@ export function CustomPromptField({ scope, label, value, disabled = false, place
   }
 
   return <>
-    <label className="custom-prompt-field"><span>{label}</span><textarea name={`${scope}-prompt`} autoComplete="off" value={value} maxLength={2800} disabled={disabled} onChange={(event) => { onChange(event.target.value); setSelectedPresetId('') }} placeholder={placeholder} /></label>
+    <label className="custom-prompt-field"><span>{label}</span><textarea name={`${scope}-prompt`} autoComplete="off" value={value} maxLength={2800} disabled={disabled} aria-describedby={describedBy} onChange={(event) => { onChange(event.target.value); setSelectedPresetId('') }} placeholder={placeholder} /></label>
     <div className="custom-prompt-meta"><span>{value.length} / 2800</span><span>{selectedPresetId ? `已载入：${presets.find((item) => item.id === selectedPresetId)?.name ?? ''}` : '临时草稿'}</span></div>
     <div className="prompt-preset-toolbar">
       <div className="prompt-preset-heading"><span>提示词方案</span><button type="button" className="compact-button" disabled={disabled || !value.trim()} onClick={() => setEditorTarget(null)}><Plus size={15} />保存当前方案</button></div>

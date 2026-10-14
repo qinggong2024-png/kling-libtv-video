@@ -9,9 +9,9 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 export const ROUTES = [
   { name: 'images', query: '?view=images', selector: '.image-center.page-view', heading: '\u56fe\u7247\u5de5\u4f5c\u5ba4' },
-  { name: 'make', query: '', selector: '.home-view', heading: '\u89c6\u9891\u5236\u4f5c' },
+  { name: 'make', query: '', selector: '.home-view', heading: '\u89c6\u9891\u5de5\u4f5c\u5ba4' },
   { name: 'records', query: '?view=records', selector: '.page-view > .records-overview', heading: '\u4efb\u52a1' },
-  { name: 'library', query: '?view=library', selector: '.content-library-view', heading: '\u5185\u5bb9\u4e0e\u4e3b\u4f53\u5e93' },
+  { name: 'library', query: '?view=library', selector: '.generated-assets-view', heading: '\u751f\u6210\u8d44\u4ea7' },
   { name: 'admin-overview', query: '?view=admin', selector: '.admin-view .admin-section-content > .admin-summary-grid', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u8fd0\u884c\u603b\u89c8', requiresAdmin: true },
   { name: 'admin-accounts', query: '?view=admin&section=accounts', selector: '.admin-view .admin-section-content > .account-management-section', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u6210\u5458\u8d26\u53f7', requiresAdmin: true },
   { name: 'admin-providers', query: '?view=admin&section=providers', selector: '.admin-view .admin-section-content > .provider-section', heading: '\u7ba1\u7406\u4e2d\u5fc3', sectionLabel: '\u751f\u6210\u63d0\u4f9b\u5546', requiresAdmin: true },

@@ -1,4 +1,5 @@
 import { Check, FileImage, LockKeyhole, RefreshCw, WandSparkles, X } from 'lucide-react'
+import { ImageUploadTrigger } from '../../shared/components/studio/ImageUploadTrigger'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { getSiteStyleProfiles } from '../../api'
 import { useOptionalCreativeProject } from '../../creative-project/hooks'
@@ -77,6 +78,7 @@ export function DirectorStudio() {
   const [notice, setNotice] = useState('')
   const [viewedStage, setViewedStage] = useState<DirectorStageKey | null>(null)
   const clientKeyRef = useRef(createUuid())
+  const frontImageInputRef = useRef<HTMLInputElement>(null)
   const productIdRef = useRef<string | undefined>(undefined)
   const recoveryAttemptRef = useRef<string | null>(null)
   const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
@@ -89,6 +91,7 @@ export function DirectorStudio() {
   const chosenBrand = selectDirectorBrandProfile(brandProfiles, selectedBrandId, draft.intake.brandName)
   const ready = isDirectorIntakeReady(draft.intake) && (draft.intake.brandMode !== 'brand' || Boolean(chosenBrand))
   const hasAnalysis = Boolean(workflow?.snapshot.plan)
+  const canRetryAnalysis = workflow?.status === 'DRAFT' || workflow?.status === 'ANALYSIS_FAILED'
   const selectedDirection = draft.directions.find((direction) => direction.id === draft.selectedDirectionId) ?? null
   const confirmedDirectionId = workflow?.snapshot.package
     ? workflow.snapshot.plan?.selected_direction ?? draft.selectedDirectionId
@@ -350,38 +353,57 @@ export function DirectorStudio() {
   }
 
   const requestAnalysis = async () => {
-    if (workflow) return
-    if (!ready || !draft.intake.productFrontFile || busyAction) {
+    if (busyAction || (workflow && !canRetryAnalysis)) return
+    if (!workflow && (!ready || !draft.intake.productFrontFile)) {
       setNotice('请先上传商品正面图。')
       return
     }
     setBusyAction('analyze')
     setNotice('')
+    let current = workflow
     try {
-      const label = draft.intake.productName.trim()
-        || draft.intake.productFrontName.replace(/\.[^.]+$/, '')
-        || 'product'
-      const product = await createDirectorProduct(`director-${label}-${createUuid().slice(0, 8)}`)
-      productIdRef.current = product.id
-      const created = await createDirectorTask({
-        productId: product.id,
-        front: draft.intake.productFrontFile,
-        clientKey: clientKeyRef.current,
-        ...(draft.intake.brandMode === 'brand' && chosenBrand ? {
-          brandProfileId: chosenBrand.id,
-          brandProfileVersion: chosenBrand.version,
-        } : {}),
-      })
-      applyWorkflow(created)
-      setRejectionReasons({})
-      const analyzed = await sendDirectorCommand(created.id, {
-        action: 'analyze',
-        expected_version: created.state_version,
+      if (!current) {
+        const label = draft.intake.productName.trim()
+          || draft.intake.productFrontName.replace(/\.[^.]+$/, '')
+          || 'product'
+        if (!productIdRef.current) {
+          const product = await createDirectorProduct(`director-${label}-${createUuid().slice(0, 8)}`)
+          productIdRef.current = product.id
+        }
+        const created = await createDirectorTask({
+          productId: productIdRef.current,
+          front: draft.intake.productFrontFile!,
+          clientKey: clientKeyRef.current,
+          ...(draft.intake.brandMode === 'brand' && chosenBrand ? {
+            brandProfileId: chosenBrand.id,
+            brandProfileVersion: chosenBrand.version,
+          } : {}),
+        })
+        applyWorkflow(created)
+        setRejectionReasons({})
+        current = created
+      } else {
+        current = await getDirectorTask(current.id)
+        applyWorkflow(current)
+      }
+      if (current.status !== 'DRAFT' && current.status !== 'ANALYSIS_FAILED') return
+      const action = current.status === 'ANALYSIS_FAILED' ? 'retry_analysis' : 'analyze'
+      const fingerprint = JSON.stringify([current.id, current.state_version, action])
+      if (commandRef.current?.fingerprint !== fingerprint) {
+        commandRef.current = { fingerprint, key: createUuid() }
+      }
+      const analyzed = await sendDirectorCommand(current.id, {
+        action,
+        command_key: commandRef.current.key,
+        expected_version: current.state_version,
       })
       applyWorkflow(analyzed)
       setNotice('分析完成。请选择 A、B 或 C 方向。')
     } catch (cause) {
-      setNotice(explainDirectorFailure(cause, '创建或分析失败，请检查离线服务。'))
+      if (current) {
+        try { applyWorkflow(await getDirectorTask(current.id)) } catch { /* Preserve the existing recovery reference. */ }
+      }
+      setNotice(explainDirectorFailure(cause, '创建或分析失败，请检查服务后重试分析。'))
     } finally {
       setBusyAction(null)
     }
@@ -603,12 +625,10 @@ export function DirectorStudio() {
         </div>
         <div className="director-intake-layout">
           <div className="director-intake-primary">
-            <label className="director-upload">
-              <input type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
-              {draft.intake.productFrontPreviewUrl
-                ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" />
-                : <><FileImage size={24} /><strong>上传商品正面</strong><small>PNG、JPG 或 WEBP · 已生效输入</small></>}
-            </label>
+            <ImageUploadTrigger className="director-upload" title={draft.intake.productFrontPreviewUrl ? '更换商品正面' : '上传商品正面'}
+              disabled={workflow !== null || busyAction !== null} onClick={() => frontImageInputRef.current?.click()}
+              preview={draft.intake.productFrontPreviewUrl ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" /> : undefined} />
+            <input ref={frontImageInputRef} hidden type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
             {draft.intake.productFrontName ? <p className="director-file-name">{draft.intake.productFrontName}</p> : null}
             <div className="director-media-mode director-media-mode--secondary" role="group" aria-label="分析素材类型">
               <span>输入类型</span>
@@ -641,8 +661,8 @@ export function DirectorStudio() {
           </div>
         </details>
         <div className="director-brief-cta">
-          <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={!ready || busyAction !== null || workflow !== null}>
-            <WandSparkles size={16} />{busyAction === 'analyze' ? '正在生成创意方向' : workflow ? '已生成创意方向' : '生成创意方向'}
+          <button type="button" className="primary-button director-action" onClick={() => void requestAnalysis()} disabled={busyAction !== null || (workflow ? !canRetryAnalysis : !ready)}>
+            <WandSparkles size={16} />{busyAction === 'analyze' ? '正在生成创意方向' : canRetryAnalysis ? '重试分析' : workflow ? '已生成创意方向' : '生成创意方向'}
           </button>
         </div>
       </section>

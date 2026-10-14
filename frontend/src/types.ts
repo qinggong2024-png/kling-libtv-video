@@ -539,6 +539,7 @@ export interface ImageGenerationBatchOutput {
   url: string
   downloadUrl?: string | null
   artifactId?: string | null
+  synthetic?: boolean
   qualificationStatus?: 'PENDING' | 'QUALIFIED' | 'REJECTED'
   qualityGates?: Record<string, { verification?: string; outcome?: string }>
   reviewedAt?: string | null
@@ -549,6 +550,8 @@ export interface ImageGenerationBatchItem {
   id: string
   clientTaskId: string
   outfitId: string
+  outfitName?: string
+  prompts?: string[]
   status: ImageGenerationBatchStatus
   providerTaskId: string | null
   providerTaskIds: string[]
@@ -565,10 +568,39 @@ export interface ImageGenerationBatchItem {
 export interface ImageGenerationBatch {
   id: string
   clientBatchId?: string
+  name?: string
+  provider?: string
   status: ImageGenerationBatchStatus
+  expectedGenerationCount?: number
   items: ImageGenerationBatchItem[]
   createdAt?: string
   updatedAt?: string
+}
+
+export interface DirectorTaskRecord {
+  id: string
+  status: string
+  state_version: number
+  snapshot: {
+    candidates?: Array<{
+      candidate_id: string
+      output_id: string
+      synthetic: boolean
+      qualified: boolean
+      shot_id: string
+      package_id: string
+      revision_index: number
+      media_evidence: string
+    }>
+    latest_review?: { candidate_id: string; decision: 'QUALIFIED' | 'REJECTED'; reason?: string | null }
+    latest_reviews?: Record<string, { candidate_id: string; decision: 'QUALIFIED' | 'REJECTED'; reason?: string | null }>
+    package?: { prompt: string; revision: number; package_id: string; parent_package_id: string | null }
+    storyboard?: { packages?: Record<string, { prompt: string; revision: number; package_id: string; parent_package_id: string | null }> }
+    execution_state?: string
+    stopped?: boolean
+  }
+  mode: 'OFFLINE_FAKE_ONLY' | 'LIVE_DIRECTOR' | string
+  nextCursor?: string
 }
 
 export interface ImageGenerationClientManifest {
@@ -705,4 +737,36 @@ export interface OperationsSnapshot {
 export type RuntimeConfigSnapshot = OperationsSnapshot['runtime'] & {
   reason: string
   createdAt: string | null
+}
+
+export interface AIQuotaUsage {
+  reserved?: string
+  settled?: string
+  unknown?: string
+}
+
+export interface AIQuota {
+  currency: 'USD'
+  business_date: string
+  accounting_version: string
+  total: string
+  available: string
+  reserved: string
+  settled: string
+  unknown: string
+  request_max: string
+  batch_max: string
+  pending_max?: string
+  pending_available?: string
+  historical_reserved?: string
+  historical_unknown?: string
+  legacy_reconciliation_required: boolean
+  diagnostics: {
+    pricing_configured?: boolean
+    missing_price_entries?: string[]
+    [key: string]: unknown
+  }
+  breakdown?: Partial<Record<'text' | 'image' | 'video', AIQuotaUsage>>
+  enforced_entries: string[]
+  deferred_entries: string[]
 }

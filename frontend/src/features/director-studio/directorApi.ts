@@ -1,8 +1,8 @@
-import { getCurrentUser, getSystemStatus } from '../../api'
+import { ApiError, apiRequest } from '../../api'
 import { createUuid } from '../../uuid'
 import type { BrandDNASnapshot } from './directorBrandDNA'
 
-export type DirectorCommandAction = 'analyze' | 'select_direction' | 'authorize' | 'generate' | 'review' | 'select'
+export type DirectorCommandAction = 'analyze' | 'retry_analysis' | 'select_direction' | 'authorize' | 'generate' | 'review' | 'select'
 export type DirectorWorkflowScope = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
 export type DirectorWorkflowShotId = 'FIRST_FRAME' | 'SHOT_01' | string
 export type DirectorPackagePurpose = 'FIRST_FRAME' | 'VIDEO_STORYBOARD'
@@ -221,45 +221,15 @@ export class DirectorApiError extends Error {
   }
 }
 
-function readCookie(name: string): string {
-  if (typeof document === 'undefined') return ''
-  const prefix = `${encodeURIComponent(name)}=`
-  const match = document.cookie.split('; ').find((item) => item.startsWith(prefix))
-  return match ? decodeURIComponent(match.slice(prefix.length)) : ''
-}
-
-async function authHeaders(): Promise<Headers> {
-  const system = await getSystemStatus()
-  const headers = new Headers()
-  if (!system.sharedAuthentication) {
-    const user = await getCurrentUser()
-    headers.set('X-User-Id', user.userId)
-  }
-  const csrfToken = readCookie(system.csrfCookieName)
-  if (csrfToken) headers.set('X-CSRF-Token', csrfToken)
-  return headers
-}
-
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = await authHeaders()
-  new Headers(init.headers).forEach((value, key) => headers.set(key, value))
-  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`/api/v1${path}`, {
-    ...init,
-    headers,
-    credentials: 'include',
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null
-    const detail = body?.detail
-    const payload = detail && typeof detail === 'object' ? detail as { code?: unknown; message?: unknown } : null
-    const code = typeof payload?.code === 'string' ? payload.code : 'DIRECTOR_REQUEST_FAILED'
-    const message = typeof payload?.message === 'string'
-      ? payload.message
-      : typeof detail === 'string' ? detail : `导演接口请求失败（${response.status}）`
-    throw new DirectorApiError(response.status, code, message)
+  try {
+    return await apiRequest<T>(`/api/v1${path}`, init, {
+      timeoutMs: init.body instanceof FormData ? 120_000 : 30_000,
+    })
+  } catch (cause) {
+    if (cause instanceof ApiError) throw new DirectorApiError(cause.status, cause.code, cause.message)
+    throw cause
   }
-  return response.json() as Promise<T>
 }
 
 export function createDirectorProduct(internalSkuId: string): Promise<{ id: string }> {

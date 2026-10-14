@@ -48,14 +48,15 @@ from libtv_agent.domain.schemas import (
     VariantFeedbackRequest,
 )
 from libtv_agent.runner.supervisor import RunnerSupervisor
+from libtv_agent.services.ai_pricing import AIPricingError, estimate_text_price
 from libtv_agent.services.ai_usage import (
     AIUsageLimitExceededError,
     AIUsageRequestConflictError,
-    estimate_risk_units,
-    reserve_ai_usage,
+    reserve_priced_ai_usage,
     settle_ai_usage,
+    settle_provider_usage,
 )
-from libtv_agent.services.analysis import analyze_task
+from libtv_agent.services.analysis import analyze_task, render_analysis_prompt
 from libtv_agent.services.analysis_lifecycle import (
     StaleAnalysisRunError,
     claim_analysis_run,
@@ -83,6 +84,7 @@ from libtv_agent.services.points import PointsLimitExceededError
 from libtv_agent.services.prompt_revision import (
     PromptRevisionNotSubmittedError,
     PromptRevisionTimeoutError,
+    prompt_assistant_input,
     run_prompt_assistant,
 )
 from libtv_agent.services.restore import RemoteRestoreInProgressError, restore_remote_output
@@ -755,7 +757,6 @@ async def patch_task_prompts(
     request: Request,
 ) -> TaskRead:
     task = await get_task(session, actor.id, task_id)
-    _validate_prompt_edit(task, payload.expected_state_version)
     await _claim_prompt_update(session, task)
     _apply_prompts(task, payload.stable_prompt, payload.dynamic_prompt)
     session.add(
@@ -815,6 +816,7 @@ async def post_prompt_assistant(
         ) from exc
     if cached_response:
         return PromptAssistantResponse.model_validate(cached_response[1])
+    _validate_prompt_edit(task, payload.expected_state_version)
     model = next(
         (
             str(variant.generation_config_json.get("analysisModel"))
@@ -835,40 +837,36 @@ async def post_prompt_assistant(
             "model": model,
         }
     )
-    input_chars = len(
-        json.dumps(
-            {
-                "instruction": payload.instruction,
-                "userRequirement": task.user_requirement_raw,
-                "analysisResult": task.analysis_result_json or {},
-                "stablePrompt": payload.stable_prompt,
-                "dynamicPrompt": payload.dynamic_prompt,
-            },
-            ensure_ascii=False,
-        )
-    )
-    risk_units = estimate_risk_units(
-        settings,
-        input_chars=input_chars,
-        input_image_count=0,
-        max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
-    )
     try:
-        usage = await reserve_ai_usage(
+        input_chars = sum(len(message["content"]) for message in prompt_assistant_input(
+            action=payload.action, instruction=payload.instruction,
+            user_requirement=task.user_requirement_raw, analysis_result=task.analysis_result_json,
+            stable_prompt=payload.stable_prompt, dynamic_prompt=payload.dynamic_prompt,
+            target_variant=payload.target_variant.value if payload.target_variant else None,
+        ))
+        quote = estimate_text_price(
+            settings, provider=provider, model=model, input_chars=input_chars,
+            input_image_count=0,
+            max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
+        )
+        usage = await reserve_priced_ai_usage(
             session,
             settings,
             user_id=actor.id,
             task_id=task.id,
             operation_type=f"AI_PROMPT_{payload.action}",
-            provider=provider,
-            model=model,
+            quote=quote,
             input_chars=input_chars,
             input_image_count=0,
             max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
-            risk_units=risk_units,
             idempotency_key=effective_key,
             request_hash=request_hash,
         )
+    except AIPricingError as exc:
+        await session.rollback()
+        raise HTTPException(
+            422, detail={"code": "AI_PRICING_BLOCKED", "message": str(exc)}
+        ) from exc
     except AIUsageLimitExceededError as exc:
         await session.rollback()
         raise HTTPException(
@@ -936,7 +934,7 @@ async def post_prompt_assistant(
             status.HTTP_502_BAD_GATEWAY,
             detail={"code": "PROMPT_ASSISTANT_NOT_SUBMITTED", "message": str(exc)},
         ) from exc
-    except RuntimeError as exc:
+    except (Exception, asyncio.CancelledError) as exc:
         async with request.app.state.database.session_factory() as settlement_session:
             await settle_ai_usage(
                 settlement_session,
@@ -951,21 +949,20 @@ async def post_prompt_assistant(
             task.prompt_analysis_duration_seconds += elapsed
             task.analysis_attempt_count += 1
             await session.commit()
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
             detail={"code": "PROMPT_ASSISTANT_FAILED", "message": str(exc)},
         ) from exc
     async with request.app.state.database.session_factory() as settlement_session:
-        await settle_ai_usage(
+        await settle_provider_usage(
             settlement_session,
             usage.reservation.id,
-            status=AIUsageReservationStatus.SETTLED,
-            actual_risk_units=0 if settings.ai_adapter_mode != "openai" else None,
-            actual_cost_status=(
-                "OFFLINE"
-                if settings.ai_adapter_mode != "openai"
-                else "UNKNOWN_COST"
-            ),
+            input_tokens=result._actual_input_tokens,
+            output_tokens=result._actual_output_tokens,
+            provider_response_id=result._provider_response_id,
+            offline=settings.ai_adapter_mode != "openai",
         )
         await settlement_session.commit()
     if payload.action == "REGENERATE":
@@ -1188,33 +1185,43 @@ async def post_analyze(
         _settings(request).openai_model,
     )
     input_image_count = sum(1 for asset in task.assets if asset.used_for_analysis)
-    input_chars = len(task.user_requirement_raw) + input_image_count * 160
-    risk_units = estimate_risk_units(
-        _settings(request),
-        input_chars=input_chars,
-        input_image_count=input_image_count,
-        max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
+    ordered = sorted(
+        (asset for asset in task.assets if asset.used_for_analysis),
+        key=lambda asset: asset.order_no,
+    )
+    input_chars = len(render_analysis_prompt(
+        [str(asset.id) for asset in ordered if asset.role != "PRODUCT"],
+        task.user_requirement_raw,
+        [str(asset.id) for asset in ordered if asset.role == "PRODUCT"],
+    ))
+    provider = (
+        "openai" if _settings(request).ai_adapter_mode == "openai"
+        else f"offline:{_settings(request).ai_adapter_mode}"
     )
     try:
-        usage = await reserve_ai_usage(
+        quote = estimate_text_price(
+            _settings(request), provider=provider, model=analysis_model,
+            input_chars=input_chars, input_image_count=input_image_count,
+            max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
+        )
+        usage = await reserve_priced_ai_usage(
             session,
             _settings(request),
             user_id=actor.id,
             task_id=task.id,
             operation_type="AI_ANALYSIS",
-            provider=(
-                "openai"
-                if _settings(request).ai_adapter_mode == "openai"
-                else f"offline:{_settings(request).ai_adapter_mode}"
-            ),
-            model=analysis_model,
+            quote=quote,
             input_chars=input_chars,
             input_image_count=input_image_count,
             max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
-            risk_units=risk_units,
             idempotency_key=idempotency_key,
             request_hash=sha256_json(payload_json),
         )
+    except AIPricingError as exc:
+        await session.rollback()
+        raise HTTPException(
+            422, detail={"code": "AI_PRICING_BLOCKED", "message": str(exc)}
+        ) from exc
     except AIUsageLimitExceededError as exc:
         await session.rollback()
         raise HTTPException(

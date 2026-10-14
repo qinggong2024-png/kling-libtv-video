@@ -3,14 +3,15 @@ param(
     [int]$FrontendPort = 5175,
     [ValidateSet('Safe', 'Full')]
     [string]$Profile = 'Safe',
-    [int]$StartupTimeoutSeconds = 60
+    [int]$StartupTimeoutSeconds = 60,
+    [string]$DataRoot
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'local-instance-identity.ps1')
 $storageName = if ($Profile -eq 'Full') { 'test-live' } else { 'test' }
-$storageRoot = Join-Path $projectRoot ("var\" + $storageName)
+$storageRoot = if ($DataRoot) { [IO.Path]::GetFullPath($DataRoot) } else { Join-Path $projectRoot ("var\" + $storageName) }
 $logDir = Join-Path $storageRoot 'logs'
 $databasePath = (Join-Path $storageRoot 'development.db').Replace('\', '/')
 $artifactRoot = Join-Path $storageRoot 'artifacts'
@@ -20,6 +21,21 @@ $processFile = Join-Path $runtimeRoot 'stack-processes.json'
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 $appDir = Join-Path $projectRoot 'backend\src'
 $runnerScript = Join-Path $appDir 'libtv_agent\runner\local_runner.py'
+
+if ($ApiPort -in @(8000, 8012, 5173) -or $FrontendPort -in @(8000, 8012, 5173) -or $ApiPort -eq $FrontendPort) {
+    throw 'Use separate test ports; production and the existing RC must not be replaced.'
+}
+if ($Profile -eq 'Safe' -and (Test-Path -LiteralPath (Join-Path $storageRoot '.env'))) {
+    throw 'Safe runtime directory must not contain a .env file.'
+}
+if ($Profile -eq 'Safe') {
+    foreach ($name in @('kling-config.json', 'bach-config.json', 'wavespeed-config.json')) {
+        if (Test-Path -LiteralPath (Join-Path $runtimeRoot $name)) {
+            throw 'Safe runtime must use a directory without saved Provider configuration.'
+        }
+    }
+}
+$runtimeWorkingDirectory = if ($Profile -eq 'Safe') { $storageRoot } else { $projectRoot }
 
 New-Item -ItemType Directory -Force -Path $logDir, $artifactRoot, $runnerRoot, $runtimeRoot | Out-Null
 
@@ -59,7 +75,7 @@ function Start-TestProcess([string]$CommandLine, [string]$WorkingDirectory) {
     # done by cmd.exe instead, which gives the same log files without the hazard.
     return Start-Process `
         -FilePath 'cmd.exe' `
-        -ArgumentList @('/d', '/c', $CommandLine) `
+        -ArgumentList ('/d /s /c "{0}"' -f $CommandLine) `
         -WorkingDirectory $WorkingDirectory `
         -WindowStyle Hidden `
         -PassThru
@@ -143,13 +159,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'frontend\node_modules'
     throw 'Frontend dependencies are missing.'
 }
 
-$recordedProcessFiles = @(
-    (Join-Path $projectRoot 'var\test\runtime\stack-processes.json'),
-    (Join-Path $projectRoot 'var\test-live\runtime\stack-processes.json')
-) | Select-Object -Unique
-foreach ($recordedProcessFile in $recordedProcessFiles) {
-    Stop-RecordedProcesses $recordedProcessFile
-}
+Stop-RecordedProcesses $processFile
 Assert-PortAvailable $ApiPort
 Assert-PortAvailable $FrontendPort
 
@@ -183,6 +193,8 @@ $env:OPENAI_ANALYSIS_VERBOSITY = 'low'
 $env:OPENAI_ANALYSIS_MAX_OUTPUT_TOKENS = '4000'
 $env:OPENAI_ANALYSIS_FALLBACK_MAX_OUTPUT_TOKENS = '6000'
 $env:VITE_API_PROXY = "http://127.0.0.1:$ApiPort"
+$env:VITE_HOST = '127.0.0.1'
+$env:PYTHONPATH = $appDir
 
 # Safe is the default baseline; Full explicitly overrides the live-provider
 # settings below. Keeping these assignments unconditional also makes the
@@ -219,24 +231,35 @@ if ($Profile -eq 'Full') {
 }
 else {
     $env:KLING_ENABLE_PAID_INTEGRATION_TEST = 'false'
+    $env:DIRECTOR_WORKFLOW_MODE = 'offline_demo'
+    $env:GLOBAL_PAUSED = 'true'
+    $env:AI_UNKNOWN_PRICE_POLICY = 'reject'
+    $env:FEEDBACK_LEARNING_ENABLED = 'false'
+    $env:FEEDBACK_LEARNING_LLM_ENABLED = 'false'
+    $env:BACH_ENABLED = 'false'
+    $env:BACH_ADMIN_CONFIG_FILE = Join-Path $runtimeRoot 'bach-config.json'
+    # Safe services import Settings from this isolated cwd, never the real .env.
+    foreach ($name in @('OPENAI_API_KEY', 'LIBTV_ACCESS_KEY', 'KLING_API_KEY', 'WAVESPEED_API_KEY', 'WAVESPEED_ADMIN_API_KEY', 'BACH_ACCESS_KEY', 'BACH_SECRET_KEY', 'BACH_ADMIN_ACCESS_KEY', 'BACH_ADMIN_SECRET_KEY', 'PAID_GENERATION_CONFIRMATION')) {
+        Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    }
 }
 
-Push-Location $projectRoot
+Push-Location $runtimeWorkingDirectory
 try {
-    & uv run alembic -c backend/alembic.ini upgrade head
+    & $python -m alembic -c (Join-Path $projectRoot 'backend\alembic.ini') upgrade head
     if ($LASTEXITCODE -ne 0) { throw 'Test database migration failed.' }
 
     $apiLogPath = Join-Path $logDir 'api.log'
     $apiErrorLogPath = Join-Path $logDir 'api.error.log'
     $api = Start-TestProcess `
         -CommandLine ('"{0}" -m uvicorn libtv_agent.app:create_app --factory --app-dir "{1}" --port {2} > "{3}" 2> "{4}"' -f $python, $appDir, $ApiPort, $apiLogPath, $apiErrorLogPath) `
-        -WorkingDirectory $projectRoot
+        -WorkingDirectory $runtimeWorkingDirectory
 
     $frontendLogPath = Join-Path $logDir 'frontend.log'
     $frontendErrorLogPath = Join-Path $logDir 'frontend.error.log'
     $frontend = Start-TestProcess `
-        -CommandLine ('npm.cmd run dev --prefix frontend -- --host 127.0.0.1 --port {0} --strictPort > "{1}" 2> "{2}"' -f $FrontendPort, $frontendLogPath, $frontendErrorLogPath) `
-        -WorkingDirectory $projectRoot
+        -CommandLine ('npm.cmd run dev --prefix "{0}" -- --host 127.0.0.1 --port {1} --strictPort > "{2}" 2> "{3}"' -f (Join-Path $projectRoot 'frontend'), $FrontendPort, $frontendLogPath, $frontendErrorLogPath) `
+        -WorkingDirectory $runtimeWorkingDirectory
 
     @{
         profile = $Profile
@@ -282,9 +305,10 @@ try {
     }
     $runnerLogPath = Join-Path $logDir 'runner.log'
     $runnerErrorLogPath = Join-Path $logDir 'runner.error.log'
+    $runnerArguments = if ($Profile -eq 'Safe') { ' --data-root "{0}"' -f $runtimeWorkingDirectory } else { '' }
     $runner = Start-TestProcess `
-        -CommandLine ('"{0}" "{1}" > "{2}" 2> "{3}"' -f $python, $runnerScript, $runnerLogPath, $runnerErrorLogPath) `
-        -WorkingDirectory $projectRoot
+        -CommandLine ('"{0}" "{1}"{2} > "{3}" 2> "{4}"' -f $python, $runnerScript, $runnerArguments, $runnerLogPath, $runnerErrorLogPath) `
+        -WorkingDirectory $runtimeWorkingDirectory
     Start-Sleep -Milliseconds 500
     $runner.Refresh()
     if ($runner.HasExited) {

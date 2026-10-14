@@ -1,0 +1,41 @@
+:root {
+  --image-upload-surface: var(--surface-soft);
+  --image-upload-border: var(--line-strong);
+  --image-upload-text: var(--text);
+  --image-upload-muted: var(--muted);
+  --image-upload-primary: var(--primary);
+}
+.studio-image-upload {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 320px;
+  max-width: 100%;
+  min-height: 72px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--image-upload-border);
+  border-radius: 8px;
+  background: var(--image-upload-surface);
+  color: var(--image-upload-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms, background-color 120ms;
+}
+.studio-image-upload__icon { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; color: var(--image-upload-primary); }
+.studio-image-upload__icon img { width: 40px; height: 40px; object-fit: contain; border-radius: 4px; }
+.studio-image-upload__copy { display: grid; gap: 4px; min-width: 0; }
+.studio-image-upload__copy strong { color: var(--image-upload-text); font-size: 14px; line-height: 1.4; font-weight: 650; }
+.studio-image-upload__copy small { color: var(--image-upload-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.studio-image-upload:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-soft); }
+.studio-image-upload:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.studio-image-upload:disabled { opacity: .6; cursor: not-allowed; }
+.image-center .studio-image-upload { min-height: 72px; }
+
+/* The director used a tall preview label; its trigger now shares the same geometry. */
+.image-center .director-intake-primary .director-upload.studio-image-upload { flex-direction: row; justify-content: flex-start; min-height: 72px; border-radius: 8px; padding: 12px 16px; gap: 12px; text-align: left; border-color: var(--image-upload-border); background: var(--image-upload-surface); }
+.director-intake-primary .director-upload.studio-image-upload img { width: 40px; height: 40px; }
+.director-intake-primary .director-upload.studio-image-upload strong { font-size: 14px; }
+.composer--studio .studio-upload-actions > .studio-image-upload { flex: 0 1 320px; width: 320px; min-height: 72px; }
+.composer--studio .upload-panel--has-items .studio-upload-actions > .studio-image-upload { flex: 0 1 320px; width: 320px; min-height: 72px; }

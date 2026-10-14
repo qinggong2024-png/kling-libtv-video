@@ -20,13 +20,13 @@ export function BatchCreationView({ draft, summary, activeOutfit, activeOutfitIn
   setActiveOutfitId: (id: string) => void
   updateOutfit: (outfit: OutfitDraft) => void
 }) {
-  return <div className="image-center-create">
+  return <div className="image-center-create image-batch-workspace">
       <section className="image-center-section asset-composer" aria-labelledby="asset-composer-title">
-        <div className="image-center-section__heading"><div><span className="section-number">01</span><div><h2 id="asset-composer-title">素材编排</h2><p>左侧模特复用到全部套装，右侧每套产品独立生成。</p></div></div><div className="asset-composer-toolbar"><span className="section-state"><Shirt size={15} />{summary.outfitCount}/{draft.outfits.length} 套已就绪</span>{!assetsOnly ? <a className="image-center-jump" href="#generation-config-title"><WandSparkles size={15} />生成配置</a> : null}</div></div>
+        <div className="image-center-section__heading"><div><span className="section-number">01</span><div><h2 id="asset-composer-title">素材编排</h2><p>模特图片复用到全部套装，每套商品独立配置。</p></div></div><div className="asset-composer-toolbar"><span className="section-state"><Shirt size={15} />{summary.outfitCount}/{draft.outfits.length} 套已就绪</span>{!assetsOnly ? <a className="image-center-jump" href="#generation-config-title"><WandSparkles size={15} />生成配置</a> : null}</div></div>
         <div className="asset-composer-grid">
           <aside className="model-pack-column">
             <div className="asset-pack-heading"><span><UserRound size={18} /></span><div><h3>本批次模特</h3><p>正面必填，背面和侧面可选</p></div><i className={draft.model.front ? 'is-ready' : ''}>{draft.model.front ? '已就绪' : '待上传'}</i></div>
-            <OrderedAssetUpload idPrefix="image-center-model" title="模特图片" description="图一固定为人物与环境；背面、侧面为补充参考" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
+            <OrderedAssetUpload idPrefix="image-center-model" title="模特图片" description="按正面、背面、侧面排列；人物与环境作为参考" assets={draft.model} onChange={(model) => updateDraft((current) => ({ ...current, model }))} />
           </aside>
           <div className="outfit-pack-column" aria-labelledby="outfits-title">
             <div className="asset-pack-heading"><span><Package size={18} /></span><div><h3 id="outfits-title">产品套装</h3><p>每套正面必填，背面和侧面可选</p></div><div className="outfits-heading-actions"><strong>{draft.outfits.length}/{MAX_IMAGE_CENTER_OUTFITS}</strong><button type="button" className="primary-button outfit-add-button" disabled={draft.outfits.length >= MAX_IMAGE_CENTER_OUTFITS} onClick={addOutfit}><Plus size={16} />添加套装</button></div></div>

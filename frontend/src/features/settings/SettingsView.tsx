@@ -5,9 +5,13 @@ import {type SystemStatus} from '../../types'
 import {removeStorage, writeStorage} from '../../safeStorage'
 import {BrowserNotificationSetting} from './BrowserNotificationSetting'
 import {PersonalPasswordSetting, PersonalPromptConfirmationSetting, PersonalVideoLearningSetting} from './PersonalSettings'
+import {ContentLibraryView} from '../library/ContentLibraryView'
 
 export function SettingsView({
   system,
+  actorId,
+  canDeleteSubjects,
+  canEditCatalog,
   onLogout,
   browserNotificationsEnabled,
   browserNotificationPermission,
@@ -15,6 +19,9 @@ export function SettingsView({
   onDisableBrowserNotifications,
 }: {
   system: SystemStatus | null
+  actorId: string | null
+  canDeleteSubjects: boolean
+  canEditCatalog: boolean
   onLogout: () => void
   browserNotificationsEnabled: boolean
   browserNotificationPermission: NotificationPermission | 'unsupported'
@@ -35,6 +42,12 @@ export function SettingsView({
       permission={browserNotificationPermission}
       onEnable={onEnableBrowserNotifications}
       onDisable={onDisableBrowserNotifications}
+    />
+    <ContentLibraryView
+      embedded
+      actorId={actorId}
+      canDeleteSubjects={canDeleteSubjects}
+      canEditCatalog={canEditCatalog}
     />
   </div>
 }

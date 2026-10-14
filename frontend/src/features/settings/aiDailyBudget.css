@@ -1,0 +1,57 @@
+.settings-view .ai-daily-budget {
+  min-width: 0;
+  padding: 24px 0;
+  border: 0;
+  border-block: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-daily-budget .settings-section-heading {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+}
+
+.ai-daily-budget .settings-section-heading h2 { font-size: 16px; }
+.ai-daily-budget .studio-icon-button { width: 44px; height: 44px; flex: 0 0 44px; }
+.ai-budget-date, .ai-budget-limits, .ai-budget-history, .ai-budget-scope, .ai-budget-loading {
+  margin: 16px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.ai-budget-values {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.ai-budget-values > div { min-width: 0; }
+.ai-budget-values dt { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.ai-budget-values dd { margin: 4px 0 0; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ai-budget-values .ai-budget-available { color: var(--success); }
+.ai-budget-values .ai-budget-available.is-low { color: var(--warning); }
+.ai-budget-notices { color: var(--warning); font-size: 13px; }
+.ai-budget-notices p { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; }
+.ai-budget-notices svg { flex: 0 0 16px; margin-top: 3px; }
+.ai-budget-history { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.ai-budget-categories { display: grid; gap: 8px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); font-size: 13px; }
+.ai-budget-categories > div { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; }
+.ai-budget-categories span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.ai-daily-budget > .inline-alert { margin-top: 16px; }
+
+@media (max-width: 1024px) {
+  .ai-budget-values { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .ai-budget-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-budget-values dd { font-size: 20px; }
+}

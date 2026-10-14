@@ -21,9 +21,9 @@ const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODUL
 await mkdir(reportDir, {recursive:true})
 
 const routes = [
-  {name:'make', query:'', selector:'.home-view:not([hidden])', heading:'视频制作', reads:['video-templates','site-style-profiles'], loadingText:'正在加载站点风格'},
+  {name:'make', query:'', selector:'.home-view:not([hidden])', heading:'视频工作室', reads:['video-templates','site-style-profiles'], loadingText:'正在加载配置'},
   {name:'records', query:'?view=records', selector:'.page-view > .records-overview', heading:'任务', reads:[]},
-  {name:'library', query:'?view=library', selector:'.content-library-view', heading:'内容与主体库', reads:['motion-actions','site-style-profiles','video-templates'], loadingText:'正在读取内容库'},
+  {name:'library', query:'?view=library', selector:'.generated-assets-view', heading:'生成资产', reads:['image-generation-batches']},
   {name:'settings', query:'?view=settings', selector:'.settings-view', heading:'偏好设置', reads:['auth/preferences/video-learning','auth/preferences/prompt-confirmation'], loadingText:'正在读取个人成片偏好'},
   {name:'admin-overview', query:'?view=admin', selector:'.admin-view', heading:'管理中心', section:'运行总览', reads:['admin/operations'], loadingText:'正在加载运行状态'},
   {name:'admin-accounts', query:'?view=admin&section=accounts', selector:'.admin-view', heading:'管理中心', section:'成员账号', reads:['admin/users'], loadingText:'正在读取成员账号…'},
@@ -77,15 +77,23 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
   const featureRequests = new Set()
   page.on('pageerror',error => errors.push(error.message))
   const responses = new Map([...createPageResponses({role,empty:state === 'empty'}),...createAdminResponses()])
+  if (route.name === 'library' && state === 'populated') {
+    const output = {id:'fixture-image', kind:'fusion', view:'front', label:'验收合格图片', url:'/api/v1/fixture-media/product.png', downloadUrl:'/api/v1/fixture-media/product.png', artifactId:'fixture-image-artifact', qualificationStatus:'QUALIFIED', synthetic:false}
+    responses.set('/api/v1/image-generation-batches', [{id:'fixture-batch', name:'验收图片批次', status:'completed', items:[{id:'fixture-item', outfitId:'fixture-product', status:'completed', outputs:[output, {...output, id:'pending-image', label:'未审核图片', qualificationStatus:'PENDING'}, {...output, id:'synthetic-image', label:'合成演示图片', synthetic:true}]}]}])
+  }
   if (state === 'empty') responses.set('/api/v1/admin/users',[])
   const featurePaths = new Set([
     '/api/v1/video-templates','/api/v1/site-style-profiles','/api/v1/motion-actions',
+    '/api/v1/image-generation-batches',
+    '/api/v1/ai-usage/quota',
+    '/api/v1/creative-workflow/tasks',
     '/api/v1/auth/preferences/video-learning','/api/v1/auth/preferences/prompt-confirmation',
     '/api/v1/admin/operations','/api/v1/admin/users','/api/v1/admin/credentials',
     '/api/v1/admin/kling/config','/api/v1/admin/kling/status','/api/v1/admin/wavespeed/config','/api/v1/admin/bach/config',
   ])
   const origin = server.resolvedUrls.local[0].replace(/\/$/,'')
   let releaseLoading
+  let failImageHistory = false
   const loadingGate = new Promise(resolveGate => {releaseLoading = resolveGate})
   await context.route('**/*',async interception => {
     const request = interception.request()
@@ -98,6 +106,9 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
     if (request.method() !== 'GET') {
       report.safety.writeRequests.push({case:name,path:url.pathname,method:request.method()})
       return interception.fulfill({status:405,json:{detail:'Offline fixture blocks every write'}})
+    }
+    if (failImageHistory && url.pathname === '/api/v1/image-generation-batches') {
+      return interception.fulfill({status:503,json:{detail:'隔离验收：图片历史暂时不可用'}})
     }
     if (url.pathname === '/api/v1/fixture-media/product.png') {
       return interception.fulfill({contentType:'image/png',body:mediaPng})
@@ -120,7 +131,7 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
   })
   const result = {name,route:route.name,width,state,role,passed:false,pageErrors:errors}
   try {
-    await page.goto(`${origin}/__pages_fixture${route.query}`)
+    await page.goto(`${origin}/__pages_fixture${route.query}`, {waitUntil:'domcontentloaded',timeout:30_000})
     if (role === 'USER' && route.section) {
       await page.getByText('没有管理中心权限',{exact:true}).waitFor()
       assert.equal(await page.locator('.admin-view').count(),0)
@@ -164,7 +175,7 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
           await page.getByText('还没有任务',{exact:true}).waitFor()
           assert.equal(await page.locator('.task-table-row,.records-completed .result-card').count(),0)
         }
-        if (route.name === 'library') await target.getByText('还没有通用动作',{exact:true}).waitFor()
+        if (route.name === 'library') await target.getByText('还没有可查看的生成资产',{exact:true}).waitFor()
         if (route.name === 'admin-accounts') await target.getByText('还没有成员账号',{exact:true}).waitFor()
         result.emptyFixture = true
       }
@@ -192,7 +203,57 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
         {collector:collectPageSnapshot.toString(),route:smokeRoute},
       )
       assert(isPageReady(smokeRoute,result.smokeSnapshot),`Specific visible-route smoke assertion failed: ${JSON.stringify(result.smokeSnapshot)}`)
+      if (state === 'populated' && role === 'ADMIN' && route.name === 'library') {
+        await target.getByText('2 个可查看结果', {exact:true}).waitFor()
+        const image = target.getByRole('button', {name:'预览验收合格图片', exact:true})
+        await image.locator('img').evaluate(img => img.decode())
+        assert.equal(await target.locator('.image-result-card').count(), 1, 'Only qualified, non-synthetic images are published')
+        await image.click()
+        const preview = page.getByRole('dialog', {name:'验收合格图片大图预览', exact:true})
+        await preview.waitFor()
+        await preview.locator('img').waitFor()
+        await preview.locator('img').evaluate(img => img.decode())
+        await page.keyboard.press('Escape')
+        await preview.waitFor({state:'hidden'})
+        await target.getByRole('textbox', {name:'搜索生成资产'}).fill('不存在的资产')
+        await target.getByText('0 个可查看结果', {exact:true}).waitFor()
+        await target.getByRole('textbox', {name:'搜索生成资产'}).fill('')
+        await target.getByRole('combobox', {name:'媒体类型'}).selectOption('image')
+        await target.getByText('1 个可查看结果', {exact:true}).waitFor()
+        assert.equal(await target.locator('.image-result-card').count(), 1)
+        await target.getByRole('combobox', {name:'媒体类型'}).selectOption('video')
+        await target.getByText('1 个可查看结果', {exact:true}).waitFor()
+        assert.equal(await target.locator('.image-result-card').count(), 0)
+        await target.getByRole('combobox', {name:'媒体类型'}).selectOption('all')
+        await target.getByText('2 个可查看结果', {exact:true}).waitFor()
+        result.assetWorkflow = 'qualification filtering, image preview, search and media filtering'
+        const taskButton = target.getByRole('button', {name:'查看任务详情', exact:true}).first()
+        await taskButton.scrollIntoViewIfNeeded()
+        await taskButton.click()
+        const scrollBefore = await page.evaluate(() => JSON.parse(sessionStorage.getItem('app.records-return')).scrollY)
+        await page.locator('.foundation-drawer').waitFor({state:'visible'})
+        assert.equal(new URL(page.url()).searchParams.get('task'), 'synthetic-task-2')
+        await page.keyboard.press('Escape')
+        await page.locator('.foundation-drawer').waitFor({state:'hidden'})
+        assert.equal(new URL(page.url()).searchParams.get('view'), 'library')
+        await page.waitForFunction(expected => Math.abs(window.scrollY - expected) < 4, scrollBefore)
+        result.taskReturn = 'task detail returns to generated assets and restores scroll'
+        failImageHistory = true
+        await page.goto(`${origin}/__pages_fixture?view=library`, {waitUntil:'domcontentloaded',timeout:30_000})
+        const historyError = page.getByRole('alert').filter({hasText:'图片历史读取失败'})
+        await historyError.waitFor()
+        await page.locator('.generated-assets-view').getByText('1 个可查看结果', {exact:true}).waitFor()
+        assert.equal(await page.locator('.generated-assets-view .image-result-card').count(),0)
+        failImageHistory = false
+        await historyError.getByRole('button', {name:'重试',exact:true}).click()
+        await historyError.waitFor({state:'hidden'})
+        await page.locator('.generated-assets-view').getByText('2 个可查看结果', {exact:true}).waitFor()
+        result.historyRecovery = 'image failure does not hide video history; explicit retry restores images'
+      }
     }
+    if (state !== 'loading') await page.waitForFunction(() => !document.querySelector('.app-boot-screen,.page-loading'))
+    await page.evaluate(() => { document.activeElement?.blur(); scrollTo(0,0) })
+    await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))))
     result.documentWidth = await page.evaluate(() => document.documentElement.scrollWidth)
     result.horizontalOverflow = result.documentWidth > width + 1
     await page.screenshot({path:resolve(reportDir,`${name}.png`),fullPage:true})
@@ -221,7 +282,7 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
       await page.waitForFunction(() => document.querySelectorAll('.task-table-row').length === 2)
       result.searchWorkflow = 'matching row, no-match empty state, URL query, clear'
     }
-    if (state === 'populated' && role === 'ADMIN' && route.name === 'library') {
+    if (state === 'populated' && role === 'ADMIN' && route.name === 'settings') {
       const general = page.getByRole('tab',{name:'通用内容',exact:false})
       await general.focus()
       await page.keyboard.press('ArrowRight')
@@ -237,7 +298,7 @@ async function runCase(route, width, state = 'populated', role = 'ADMIN') {
       await page.getByText('没有匹配内容',{exact:true}).waitFor()
       await page.getByRole('button',{name:'清除筛选',exact:true}).first().click()
       await page.getByRole('heading',{name:'合成正面服装展示与细节检查动作',exact:true}).waitFor()
-      result.libraryWorkflow = 'arrow/home scope tabs and focus, no-match and clear'
+      result.libraryWorkflow = 'brand asset library remains available inside settings'
     }
     assert(!result.horizontalOverflow,`Horizontal overflow: ${result.documentWidth} > ${width}`)
     assert.deepEqual(errors,[])
@@ -264,7 +325,7 @@ async function assertEventually(predicate) {
 let mediaPng
 try {
   await server.listen()
-  browser = await chromium.launch({channel:'msedge',headless:true})
+  browser = await chromium.launch({channel: process.env.UI_BROWSER_CHANNEL || 'msedge', headless:true})
   report.browserVersion = browser.version()
   const mediaPage = await browser.newPage()
   const base64 = await mediaPage.evaluate(() => {
@@ -282,7 +343,7 @@ try {
     for (const width of widths) await runCase(route,width,'empty')
   }
   for (const state of ['error','loading']) {
-    for (const route of selectedRoutes.filter(route => route.name !== 'records')) await runCase(route,390,state)
+    for (const route of selectedRoutes.filter(route => route.name !== 'records' && route.name !== 'library')) await runCase(route,390,state)
   }
   for (const route of selectedRoutes.filter(route => route.section)) await runCase(route,390,'populated','USER')
   report.passed = report.cases.every(test => test.passed) && Object.values(report.safety).every(list => list.length === 0)

@@ -121,7 +121,7 @@ try {
       await layout('video')
       for (const [query, selector] of [
         ['view=images', '.image-center'], ['view=make', '.home-view'],
-        ['view=records', '.records-overview'], ['view=library', '.content-library-view'],
+        ['view=records', '.records-overview'], ['view=library', '.generated-assets-view'],
         ['view=make&pane=projects', '.creative-workspace-view'], ['view=make&pane=memory', '.creative-workspace-view'],
       ]) {
         await page.goto(`${fixture.origin}/?${query}`)

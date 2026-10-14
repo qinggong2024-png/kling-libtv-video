@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from libtv_agent.api.admin import router as admin_router
+from libtv_agent.api.ai_usage import router as ai_usage_router
 from libtv_agent.api.auth import router as auth_router
 from libtv_agent.api.confirmations import router as confirmations_router
 from libtv_agent.api.controlled_image_bridge import router as controlled_image_bridge_router
@@ -24,6 +25,7 @@ from libtv_agent.api.video_tasks import router as video_tasks_router
 from libtv_agent.api.video_templates import router as video_templates_router
 
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(ai_usage_router)
 api_router.include_router(health_router)
 api_router.include_router(image_generations_router)
 api_router.include_router(kling_router)

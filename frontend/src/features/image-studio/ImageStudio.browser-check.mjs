@@ -38,7 +38,9 @@ for (const file of [
 }
 
 try {
-  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844], [320, 720]]) {
+  for (const [width, height] of (process.env.IMAGE_STUDIO_DESKTOP_ONLY === '1'
+    ? [[1440, 900], [1024, 768]]
+    : [[1440, 900], [1024, 768], [768, 1024], [390, 844], [320, 720]])) {
     const context = await browser.newContext({
       viewport: { width, height },
       reducedMotion: width === 390 ? 'reduce' : 'no-preference',
@@ -83,7 +85,7 @@ try {
       await page.goto(`${fixture.origin}/?view=images&pane=image`, { waitUntil: 'networkidle' })
       await page.getByRole('heading', { name: '图生图', exact: true }).waitFor()
       const tabs = page.getByRole('tablist', { name: '图片创作模式' })
-      assert.deepEqual(await tabs.getByRole('tab').allTextContents(), ['图生图', '文生图', '批量生产'])
+      assert.deepEqual(await tabs.getByRole('tab').allTextContents(), ['图生图', '文生图仅草稿', '批量生产'])
       assert.equal(await page.getByRole('tab', { name: '图生图', exact: true }).getAttribute('aria-selected'), 'true')
       assert.equal(await page.locator('.image-studio-entry').count(), 0)
       assert.equal(await page.getByRole('button', { name: /生图记录/ }).count(), 1)

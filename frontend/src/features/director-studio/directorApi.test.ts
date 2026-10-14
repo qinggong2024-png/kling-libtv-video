@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getCurrentUser, getSystemStatus } from '../../api'
+import { login, logout, setApiUserId, setCsrfCookieName } from '../../api'
 import {
   createDirectorProduct,
   createDirectorTask,
@@ -8,11 +8,6 @@ import {
   sendDirectorCommand,
 } from './directorApi'
 
-vi.mock('../../api', () => ({
-  getCurrentUser: vi.fn(),
-  getSystemStatus: vi.fn(),
-}))
-
 function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -20,25 +15,55 @@ function jsonResponse(value: unknown, status = 200) {
   })
 }
 
-const system = {
-  sharedAuthentication: false,
-  csrfCookieName: 'libtv_csrf',
-} as Awaited<ReturnType<typeof getSystemStatus>>
-
 describe('Director Studio offline API adapter', () => {
   beforeEach(() => {
+    vi.stubGlobal('window', globalThis)
     vi.stubGlobal('fetch', vi.fn())
-    vi.mocked(getSystemStatus).mockResolvedValue(system)
-    vi.mocked(getCurrentUser).mockResolvedValue({
-      userId: '00000000-0000-0000-0000-000000000001',
-      username: 'phase-one-user',
-      role: 'USER',
+    setApiUserId('00000000-0000-0000-0000-000000000001')
+    setCsrfCookieName('libtv_csrf')
+  })
+
+  afterEach(async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await logout()
+    setApiUserId(null)
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('shares the RC login token without extra identity requests or a development user header', async () => {
+    setApiUserId(null)
+    setCsrfCookieName('libtv_rc_csrf')
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'rc-csrf' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'product-1' }, 201))
+    await login('rc-test', 'test-password-only')
+    await createDirectorProduct('shared-context')
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(2)
+    const call = vi.mocked(fetch).mock.calls[1]
+    expect(new Headers(call[1]?.headers).get('X-CSRF-Token')).toBe('rc-csrf')
+    expect(new Headers(call[1]?.headers).has('X-User-Id')).toBe(false)
+    expect(call[1]?.credentials).toBe('include')
+  })
+
+  it('keeps validation reasons from the shared API contract', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({
+      detail: [{ loc: ['body', 'internalSkuId'], msg: 'SKU is required' }],
+    }, 422))
+    await expect(createDirectorProduct('bad')).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED', status: 422, message: 'internalSkuId: SKU is required',
     })
   })
 
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
+  it('uses retry_analysis with the existing workflow identity and version', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ id: 'existing', status: 'AWAITING_DIRECTION' }))
+    await sendDirectorCommand('existing', {
+      action: 'retry_analysis', expected_version: 3, command_key: 'same-retry',
+    })
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('/api/v1/creative-workflow/tasks/existing/commands')
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual({
+      action: 'retry_analysis', expected_version: 3, command_key: 'same-retry',
+    })
   })
 
   it('creates a product using the existing authenticated context without changing api.ts', async () => {

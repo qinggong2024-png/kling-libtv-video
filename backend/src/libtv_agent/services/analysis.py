@@ -27,11 +27,12 @@ from libtv_agent.domain.models import (
     ParentTask,
     VisualFactCache,
 )
+from libtv_agent.services.ai_pricing import estimate_text_price
 from libtv_agent.services.ai_usage import (
-    estimate_risk_units,
     get_ai_usage_reservation,
-    reserve_ai_usage,
+    reserve_priced_ai_usage,
     settle_ai_usage,
+    settle_provider_usage,
 )
 from libtv_agent.services.analysis_lifecycle import (
     ANALYSIS_STAGE_COMPLETED,
@@ -398,7 +399,7 @@ async def _run_openai_analysis_request(
             prompt,
             images,
         )
-    except Exception as exc:
+    except (Exception, asyncio.CancelledError) as exc:
         await settle_ai_usage(
             session,
             usage_reservation_id,
@@ -436,11 +437,11 @@ async def _run_openai_analysis_request(
         await session.commit()
         raise
     response_id = adapter.provider_response_id
-    await settle_ai_usage(
+    await settle_provider_usage(
         session,
         usage_reservation_id,
-        status=AIUsageReservationStatus.SETTLED,
-        actual_cost_status="UNKNOWN_COST",
+        input_tokens=adapter.actual_input_tokens,
+        output_tokens=adapter.actual_output_tokens,
         provider_response_id=response_id,
     )
     session.add(
@@ -551,6 +552,7 @@ async def analyze_task(
         user_id=task.user_id,
         operation_type="AI_ANALYSIS",
         idempotency_key=usage_request_key,
+        task_id=task.id,
     )
     now = datetime.now(UTC)
     if cache_entry is not None and _cache_entry_is_current(cache_entry, now):
@@ -604,7 +606,7 @@ async def analyze_task(
                     prompt,
                     images,
                     asset_ids,
-                primary_usage.id if primary_usage is not None else uuid.uuid4(),
+                    primary_usage.id if primary_usage is not None else uuid.uuid4(),
                 )
                 analysis_json = normalize_analysis_motion(
                     result.model_dump(mode="json", by_alias=True)
@@ -630,25 +632,24 @@ async def analyze_task(
                 )
                 await session.commit()
                 fallback_key = f"{usage_request_key}:fallback"
-                fallback_risk_units = estimate_risk_units(
+                fallback_quote = estimate_text_price(
                     settings,
-                    input_chars=len(prompt),
-                    input_image_count=len(images),
-                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
-                    fallback_reserve_units=settings.ai_risk_fallback_reserve_units,
-                )
-                fallback_usage = await reserve_ai_usage(
-                    session,
-                    settings,
-                    user_id=task.user_id,
-                    task_id=task.id,
-                    operation_type="AI_ANALYSIS_FALLBACK",
                     provider="openai",
                     model=fallback_model,
                     input_chars=len(prompt),
                     input_image_count=len(images),
                     max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
-                    risk_units=fallback_risk_units,
+                )
+                fallback_usage = await reserve_priced_ai_usage(
+                    session,
+                    settings,
+                    user_id=task.user_id,
+                    task_id=task.id,
+                    operation_type="AI_ANALYSIS_FALLBACK",
+                    quote=fallback_quote,
+                    input_chars=len(prompt),
+                    input_image_count=len(images),
+                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
                     idempotency_key=fallback_key,
                     request_hash=sha256_json(
                         {

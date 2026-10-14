@@ -31,6 +31,10 @@ from libtv_agent.services.generation_safety import (
 )
 from libtv_agent.services.kling_preparation import prepare_kling_task
 from libtv_agent.services.materialization import materialize_task
+from libtv_agent.services.media_ai_usage import (
+    MEDIA_BUDGET_ERRORS,
+    reserve_video_attempts,
+)
 from libtv_agent.services.points import PointsLimitExceededError, reserve_points
 from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
@@ -280,6 +284,7 @@ async def confirm_task(
         await session.commit()
         return
     try:
+        await reserve_video_attempts(session, settings, task, attempts, adapter=adapter)
         for index, attempt in enumerate(attempts):
             await reserve_points(
                 session,
@@ -305,10 +310,14 @@ async def confirm_task(
                     },
                 )
             )
-    except PointsLimitExceededError:
+    except (PointsLimitExceededError, *MEDIA_BUDGET_ERRORS) as exc:
         await session.rollback()
+        await session.refresh(task)
         task.phase = ParentTaskPhase.ACTION_REQUIRED
-        task.phase_reason_code = "POINTS_LIMIT_EXCEEDED"
+        task.phase_reason_code = (
+            "POINTS_LIMIT_EXCEEDED" if isinstance(exc, PointsLimitExceededError)
+            else getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED")
+        )
         task.state_version += 1
         session.add(
             AuditEvent(

@@ -208,10 +208,17 @@ class Settings(BaseSettings):
     daily_user_points_limit: int = Field(default=5000, ge=1)
     generation_estimated_points: int = Field(default=120, ge=1)
     daily_user_image_limit: int = Field(default=500, ge=1)
-    # Separate internal risk units for AI analysis and prompt assistance. These
-    # values are controls, not a currency estimate and not video points.
-    ai_risk_daily_user_limit: int = Field(default=100, ge=1)
-    ai_risk_daily_global_limit: int = Field(default=1000, ge=1)
+    # Shared USD allowance: one unit is $0.001. Video points remain separate.
+    ai_risk_daily_user_limit: int = Field(default=50_000, ge=1)
+    ai_risk_daily_global_limit: int = Field(default=500_000, ge=1)
+    ai_price_catalog_json: str = '{"version":"operator-v1","prices":[]}'
+    ai_unknown_price_policy: Literal["cap", "reject"] = "cap"
+    ai_unknown_price_cap_units: int = Field(default=5000, ge=1)
+    ai_request_max_units: int = Field(default=5000, ge=1)
+    ai_batch_max_units: int = Field(default=10_000, ge=1)
+    ai_input_image_token_reserve: int = Field(default=4096, ge=1)
+    ai_input_schema_token_reserve: int = Field(default=8192, ge=1)
+    # Legacy heuristic knobs retained for configuration compatibility only.
     ai_risk_base_units: int = Field(default=1, ge=1)
     ai_risk_input_chars_per_unit: int = Field(default=1000, ge=1)
     ai_risk_image_unit: int = Field(default=4, ge=1)

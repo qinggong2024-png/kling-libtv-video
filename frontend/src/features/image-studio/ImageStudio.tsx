@@ -29,6 +29,7 @@ import { BatchCreationView } from './BatchCreationView'
 import { ReferenceImageUpload } from './shared/ReferenceImageUpload'
 import { bindImageReferenceSequence } from './imageReferenceSequence'
 import { AssetPreviewDialog, BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputPreview, SelectionWorkbench } from './ImageResultTools'
+import './imageStudio.css'
 
 export { BatchImageOutputReview, ImageOutputCompare, ImageOutputReview, OutputCard } from './ImageResultTools'
 
@@ -107,6 +108,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   const [reviewOutputId, setReviewOutputId] = useState<string | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
   const [batchReviewOpen, setBatchReviewOpen] = useState(false)
+  const [commandBarHost, setCommandBarHost] = useState<HTMLDivElement | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [generationAvailability, setGenerationAvailability] = useState<GenerationAvailability>('checking')
   const [generationAvailabilityReason, setGenerationAvailabilityReason] = useState('')
@@ -480,7 +482,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
   }
   if (!loaded) return <div className="image-center-loading" hidden={!active}><LoaderCircle className="spin" size={24} /><strong>正在恢复图片批次</strong></div>
 
-  return <div className={`image-center page-view${studioMode === 'director' ? ' image-center--director' : ''}`} hidden={!active}>
+  return <div className={`image-center page-view${studioMode === 'director' ? ' image-center--director' : ' image-studio-workspace'}`} hidden={!active}>
     {notice ? <div className={`image-center-notice${errors.includes(notice) ? ' is-danger' : ''}`} role="status"><AlertTriangle size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭提示"><X size={15} /></button></div> : null}
 
     {studioMode === 'director' ? <DirectorStudio /> : null}
@@ -492,7 +494,7 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
       config={draft.config} onChangeConfig={updateConfig} busy={submitting} blocked={generationBlocked} saveState={saveState}
       reason={generationStatusMessage} error={simpleErrors[0]} count={simpleSummary.totalImages}
       onGenerate={() => submit(simpleDraft)}
-      references={<ReferenceImageUpload files={referenceFiles} maxFiles={referenceLimit} onPreview={previewSourceImage}
+      references={<ReferenceImageUpload files={referenceFiles} boundRoles={getOrderedImageReferences(draft.model, activeOutfit).map(({ role }) => role)} maxFiles={referenceLimit} onPreview={previewSourceImage}
         onChange={(files) => {
           const { model, product } = bindImageReferenceSequence(files)
           updateDraft((current) => ({
@@ -517,11 +519,12 @@ function ScopedImageCenter({ active, initialMode, draftScope, openTaskId, onPrep
       toggleOutput={toggleOutput} rejectOutput={rejectOutput} onPreviewOutput={(id) => { setPreviewSource(null); setPreviewOutputId(id) }}
     /> : null}
     </div>
-    {active && studioMode === 'custom' && batchEditor && imageView !== 'batch-products' ? createPortal(<div className="image-center-command-bar">
+    {active && studioMode === 'custom' && batchEditor && imageView !== 'batch-products' ? <div className="image-studio-command-host" ref={setCommandBarHost} /> : null}
+    {active && studioMode === 'custom' && batchEditor && imageView !== 'batch-products' && commandBarHost ? createPortal(<div className="image-center-command-bar image-studio-command-bar">
       <div><strong>{summary.outfitCount}/{draft.outfits.length} 套已就绪</strong><span>预计生成 {summary.totalImages} 张图片</span></div>
       {errors.length ? <a href={errorTarget}><AlertTriangle size={15} />{errors[0]}</a> : generationBlocked ? <span id="image-generation-availability" title={generationStatusMessage}><AlertTriangle size={15} />{generationStatusMessage}</span> : <span id="image-generation-availability" className="is-ready"><CheckCircle2 size={15} />配置完整</span>}
       <button type="button" className="primary-button" disabled={submitting || generationBlocked} onClick={() => submit()} title={generationBlocked ? generationStatusMessage : undefined} aria-describedby="image-generation-availability">{submitting ? <LoaderCircle className="spin" size={17} /> : <WandSparkles size={17} />}{submitting ? '正在提交' : generationBlocked ? '生成暂不可用' : '创建生图任务'}</button>
-    </div>, document.body) : null}
+    </div>, commandBarHost) : null}
     {active && studioMode === 'custom' && imageView === 'records' && selectedIds.size ? createPortal(<SelectionWorkbench
       tasks={draft.tasks}
       selectedOutputIds={draft.selectedOutputIds}

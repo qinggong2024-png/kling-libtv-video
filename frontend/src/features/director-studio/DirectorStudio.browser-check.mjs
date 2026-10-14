@@ -50,6 +50,9 @@ try {
     const commands = []
     const creationRequests = []
     let failReview = false
+    let failCreation = true
+    let failAnalysis = true
+    let productRequests = 0
     let failSelect = false
     let uncertain = false
     const analysisStages = [
@@ -85,18 +88,27 @@ try {
       if (url.pathname === '/api/v1/system/status') return json({ sharedAuthentication: false, csrfCookieName: 'csrf' })
       if (url.pathname === '/api/v1/auth/me') return json({ userId: 'user-1', username: 'fixture', role: 'USER' })
       if (url.pathname === '/api/v1/site-style-profiles') return json([])
-      if (url.pathname === '/api/v1/products') return json({ id: 'product-1' })
+      if (url.pathname === '/api/v1/products') {
+        productRequests++
+        return json({ id: 'product-1' })
+      }
       if (url.pathname.endsWith('/commands')) {
         const body = route.request().postDataJSON()
         commands.push(body)
         assert.equal(body.expected_version, task.state_version)
+        if (body.action === 'analyze' && failAnalysis) {
+          failAnalysis = false
+          task.status = 'ANALYSIS_FAILED'
+          task.state_version++
+          return route.fulfill({ status: 503, json: { detail: { code: 'ANALYSIS_FAILED', message: 'Fixture analysis failure' } } })
+        }
         if ((body.action === 'review' && failReview) || (body.action === 'select' && failSelect)) {
           failReview = false
           failSelect = false
           return route.fulfill({ status: 409, json: { detail: { code: 'STALE_VERSION', message: '测试冲突，请刷新状态' } } })
         }
         await new Promise(done => setTimeout(done, 150))
-        if (body.action === 'analyze') {
+        if (body.action === 'analyze' || body.action === 'retry_analysis') {
           task.status = 'AWAITING_DIRECTION'
           task.snapshot.plan = { directions: ['A', 'B', 'C'].map(id => ({ id, scene: `scene ${id}`, behavior: 'standing' })) }
           task.snapshot.director_analysis = {
@@ -181,6 +193,10 @@ try {
         return json(task)
       }
       if (url.pathname === '/api/v1/creative-workflow/tasks') {
+        if (failCreation) {
+          failCreation = false
+          return route.fulfill({ status: 503, json: { detail: { code: 'WORKFLOW_CREATE_FAILED', message: 'Fixture creation failure' } } })
+        }
         creationRequests.push(route.request().postData())
         return json(task)
       }
@@ -243,9 +259,17 @@ try {
         buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
       })
       await analyze.click()
+      await page.getByText('Fixture creation failure', { exact: false }).waitFor()
+      await analyze.click()
+      const retryAnalysis = page.getByRole('button', { name: '重试分析', exact: true })
+      await retryAnalysis.waitFor()
+      await page.screenshot({ path: resolve(evidence, `analysis-recovery-${width}.png`), fullPage: true })
+      await retryAnalysis.click()
       const directionCards = page.locator('article.director-direction')
       await directionCards.filter({ hasText: 'scene A' }).waitFor()
       assert.equal(creationRequests.length, 1)
+      assert.equal(productRequests, 1, 'Workflow creation or analysis failure never recreates the existing Product')
+      assert.equal(commands.filter(command => command.action === 'retry_analysis').length, 1)
       const formFields = [...creationRequests[0].matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map(match => match[1])
       assert.deepEqual(formFields.sort(), ['client_key', 'front', 'product_id'], 'Only existing effective inputs enter task creation')
       assert(!creationRequests[0].includes('PLANNED_'), 'Planning values stay out of analysis')
@@ -255,7 +279,7 @@ try {
       assert.equal(await page.locator('.director-direction__label').filter({ hasText: 'Execution Concept' }).count(), 3)
       assert.equal(await page.locator('.director-direction__label').filter({ hasText: 'Visual Proposal' }).count(), 3)
       assert.equal(await page.locator('.director-direction__source-list dt').filter({ hasText: 'Creative Proposal' }).count(), 3)
-      assert.equal(await page.getByText('Information Source · 信息来源', { exact: true }).count(), 3)
+      assert.equal(await directionCards.locator('summary').filter({ hasText: 'Information Source' }).count(), 3)
       assert.equal(await page.getByRole('region', { name: '方向差异对比' }).count(), 0)
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No direction card overflow')
       const cardBounds = await directionCards.evaluateAll(cards => cards.map(card => {

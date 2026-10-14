@@ -18,6 +18,7 @@ import { ImageVideoComposerSheet } from '../features/production/ImageVideoCompos
 import { useProductionActions } from '../features/production/hooks/useProductionActions'
 import { useTaskPolling } from '../features/production/hooks/useTaskPolling'
 import { RecordsView } from '../features/task-center/RecordsView'
+import { ImageBatchRecords } from '../features/task-center/ImageBatchRecords'
 import { CreativeWorkspaceView, ProjectContextBar } from '../features/creative-workspace/CreativeWorkspaceView'
 import { providerPresentation } from '../providerPresentation'
 import { writeStorage } from '../safeStorage'
@@ -29,10 +30,11 @@ import type { NavItem } from './AppShell'
 import { useAppNavigation } from './useAppNavigation'
 import { useTaskNotifications } from './useTaskNotifications'
 import type { View } from './appTypes'
+import { useGeneratedHistory } from './useGeneratedHistory'
 
 // 页面级 lazy：只在进入对应 view 时才下载该页面 chunk。
 const ImageStudio = lazy(() => import('../features/image-studio').then((m) => ({ default: m.ImageStudio })))
-const ContentLibraryView = lazy(() => import('../features/library/ContentLibraryView').then((m) => ({ default: m.ContentLibraryView })))
+const GeneratedAssetsView = lazy(() => import('../features/library/GeneratedAssetsView').then((m) => ({ default: m.GeneratedAssetsView })))
 const AdminCenterView = lazy(() => import('../features/admin/AdminCenterView').then((m) => ({ default: m.AdminCenterView })))
 const SettingsView = lazy(() => import('../features/settings/SettingsView').then((m) => ({ default: m.SettingsView })))
 const HomeView = lazy(() => import('../features/task-center/HomeView').then((m) => ({ default: m.HomeView })))
@@ -60,6 +62,11 @@ function App() {
     loadingMoreTasks, setLoadingMoreTasks,
     refreshTasks, refresh,
   } = useTaskPolling(detailId)
+
+  const history = useGeneratedHistory(loading || authRequired ? null : actor?.userId ?? null, view === 'records' || view === 'library')
+  const imageBatches = history.images.items
+  const assetTasks = history.videos.items
+  const directorTasks = history.directors.items
 
   const {
     browserNotificationsEnabled,
@@ -106,7 +113,7 @@ function App() {
   }, [navigate])
 
   useEffect(() => {
-    if (view !== 'records' || recordsRestoreScroll === null) return
+    if (!['records', 'library'].includes(view) || recordsRestoreScroll === null) return
     const frame = window.requestAnimationFrame(() => {
       window.scrollTo({ top: recordsRestoreScroll, behavior: 'auto' })
       setRecordsRestoreScroll(null)
@@ -157,8 +164,8 @@ function App() {
     { id: 'director-studio', value: 'images', label: '导演台', icon: <WandSparkles size={18} />, surface: 'director' },
     { id: 'image-studio', value: 'images', label: '图片工作室', icon: <Images size={18} />, surface: 'image' },
     { id: 'video-studio', value: 'make', label: '视频工作室', icon: <Clapperboard size={18} />, surface: 'video' },
-    { id: 'library', value: 'library', label: '素材库', icon: <Library size={18} />, surface: 'assets' },
     { id: 'task-center', value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
+    { id: 'generated-assets', value: 'library', label: '生成资产', icon: <Library size={18} />, surface: 'assets' },
     ...(canOperate ? [{ id: 'admin', value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
     { id: 'settings', value: 'settings', label: '设置', icon: <Settings size={18} /> },
   ]
@@ -232,15 +239,33 @@ function App() {
           : null}
         {view === 'make' && surface === null && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><CreativeWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
       </Suspense>
-      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} cutflowEnabled={system?.cutflowHandoffEnabled} cutflowCanWrite={Boolean(actor && ['ADMIN', 'OPERATOR', 'USER'].includes(actor.role))} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
-      {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
-        actorId={actorId}
-        canDeleteSubjects={actor?.role === 'ADMIN'}
-        canEditCatalog={Boolean(actor)}
+      {view === 'records' ? <RecordsView tasks={tasks} directorTasks={directorTasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} cutflowEnabled={system?.cutflowHandoffEnabled} cutflowCanWrite={Boolean(actor && ['ADMIN', 'OPERATOR', 'USER'].includes(actor.role))} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
+      {view === 'records' || view === 'library' ? <div aria-label="历史同步状态">
+        {([['图片', history.images], ['视频', history.videos], ['导演', history.directors]] as const).map(([label, source]) => source.error
+          ? <div key={label} className="service-banner" role="alert"><AlertTriangle size={18} /><span>{label}历史读取失败：{source.error}</span><button type="button" onClick={history.refreshHistory}><RefreshCw size={15} />重试</button></div>
+          : source.loading && !source.syncedAt ? <div key={label} role="status">正在读取{label}历史</div> : null)}
+      </div> : null}
+      {view === 'records' ? <ImageBatchRecords batches={imageBatches} query={recordsQuery} onChanged={() => { history.refreshHistory(); void refreshTasks() }} /> : null}
+      {view === 'library' ? <Suspense fallback={<PageLoading />}><GeneratedAssetsView
+        tasks={assetTasks}
+        imageBatches={imageBatches}
+        lastSyncedAt={history.videos.syncedAt}
+        syncError={Boolean(history.images.error || history.videos.error)}
+        onOpen={(task) => openTaskFromRecords(task.id)}
+        onPlay={play}
+        onRemix={(task) => void remix(task)}
+        onFeedbackChanged={(task) => { feedbackChanged(task); history.refreshHistory() }}
+        onCreateTask={() => navigate('make')}
+        canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'}
+        cutflowEnabled={system?.cutflowHandoffEnabled}
+        cutflowCanWrite={Boolean(actor && ['ADMIN', 'OPERATOR', 'USER'].includes(actor.role))}
       /></Suspense> : null}
       {view === 'admin' ? <Suspense fallback={<PageLoading />}><AdminCenterView system={system} actor={actor} section={adminSection} onSectionChange={(section) => navigate('admin', null, false, section)} onKlingChanged={refresh} /></Suspense> : null}
       {view === 'settings' ? <Suspense fallback={<PageLoading />}><SettingsView
         system={system}
+        actorId={actorId}
+        canDeleteSubjects={actor?.role === 'ADMIN'}
+        canEditCatalog={Boolean(actor)}
         onLogout={() => void signOut()}
         browserNotificationsEnabled={browserNotificationsEnabled}
         browserNotificationPermission={notificationPermission}

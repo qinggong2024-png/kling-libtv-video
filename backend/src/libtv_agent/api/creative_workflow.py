@@ -7,10 +7,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from libtv_agent.api.dependencies import Actor, Session, require_review_write
 from libtv_agent.creative.workflow import AssetLink, Command
-from libtv_agent.domain.models import CreativeCreation, Product
+from libtv_agent.domain.models import CreativeCreation, CreativeTask, Product
 from libtv_agent.services.creative_package_export import with_creative_package_exports
 from libtv_agent.services.creative_workflow import (
     create_task,
@@ -39,6 +39,54 @@ def director_response_mode(request: Request) -> str:
     if settings.director_workflow_mode == "live_director":
         return "LIVE_DIRECTOR"
     reject("DIRECTOR_WORKFLOW_MODE_INVALID", 500)
+
+
+@router.get("/tasks")
+async def list_tasks(
+    request: Request,
+    actor: Actor,
+    session: Session,
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: uuid.UUID | None = Query(default=None),
+) -> list[dict]:
+    mode = director_response_mode(request)
+    statement = (
+        select(CreativeTask).join(Product, Product.id == CreativeTask.product_id)
+        .where(CreativeTask.user_id == actor.id, Product.user_id == actor.id)
+        .order_by(CreativeTask.id.desc())
+        .limit(limit + 1)
+    )
+    if cursor is not None:
+        anchor = await session.scalar(
+            select(CreativeTask).join(Product, Product.id == CreativeTask.product_id).where(
+                CreativeTask.id == cursor,
+                CreativeTask.user_id == actor.id,
+                Product.user_id == actor.id,
+            )
+        )
+        if anchor is None:
+            raise HTTPException(status_code=422, detail="Invalid history cursor")
+        if anchor is not None:
+            statement = statement.where(
+                CreativeTask.id < anchor.id
+            )
+    creations = list((await session.scalars(statement)).all())
+    has_more = len(creations) > limit
+    creations = creations[:limit]
+    results: list[dict] = []
+    for creation in creations:
+        task = creation
+        results.append(with_creative_package_exports({
+            "id": str(task.id),
+            "status": task.status,
+            "state_version": task.state_version,
+            "snapshot": task.snapshot_json,
+            "mode": mode,
+            "recovery": {"created": True},
+        }))
+    if has_more and results:
+        results[-1]["nextCursor"] = str(creations[-1].id)
+    return results
 
 
 @router.post("/tasks", status_code=201)

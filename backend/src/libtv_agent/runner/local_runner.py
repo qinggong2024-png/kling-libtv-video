@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import signal
 import sys
@@ -15,12 +16,13 @@ from libtv_agent.runner.service_runtime import run_service_loop  # noqa: E402
 RUNNER_LOG_PATH = PROJECT_ROOT / "var" / "logs" / "runner.log"
 
 
-def main() -> None:
+def main(data_root: Path | None = None) -> None:
     # This process is started in a hidden window with no output redirection, so
     # without a file handler its exceptions go nowhere at all. The service loop
     # wraps every cycle in logger.exception(); that traceback is the only way to
     # find out why generation stalled.
-    configure_file_logging(RUNNER_LOG_PATH)
+    runtime_root = data_root.resolve() if data_root else PROJECT_ROOT
+    configure_file_logging(runtime_root / "logs" / "runner.log" if data_root else RUNNER_LOG_PATH)
 
     stopping = threading.Event()
 
@@ -31,8 +33,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, request_stop)
-    asyncio.run(run_service_loop(stopping, PROJECT_ROOT))
+    asyncio.run(run_service_loop(stopping, PROJECT_ROOT, runtime_root))
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Run the existing local worker loop")
+    parser.add_argument("--data-root", type=Path)
+    main(parser.parse_args().data_root)

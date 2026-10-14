@@ -1,13 +1,20 @@
-import { ArrowLeft, ArrowRight, GripVertical, UploadCloud, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, GripVertical, X } from 'lucide-react'
+import { ImageUploadTrigger } from '../../../shared/components/studio/ImageUploadTrigger'
 import { useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../../imageFiles'
+import type { ImageReferenceRole } from '../../../imageCenterModel'
 import { AssetPreview } from './ImageAssets'
 
 const REFERENCE_DRAG_TYPE = 'application/x-image-studio-reference'
+const REFERENCE_ROLE_LABELS: Record<ImageReferenceRole, string> = {
+  'model.front': '模特正面', 'product.front': '商品正面', 'product.back': '商品背面',
+  'model.back': '模特背面', 'product.side': '商品侧面', 'model.side': '模特侧面',
+}
 
-export function ReferenceImageUpload({ files, maxFiles, onChange, onPreview }: {
+export function ReferenceImageUpload({ files, boundRoles, maxFiles, onChange, onPreview }: {
   files: File[]
+  boundRoles: readonly ImageReferenceRole[]
   maxFiles: number
   onChange: (files: File[]) => void
   onPreview: (file: File, label: string) => void
@@ -46,10 +53,8 @@ export function ReferenceImageUpload({ files, maxFiles, onChange, onPreview }: {
   return <section className="image-reference-upload" aria-label="参考图片"
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types.includes(REFERENCE_DRAG_TYPE) ? 'move' : 'copy' }}
     onDrop={event => drop(event, files.length)}>
-    <header><h3>参考图片</h3><span>{files.length}/{maxFiles}</span></header>
-    <button type="button" className="image-reference-upload__dropzone" disabled={files.length >= maxFiles} onClick={() => input.current?.click()}>
-      <UploadCloud size={22} aria-hidden="true" /><span><strong>{files.length ? '添加图片' : '上传图片'}</strong><small>JPG、PNG、WEBP · 至少 2 张</small></span>
-    </button>
+    <header><h3>上传参考图片</h3><span>{files.length}/{maxFiles} 张</span></header>
+    <ImageUploadTrigger title={files.length ? '继续添加图片' : '上传参考图片'} disabled={files.length >= maxFiles} onClick={() => input.current?.click()} />
     <input ref={input} id="image-reference-files" className="sr-only" type="file" multiple accept={IMAGE_FILE_ACCEPT}
       disabled={files.length >= maxFiles} onChange={event => { receive(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
     {files.length ? <div className="image-reference-list" role="list" aria-label="参考图顺序">
@@ -62,7 +67,8 @@ export function ReferenceImageUpload({ files, maxFiles, onChange, onPreview }: {
         <button type="button" className="image-reference-tile__preview" onClick={() => onPreview(file, `参考图 ${index + 1}`)} aria-label={`查看参考图 ${index + 1}`} title={file.name}>
           <AssetPreview file={file} alt={`图 ${index + 1}：${file.name}`} />
         </button>
-        <div className="image-reference-tile__toolbar"><span><GripVertical size={13} aria-hidden="true" />图 {index + 1}</span>
+        <div className="image-reference-tile__binding"><strong>图{index + 1} · {REFERENCE_ROLE_LABELS[boundRoles[index]] ?? '用途未提供'}</strong><small title={file.name}>{file.name}</small></div>
+        <div className="image-reference-tile__toolbar"><span aria-hidden="true" title="拖拽排序"><GripVertical size={13} /></span>
           <button type="button" disabled={index === 0} onClick={() => move(index, index - 1)} aria-label={`前移参考图 ${index + 1}`} title="前移"><ArrowLeft size={13} /></button>
           <button type="button" disabled={index === files.length - 1} onClick={() => move(index, index + 1)} aria-label={`后移参考图 ${index + 1}`} title="后移"><ArrowRight size={13} /></button>
           <button type="button" onClick={() => { onChange(files.filter((_, position) => position !== index)); setNotice('') }} aria-label={`删除参考图 ${index + 1}`} title="删除"><X size={14} /></button>

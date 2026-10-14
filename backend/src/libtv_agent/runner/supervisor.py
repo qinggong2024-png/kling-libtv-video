@@ -51,6 +51,12 @@ from libtv_agent.services.media import (
     technical_validate,
     technical_validation_options,
 )
+from libtv_agent.services.media_ai_usage import (
+    MEDIA_BUDGET_ERRORS,
+    claim_media_submission,
+    finish_video_usage,
+    video_usage_request,
+)
 from libtv_agent.services.points import business_date, settle_points
 from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
@@ -452,7 +458,13 @@ class RunnerSupervisor:
         await session.commit()
         if not await self._guard_video_inputs(session, command, attempt):
             return True
+        if not await self._claim_video_budget(session, command, attempt):
+            return True
         if self.settings.libtv_adapter_mode == "real":
+            if not await self._guard_video_inputs(
+                session, command, attempt, media_budget_claimed=True,
+            ):
+                return True
             try:
                 manifest = self.command_host_manager.launch_generation(
                     str(command.id), attempt.project_uuid or "", attempt.video_node_key or ""
@@ -511,6 +523,10 @@ class RunnerSupervisor:
         await self._aggregate_task(session, attempt.variant_id)
         working_directory = self.settings.runner_root / str(command.id)
         working_directory.mkdir(parents=True, exist_ok=True)
+        if not await self._guard_video_inputs(
+            session, command, attempt, media_budget_claimed=True,
+        ):
+            return True
         try:
             result = await self.adapter.run_generation(
                 project_uuid=attempt.project_uuid or "",
@@ -674,11 +690,23 @@ class RunnerSupervisor:
                     )
                 ),
             )
+            # Close the pre-materialization transaction before object-store I/O.
+            # A recovered claim must be visible to the next fence check even on
+            # SQLite, whose connection can otherwise retain an old read snapshot.
+            await session.commit()
             if not await self._guard_command(session, command, launching=True):
                 return None
             attempt.launch_started_at = command.launch_started_at
             await session.commit()
             if not await self._guard_video_inputs(session, command, attempt):
+                return True
+            if not await self._claim_video_budget(session, command, attempt):
+                return True
+            # Budget claiming commits and releases the earlier source-image lock.
+            # Keep this fresh qualification/lineage check locked through submit.
+            if not await self._guard_video_inputs(
+                session, command, attempt, media_budget_claimed=True,
+            ):
                 return True
             submission = await kling_adapter.submit(request)
         except KlingCliError as exc:
@@ -739,6 +767,29 @@ class RunnerSupervisor:
         await session.commit()
         return False
 
+    async def _claim_video_budget(
+        self, session: AsyncSession, command: GenerationCommand, attempt: GenerationAttempt,
+    ) -> bool:
+        variant = await session.get(GenerationVariant, attempt.variant_id)
+        task = await session.get(ParentTask, variant.parent_task_id) if variant else None
+        try:
+            if task is None or variant is None:
+                raise ValueError("video budget parent task is missing")
+            request = video_usage_request(
+                self.settings, task, variant, attempt, adapter=self.adapter,
+            )
+            await claim_media_submission(session, request)
+        except (*MEDIA_BUDGET_ERRORS, ValueError) as exc:
+            await self._handle_error(
+                session, command, attempt, LibTVError(
+                    getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED"), str(exc),
+                    submitted=bool(getattr(exc, "uncertain", False)),
+                    uncertain=bool(getattr(exc, "uncertain", False)),
+                ),
+            )
+            return False
+        return True
+
     async def _claim_poll_observation(
         self, session: AsyncSession, attempt: GenerationAttempt
     ) -> bool | None:
@@ -761,6 +812,7 @@ class RunnerSupervisor:
 
     async def _guard_video_inputs(
         self, session: AsyncSession, command: GenerationCommand, attempt: GenerationAttempt,
+        *, media_budget_claimed: bool = False,
     ) -> bool:
         variant = await session.get(GenerationVariant, attempt.variant_id)
         task = await session.get(ParentTask, variant.parent_task_id) if variant else None
@@ -773,7 +825,10 @@ class RunnerSupervisor:
         try:
             await validate_task_video_sources(session, task)
         except RuntimeControlBlockedError as exc:
-            await self._handle_error(session, command, attempt, LibTVError(exc.code, str(exc)))
+            await self._handle_error(
+                session, command, attempt, LibTVError(exc.code, str(exc)),
+                media_budget_claimed=media_budget_claimed,
+            )
             task.phase_reason_code = exc.code
             session.add(AuditEvent(
                 actor_id=task.user_id, action="VIDEO_SOURCE_BLOCKED",
@@ -1078,6 +1133,8 @@ class RunnerSupervisor:
         command: GenerationCommand,
         attempt: GenerationAttempt,
         error: LibTVError | KlingCliError,
+        *,
+        media_budget_claimed: bool = False,
     ) -> None:
         if error.code == "LIBTV_AUTH_REQUIRED":
             await set_libtv_auth_required(
@@ -1124,6 +1181,10 @@ class RunnerSupervisor:
         if attempt.provider != "libtv":
             attempt.provider_status = "unknown" if error.submitted or error.uncertain else "failed"
         attempt.state_version += 1
+        if media_budget_claimed:
+            await finish_video_usage(
+                session, attempt, not_submitted=not (error.submitted or error.uncertain),
+            )
         await session.commit()
         await self._aggregate_task(session, attempt.variant_id)
 

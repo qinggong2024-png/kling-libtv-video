@@ -4,7 +4,8 @@ param(
     [ValidateSet('LibTVProductionRunner')]
     [string]$ServiceName = 'LibTVProductionRunner',
     [ValidateSet('NT SERVICE\LibTVProductionRunner')]
-    [string]$ServiceAccount = 'NT SERVICE\LibTVProductionRunner'
+    [string]$ServiceAccount = 'NT SERVICE\LibTVProductionRunner',
+    [string]$DataRoot = 'F:\Users\Reel\Documents\libtv-production'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,9 @@ switch ($Action) {
         New-Item -ItemType Directory -Force -Path $libtvConfigDir | Out-Null
         & $python $serviceScript --startup auto install
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $registryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+        New-Item -Path $registryPath -Force | Out-Null
+        New-ItemProperty -Path $registryPath -Name DataRoot -Value (Resolve-Path -LiteralPath $DataRoot).Path -PropertyType String -Force | Out-Null
         & sc.exe config $ServiceName obj= $ServiceAccount password= ""
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/restart/60000
