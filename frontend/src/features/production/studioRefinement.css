@@ -17,7 +17,7 @@
 .app-shell--video .sidebar-main-nav button,
 .app-shell--video .sidebar-settings { font-size: 14px; font-weight: 500; border-radius: 8px; transition: color 120ms, background-color 120ms; }
 .app-shell--video .sidebar-main-nav button.is-active,
-.app-shell--video .sidebar-settings.is-active { border-color: transparent; background: var(--primary-soft); box-shadow: none; color: var(--primary); font-weight: 650; }
+.app-shell--video .sidebar-settings.is-active { border-color: transparent; background: var(--primary-soft); box-shadow: none; color: var(--primary); font-weight: 600; }
 .app-shell--video .sidebar-main-nav button:hover,
 .app-shell--video .sidebar-settings:hover { transform: none; }
 .app-shell--video .sidebar-utility button { border-color: transparent; background: transparent; box-shadow: none; }
@@ -29,33 +29,39 @@
 .home-view.video-studio { width: min(1120px, 100%); min-height: 100dvh; padding: 24px 32px 48px; margin-inline: auto; background: var(--surface); }
 .video-studio .home-title { min-height: 56px; margin-bottom: 24px; padding-bottom: 16px; }
 .video-studio .home-title > div:first-child { display: flex; align-items: baseline; gap: 12px; }
-.video-studio .home-title h1 { font-size: 24px; line-height: 1.4; font-weight: 650; }
+.video-studio .home-title h1 { font-size: 24px; line-height: 1.4; font-weight: 600; }
 .video-studio .studio-kicker { margin: 0; font-size: 12px; font-weight: 400; }
 .video-studio h2 { text-wrap: balance; }
 .video-studio :is(.text-button, .compact-button, .secondary-button, .studio-button) { min-height: 44px; }
 .video-studio .home-title-actions .text-button { color: var(--text-secondary); }
 .composer--studio .upload-panel-head h2,
-.composer--studio .generation-workflow-heading h2 { font-size: 18px; font-weight: 650; }
+.composer--studio .generation-workflow-heading h2 { font-size: 18px; font-weight: 600; }
 .composer--studio .upload-panel--storyboard { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .composer--studio .upload-panel--has-items .upload-panel-head { grid-column: 1; grid-row: 1; }
 .composer--studio .upload-panel-head { justify-content: flex-start; }
 .composer--studio .upload-panel-head > div { display: flex; align-items: baseline; gap: 12px; }
 .composer--studio .upload-panel-head > span { font-variant-numeric: tabular-nums; color: var(--studio-muted); }
 .composer--studio .studio-upload-actions { gap: 12px; }
-.composer--studio .upload-panel--storyboard .upload-zone { flex: 0 1 320px; min-height: 56px; width: auto; padding: 8px 16px; background: var(--surface-soft); }
+/* 已删除 6 条针对 `.upload-zone` / `.upload-icon` 的死规则（本文件 6 条 + videoStudio.css 4 条，
+   共 10 条）：studio 分支由 `ImageUploadTrigger` 渲染 `.studio-image-upload` +
+   `.studio-image-upload__icon`，`.upload-zone` 只在 ProductionComposer 的**非 studio** 三元分支里
+   出现（`className="upload-zone upload-zone--compact"`），实测 DOM 中 `.composer--studio .upload-zone`
+   恒为 0 个（评审 L1④）。下面两条 `:is()` 里的 `.upload-zone` 成员也一并去掉了。
+   注意：styles.css 里那批 `.upload-zone` 规则是**活的**，服务于非 studio 路径，不要一起删。 */
 .composer--studio .upload-panel--has-items .studio-upload-actions { grid-row: 1; grid-column: 1; justify-self: end; }
-.composer--studio .upload-panel--has-items .upload-zone { min-height: 44px; padding: 4px 12px; background: var(--surface); }
 .composer--studio .upload-panel--has-items .upload-panel-head { padding-right: 340px; }
 .composer--studio .studio-storyboard { width: fit-content; max-width: 100%; padding: 8px 0 0; }
 .composer--studio .studio-storyboard__track { display: flex; flex-wrap: wrap; gap: 12px; }
 .composer--studio .studio-shot { flex: 0 0 128px; width: 128px; }
-.composer--studio .upload-zone { border-color: var(--line-strong); border-width: 1px; transition: border-color 120ms, background-color 120ms, transform var(--motion-press) var(--ease-out); }
-.composer--studio .upload-zone .upload-icon { border: 0; color: var(--primary); }
 .composer--studio .upload-panel--storyboard.is-drop-target { outline: 2px solid var(--primary); outline-offset: 8px; background: var(--primary-soft); }
 .composer--studio .upload-batch-button { color: var(--text-secondary); }
 .composer--studio .composer-asset-lane { gap: 12px; padding-bottom: 16px; }
 .composer--studio .composer-production-lane { padding-top: 24px; }
-.composer--studio .generation-workflow { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px 32px; }
+/* 生成配置的两列布局：这里是唯一权威声明（模板与生成方式字段并列对齐，见
+   docs/SPRINT_REPORT_VIDEO_CONFIG_LAYOUT_20261014.md）。历史上 videoStudio.css 与文件末尾的
+   @media (min-width: 821px) 补丁块各写过一份同特异性的重复定义，会随源序互相反超 —— 已删除，
+   断点只允许调整间距，不允许再重定义列宽。≤820 由下方 (max-width: 820px) 覆盖为单列。 */
+.composer--studio .generation-workflow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
 .composer--studio .generation-workflow-heading { min-height: 28px; }
 .composer--studio .generation-workflow-heading h2 { margin: 0; }
 .studio-shot { border-color: transparent; background: transparent; border-radius: 8px; }
@@ -87,7 +93,7 @@
 .composer--studio .generation-route-body { grid-column: 1 / -1; padding-top: 0; }
 .composer--studio .generation-route-body .catalog-field select { max-width: 520px; }
 .composer--studio .catalog-field { gap: 6px; }
-.composer--studio :is(.catalog-field > span, .studio-template-selector > label) { font-size: 13px; font-weight: 550; }
+.composer--studio :is(.catalog-field > span, .studio-template-selector > label) { font-size: 13px; font-weight: 500; }
 .composer--studio .catalog-field small { min-height: 0; }
 .composer--studio .advanced-settings { margin-bottom: 0; background: transparent; border: 0; }
 .composer--studio .advanced-settings summary { padding: 0; font-weight: 500; min-height: 44px; color: var(--text-secondary); }
@@ -97,7 +103,7 @@
 .composer--studio .composer-submit-summary { align-self: center; justify-content: flex-end; }
 .composer--studio .composer-submit-status { align-self: center; }
 .composer--studio .composer-result-count legend,
-.composer--studio .composer-duration-field > span:first-child { font-size: 12px; font-weight: 550; }
+.composer--studio .composer-duration-field > span:first-child { font-size: 12px; font-weight: 500; }
 .composer--studio .composer-result-count .segmented-control,
 .composer--studio .composer-duration-field > span:last-child { background: var(--surface); border-color: var(--line); border-radius: 8px; }
 .composer--studio .composer-duration-field > span:last-child { gap: 6px; padding-inline-end: 8px; }
@@ -113,19 +119,22 @@
 .composer--studio .composer-submit-progress > span { width: 100%; transform-origin: left; transition: transform 160ms var(--ease-out); }
 .composer--studio .inline-alert { margin: 0; padding: 12px; gap: 12px; min-width: 0; font-size: 13px; line-height: 1.6; }
 .composer--studio .inline-alert > svg { flex: 0 0 auto; }
-.composer--studio .inline-alert > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.composer--studio .inline-alert > span,
+.composer--studio .inline-alert > .composer-next-action-body { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .composer--studio .inline-alert > span > :is(strong, small) { display: block; }
 .composer--studio .inline-alert > button { flex: 0 0 auto; white-space: nowrap; min-height: 44px; }
 .composer--studio .composer-feedback { display: grid; gap: 8px; padding-top: 12px; }
 .composer--studio .composer-feedback:empty { padding-top: 0; }
-.composer--studio .composer-next-action { align-items: center; min-height: 44px; padding: 0 12px; }
+/* 阻塞项可能有多条，这里不能再按「一行 44px」压高度。 */
+.composer--studio .composer-next-action { align-items: flex-start; min-height: 44px; padding: 8px 12px; }
+.composer--studio .composer-next-action-body > strong { color: var(--text); }
 .composer--studio.is-busy .composer-inputs { opacity: .8; }
 .video-studio .home-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
-.video-studio .section-heading h2 { font-size: 18px; font-weight: 650; }
+.video-studio .section-heading h2 { font-size: 18px; font-weight: 600; }
 .video-studio .empty-state { min-height: 104px; padding: 24px 0; grid-auto-flow: column; gap: 12px; justify-content: start; align-items: center; }
 .video-studio .empty-state > span { width: 44px; height: 44px; background: var(--surface-soft); }
 .video-studio .empty-state p:empty { display: none; }
-.video-studio .empty-state strong { font-size: 13px; color: var(--muted); font-weight: 450; }
+.video-studio .empty-state strong { font-size: 13px; color: var(--muted); font-weight: 400; }
 .studio-button { transition: background-color 120ms, border-color 120ms, color 120ms, transform var(--motion-press) var(--ease-out); }
 .studio-source-inspector .studio-icon-button { width: 44px; height: 44px; flex-basis: 44px; }
 .studio-source-inspector { border-radius: 16px; }
@@ -142,13 +151,13 @@
   .composer--studio .upload-panel--has-items .upload-panel-head { flex: 1 0 100%; padding-right: 0; }
   .composer--studio .upload-panel--has-items .studio-storyboard { order: 1; flex: 0 1 auto; }
   .composer--studio .upload-panel--has-items .studio-upload-actions { order: 2; display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding-top: 8px; }
-  .composer--studio .upload-panel--has-items .upload-zone { flex: 0 0 auto; width: 168px; min-height: 96px; background: var(--surface-soft); }
   .composer--studio .upload-panel--has-items .upload-batch-button { justify-content: center; }
   .composer--studio .upload-panel--has-items :is(.batch-groups, .studio-batch-mode) { order: 3; flex: 1 0 100%; }
 }
 @media (min-width: 821px) and (max-width: 1199px) {
   .home-view.video-studio { padding-inline: 24px; }
-  .composer--studio .generation-workflow { grid-template-columns: minmax(220px, 1fr) minmax(0, 1.45fr); column-gap: 24px; }
+  /* 821–1199 曾在这里重定义 .generation-workflow 的列宽，但被文件末尾同特异性的
+     @media (min-width: 821px) 块整体覆盖（评审 L7「白写的死代码」），已删除。 */
   .composer--studio .composer-submit-row { grid-template-columns: 180px minmax(120px, 1fr) auto; grid-template-areas: "count duration action" "summary summary summary"; gap: var(--space-3); }
   .composer--studio .composer-submit-summary,
   .composer--studio .composer-submit-status { justify-content: flex-start; }
@@ -158,12 +167,12 @@
 @media (min-width: 821px) {
   .home-view.video-studio { width: min(var(--content-max), calc(100% - var(--content-gutter) * 2)); padding: var(--space-5) 0 var(--space-7); background: transparent; color: var(--text); }
   .video-studio .home-title { gap: var(--space-5); margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-color: var(--line); }
-  .video-studio .home-title h1 { font-size: 28px; line-height: 1.3; font-weight: 650; }
+  .video-studio .home-title h1 { font-size: 28px; line-height: 1.3; font-weight: 600; }
   .video-studio .home-title > div:first-child { flex-wrap: wrap; gap: var(--space-3); }
   .video-studio .studio-kicker { color: var(--muted); }
   .video-studio .composer-asset-lane { gap: var(--space-3); padding-bottom: var(--space-4); border-color: var(--line); }
   .video-studio .composer-production-lane { padding-top: var(--space-5); }
-  .video-studio .generation-workflow { gap: var(--space-4) var(--space-6); }
+  /* 生成配置的列宽统一由文件头部的权威声明给出；这里不再重复 gap，避免与断点块争抢。 */
   .video-studio .studio-upload-actions { gap: var(--space-3); }
   .video-studio .composer-submit-row { margin-top: var(--space-5); padding: var(--space-4); background: var(--surface-soft); border-radius: var(--radius-card); }
   .video-studio :is(.upload-zone, .studio-button, .compact-button, .primary-button, .secondary-button, .studio-template-controls select, .catalog-field select, .custom-prompt-field textarea, .segmented-control) { border-radius: var(--radius-button); }
@@ -177,14 +186,14 @@
   .video-studio .result-card:hover { transform: none; border-color: var(--line-strong); box-shadow: none; }
   .video-studio .result-cover { border-radius: calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0 0; }
   .video-studio .home-section { margin-top: var(--space-6); padding-top: var(--space-5); border-color: var(--line); }
-  .video-studio .section-heading h2 { font-size: 18px; font-weight: 650; }
+  .video-studio .section-heading h2 { font-size: 18px; font-weight: 600; }
 }
 @media (min-width: 821px) and (max-width: 1100px) {
   .home-view.video-studio { width: calc(100% - 40px); padding-inline: 0; }
 }
 @media (hover: hover) and (pointer: fine) {
   .composer--studio .studio-shot .material-remove:hover { color: var(--danger); }
-  .composer--studio :is(.upload-zone, .studio-button):active:not(:disabled):not(:focus-visible),
+  .composer--studio .studio-button:active:not(:disabled):not(:focus-visible),
   .studio-source-inspector .studio-button:active:not(:disabled):not(:focus-visible) { transform: scale(.97); }
 }
 @media (max-width: 820px) {
@@ -207,7 +216,6 @@
   .composer--studio .upload-panel--has-items .studio-upload-actions { grid-row: auto; justify-self: stretch; }
   .composer--studio .upload-panel--has-items .upload-panel-head { grid-row: auto; }
   .composer--studio .upload-panel--has-items .upload-panel-head { padding-right: 0; }
-  .composer--studio .upload-panel--storyboard .upload-zone { flex: 1 1 190px; }
   .composer--studio .upload-panel-head > div { gap: 8px; }
   .composer--studio .upload-panel-head h2,
   .composer--studio .generation-workflow-heading h2 { font-size: 16px; }
@@ -235,7 +243,7 @@
     transition-property: color, background-color, border-color, opacity !important;
     transition-duration: 100ms !important;
   }
-  .composer--studio :is(.upload-zone, .studio-button):active { transform: none !important; }
+  .composer--studio .studio-button:active { transform: none !important; }
   .composer--studio .composer-submit-progress > span { transition: none !important; }
 }
 
@@ -250,11 +258,46 @@
 .composer--studio .advanced-settings { margin-top: 8px; }
 .composer--studio .advanced-settings summary { justify-content: flex-start; gap: 8px; }
 .composer--studio .advanced-settings summary > svg:last-child { margin-left: auto; }
+/* videoStudio.css 里 `.composer--studio .primary-button` 与 styles.css 里
+   `.app-shell.app-shell--video .primary-button` 都是同特异性声明，靠源序互相反超。
+   这里提到 (0,4,0) 稳定压过两者：禁用态落回中性面，不再显示满饱和品牌蓝（评审 I5）。 */
+.app-shell--video .composer--studio .primary-button:disabled { border-color: var(--line); background: var(--surface-soft); color: var(--muted); box-shadow: none; opacity: 1; }
+
+/* ── 评审修复：D1 待处理卡版式 / D2 结果区降级 ─────────────────────────────────── */
+
+/* L4 ·「切换生成方式整页跳高」已**回退**，继续沿用 videoStudio.css 里
+   `.composer--studio .generation-route.is-inactive .generation-route-body { display: none }`
+   的原行为。回退依据（2026-10-14 实测，1024×768 空态）：
+   自动模式 body 自然高 148px、自定义模式 204px（多出「提示词方案」整块，无法压到 148）。
+   让两个 body 共用一个网格单元 + 非激活侧 visibility 占位，确实能让切换高度恒定，
+   代价是**自动模式下凭空多 56px 留白**，把「开始生成」推到首屏之外
+   （按钮 bottom 801 > 视口 768，超出 33px；回退后为 745，余量 23px）。
+   仓库自带 scripts/ui-video-studio-check.mjs:129 断言的就是这一条，回退后 25/25 通过。
+   补充：这 80px 跳高里约一半来自阻塞项条数变化（空态 1 条 → 自定义态 2 条），
+   那部分属于正常内容增长，占位法本来就盖不住。
+   结论：不为一个 56px 的切换位移，换来默认态永久多 56px 的空白。 */
+
+/* D2 · 这一批结果的封面全都读不出来时，说明是服务侧故障而不是"没有图"：
+   给一行状态条 + 统一重试出口，并把封面压扁，避免滚动一屏零信息量的空卡。 */
+.results-gallery-degraded { margin: 0 0 12px; align-items: flex-start; }
+.results-gallery-degraded > span { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.results-gallery-degraded > span > strong { font-size: 13px; }
+.results-gallery-degraded > span > small { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.results-grid--degraded .result-cover { aspect-ratio: auto; min-height: 112px; }
+.results-grid--degraded .result-cover .image-fallback__detail { display: none; }
+
+/* D1 · 「需要你操作」在 ≥1200 改两列：3 列时卡片只有 389px，标题可用宽仅 267px 而文本要 404px，
+   越宽的屏反而越看不清。顺带把缩略图放大到 72px、标题放到 2 行。 */
+@media (min-width: 1200px) {
+  .video-studio .attention-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .video-studio .attention-item { grid-template-columns: 72px minmax(0, 1fr); }
+  .video-studio .attention-item .task-thumb { width: 72px; height: 72px; }
+  .video-studio .attention-item-content strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; text-overflow: ellipsis; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
+}
 
 @media (min-width: 821px) {
   .video-studio .home-title { min-height: 48px; margin-bottom: 16px; padding-bottom: 12px; }
   .video-studio .composer-production-lane { padding-top: 16px; }
-  .video-studio .generation-workflow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
   .video-studio .composer-submit-row { margin-top: 16px; padding: 12px 16px; border-radius: 8px; }
   .composer--studio .upload-panel--has-items .upload-panel-head { flex-basis: 100%; }
   .composer--studio .upload-panel--has-items .studio-upload-actions { flex-direction: row; }
@@ -266,6 +309,6 @@
   .composer--studio .upload-panel-head { flex-wrap: wrap; }
   .composer--studio .upload-panel-head > div { flex: 1 1 180px; }
   .composer--studio .composer-next-action { flex-wrap: wrap; padding: 12px; }
-  .composer--studio .composer-next-action > span { flex-basis: calc(100% - 40px); }
-  .composer--studio .composer-next-action > button { margin-left: 29px; }
+  .composer--studio .composer-next-action-list > li { flex-wrap: wrap; }
+  .composer--studio .composer-next-action-list > li > button { margin-left: 29px; }
 }

@@ -26,6 +26,15 @@ import { ImageUploadTrigger } from '../../shared/components/studio/ImageUploadTr
 import './videoStudio.css'
 import './studioRefinement.css'
 
+/**
+ * 维护模式是计划内的服务状态，不是用户操作错误。全站只保留这一条口径（评审 V2）：
+ * 其余位置（模板下拉、站点风格下拉、提示词方案行）只显示最短占位「不可用」，不再重复解释。
+ */
+const MAINTENANCE_MESSAGE = '当前处于维护模式，已有任务仍可查看，生成暂不可用。'
+
+/** 「重新读取」的最小可见时长：接口在维护模式下会瞬间返回，没有这个下限就看不到任何反馈（评审 I4）。 */
+const CATALOG_RELOAD_MIN_VISIBLE_MS = 600
+
 function DirectorFixedPreparationPanel({ preparation }: { preparation: DirectorFixedPreparation }) {
   const input = preparation.input
   const hash = preparation.sourceImageHash
@@ -84,6 +93,8 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   const composerRef = useRef<HTMLElement>(null)
   const feedbackId = useId()
   const paymentId = useId()
+  /** 阻塞项列表的稳定 id：修好一条后 aria-describedby 指向的区域不会整体换掉。 */
+  const blockerId = useId()
   const [storedSettings] = useState(() => loadVideoComposerSettings(
     typeof localStorage === 'undefined'
       ? { getItem: () => null }
@@ -108,6 +119,8 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   const [catalogLoading, setCatalogLoading] = useState(() => !directorFixed)
   const [catalogError, setCatalogError] = useState('')
   const [catalogReloadKey, setCatalogReloadKey] = useState(0)
+  const [catalogReloadBusy, setCatalogReloadBusy] = useState(false)
+  const [catalogLastAttempt, setCatalogLastAttempt] = useState('')
   const [elementCatalogError, setElementCatalogError] = useState('')
   const [elementsLoading, setElementsLoading] = useState(() => !directorFixed)
   const [elementCatalogReloadKey, setElementCatalogReloadKey] = useState(0)
@@ -157,8 +170,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
   const selectedProfile = profiles.find((item) => item.id === siteProfileId) ?? null
   const customPromptReady = generationMode !== 'custom' || Boolean(customPrompt.trim())
-  const productionReady = selectedTemplate?.status === 'active'
-    && (generationMode === 'custom' || selectedProfile?.status === 'active')
+  const profileReady = generationMode === 'custom' || selectedProfile?.status === 'active'
   const templateAcceptsCount = Boolean(selectedTemplate && storyboards.length >= selectedTemplate.minImages && storyboards.length <= selectedTemplate.maxImages)
   const formLocked = busy || resetting || Boolean(uncertainSubmission)
   const batchMode = batchGroups.length > 0
@@ -168,34 +180,55 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
     || !getVideoDurationOptions(videoGeneration, group.storyboards.length).includes(normalizedDurationSeconds)
     || group.storyboards.length + Number(Boolean(group.productFront)) + Number(Boolean(group.productBack)) > referenceLimit)
   type CorrectionTarget = 'upload' | 'template' | 'subject' | 'prompt' | 'profile' | 'batch' | 'duration' | 'reload'
+  type SubmissionBlocker = {
+    /** 稳定 id：列表项与 aria-describedby 都引用它，修好一条后其余描述不会漂移。 */
+    id: string
+    message: string
+    action?: string
+    target?: CorrectionTarget
+    /** 用户自己动手能解决 → 排前面；必须等管理员 → 排后面。 */
+    selfService: boolean
+  }
   // Submission and its recovery action share the same ordered validation.
-  const submissionBlocker = (() : { message: string; action?: string; target?: CorrectionTarget } | null => {
-    if (catalogLoading) return { message: '正在读取生成配置，请稍候。' }
-    if (catalogError) return { message: catalogError.includes('当前处于维护模式') ? '当前处于维护模式，已有任务仍可查看。' : catalogError, action: '重新读取', target: 'reload' }
-    if (!selectedTemplate) return { message: '暂无可用视频模板，请联系管理员检查模板配置。' }
-    if (!providerAvailable) return { message: `${activeProvider.displayLabel} 当前不可用。请让管理员配置凭据、启用通道并验证连接。` }
-    if (selectedTemplate.status !== 'active') return { message: '当前视频模板尚未通过生产验收。', action: '调整模板', target: 'template' }
+  // 返回数组而不是「第一条」：维护模式解除后用户不会立刻撞上下一条被掩盖的阻塞（评审 I2）。
+  const submissionBlockers = ((): SubmissionBlocker[] => {
+    const blockers: SubmissionBlocker[] = []
+    if (catalogLoading) return [{ id: 'catalog-loading', message: '正在读取生成配置，请稍候。', selfService: false }]
+    if (catalogError) blockers.push({ id: 'catalog-error', message: catalogError.includes('当前处于维护模式') ? MAINTENANCE_MESSAGE : catalogError, action: '重新读取', target: 'reload', selfService: true })
+    if (!selectedTemplate) return [...blockers, { id: 'no-template', message: '暂无可用视频模板，请联系管理员检查模板配置。', selfService: false }]
+    // ↓ 以下分支都依赖 selectedTemplate，必须放在这个守卫之后，否则模板缺失时会读到 undefined。
+    if (!providerAvailable) blockers.push({ id: 'provider-unavailable', message: `${activeProvider.displayLabel} 当前不可用。请让管理员配置凭据、启用通道并验证连接。`, selfService: false })
+    if (selectedTemplate.status !== 'active') blockers.push({ id: 'template-unverified', message: '当前视频模板尚未通过生产验收。', action: '调整模板', target: 'template', selfService: true })
     if (invalidBatchGroup) {
       const group = invalidBatchGroup
-      if (group.errors.length) return { message: `${group.key}：${group.errors.join('、')}。请重新导入或退出批量编辑当前组。`, action: '检查批量素材', target: 'batch' }
-      if (group.storyboards.length < selectedTemplate.minImages || group.storyboards.length > selectedTemplate.maxImages) return { message: `${group.key} 有 ${group.storyboards.length} 张分镜，当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张。`, action: '调整模板', target: 'template' }
-      const durations = getVideoDurationOptions(videoGeneration, group.storyboards.length)
-      if (!durations.includes(normalizedDurationSeconds)) return { message: `${group.key} 当前支持 ${formatVideoDurationOptions(durations)}，不支持 ${normalizedDurationSeconds} 秒。`, action: '调整时长', target: 'duration' }
-      return { message: `${group.key} 的分镜与主体图片总数超过模型的 ${referenceLimit} 张限制。请重新导入或退出批量编辑。`, action: '检查批量素材', target: 'batch' }
+      if (group.errors.length) blockers.push({ id: 'batch-errors', message: `${group.key}：${group.errors.join('、')}。请重新导入或退出批量编辑当前组。`, action: '检查批量素材', target: 'batch', selfService: true })
+      else if (group.storyboards.length < selectedTemplate.minImages || group.storyboards.length > selectedTemplate.maxImages) blockers.push({ id: 'batch-count', message: `${group.key} 有 ${group.storyboards.length} 张分镜，当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张。`, action: '调整模板', target: 'template', selfService: true })
+      else if (!getVideoDurationOptions(videoGeneration, group.storyboards.length).includes(normalizedDurationSeconds)) blockers.push({ id: 'batch-duration', message: `${group.key} 当前支持 ${formatVideoDurationOptions(getVideoDurationOptions(videoGeneration, group.storyboards.length))}，不支持 ${normalizedDurationSeconds} 秒。`, action: '调整时长', target: 'duration', selfService: true })
+      else blockers.push({ id: 'batch-references', message: `${group.key} 的分镜与主体图片总数超过模型的 ${referenceLimit} 张限制。请重新导入或退出批量编辑。`, action: '检查批量素材', target: 'batch', selfService: true })
+      return blockers
     }
-    if (!storyboards.length) return { message: '请至少上传 1 张分镜图', action: '添加素材', target: 'upload' }
-    if (!templateAcceptsCount) return { message: `当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张分镜图`, action: '调整模板', target: 'template' }
-    if (!subjectReady) return { message: subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。', action: '编辑主体', target: 'subject' }
-    if (!providerInputsSupported) return { message: `当前模型 ${activeModel} 最多接收 ${referenceLimit} 张图片；系统不会静默丢弃分镜。`, action: '调整素材', target: 'subject' }
-    if (!productionReady) return { message: '当前站点风格尚未通过生产验收。', action: '选择站点风格', target: 'profile' }
-    if (!customPromptReady) return { message: '请输入自定义提示词，或切换到自动化生成。', action: '填写提示词', target: 'prompt' }
-    return null
+    if (!storyboards.length) blockers.push({ id: 'no-storyboard', message: '请至少上传 1 张分镜图', action: '添加素材', target: 'upload', selfService: true })
+    else if (!templateAcceptsCount) blockers.push({ id: 'storyboard-count', message: `当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张分镜图`, action: '调整模板', target: 'template', selfService: true })
+    if (!subjectReady) blockers.push({ id: 'subject', message: subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。', action: '编辑主体', target: 'subject', selfService: true })
+    if (!providerInputsSupported) blockers.push({ id: 'provider-inputs', message: `当前模型 ${activeModel} 最多接收 ${referenceLimit} 张图片；系统不会静默丢弃分镜。`, action: '调整素材', target: 'subject', selfService: true })
+    if (!profileReady) blockers.push({ id: 'profile', message: '当前站点风格尚未通过生产验收。', action: '选择站点风格', target: 'profile', selfService: true })
+    if (!customPromptReady) blockers.push({ id: 'prompt', message: '请输入自定义提示词，或切换到自动化生成。', action: '填写提示词', target: 'prompt', selfService: true })
+    // Array#sort 是稳定的，因此组内仍然保持校验先后顺序。
+    return blockers.sort((left, right) => Number(right.selfService) - Number(left.selfService))
   })()
   const correctInput = (target: CorrectionTarget) => {
     if (formLocked) return
     if (target === 'reload') {
+      // 维护模式下 /video-templates 会瞬间返回 503，catalogLoading 只存在几十毫秒，
+      // 用户看到的是「点了没反应」（评审 I4）。这里给一个最小可见时长 + 上次尝试时间。
+      if (catalogReloadBusy) return
+      setCatalogReloadBusy(true)
       setCatalogLoading(true)
       setCatalogReloadKey((key) => key + 1)
+      window.setTimeout(() => {
+        setCatalogReloadBusy(false)
+        setCatalogLastAttempt(new Date().toLocaleTimeString('zh-CN', { hour12: false }))
+      }, CATALOG_RELOAD_MIN_VISIBLE_MS)
       return
     }
     const selectors: Record<Exclude<CorrectionTarget, 'reload'>, string> = {
@@ -356,7 +389,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   }
   const submit = async () => {
     if (directorFixed) return
-    if (submitLockRef.current || formLocked || submissionBlocker) return
+    if (submitLockRef.current || formLocked || submissionBlockers.length) return
     submitLockRef.current = true
     setBusy(true)
     setError('')
@@ -613,7 +646,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
             <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
               {!studio ? modeSelector('custom') : null}
               <div className="generation-route-body">
-                <CustomPromptField scope="video" label={`${activeModel} 提示词`} value={customPrompt} disabled={formLocked || generationMode !== 'custom'} describedBy={submissionBlocker?.target === 'prompt' ? feedbackId : undefined} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
+                <CustomPromptField scope="video" label={<>视频提示词<small className="custom-prompt-field__model">当前模型 {activeModel}</small></>} value={customPrompt} disabled={formLocked || generationMode !== 'custom'} describedBy={submissionBlockers.some((blocker) => blocker.target === 'prompt') ? blockerId : undefined} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
               </div>
             </article>
 
@@ -621,7 +654,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
               {!studio ? modeSelector('automatic') : null}
               <div className="generation-route-body">
                 <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading || generationMode !== 'automatic'} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{studio
-                  ? catalogError ? '配置暂时无法读取' : catalogLoading ? '正在加载配置' : selectedProfile?.tone ?? '暂无可用站点风格'
+                  ? catalogError ? '不可用' : catalogLoading ? '正在加载配置' : selectedProfile?.tone ?? '暂无可用站点风格'
                   : selectedProfile?.tone ?? '正在加载站点风格'}</small></label>
                 <details className="advanced-settings">
                   <summary><Settings size={16} /><span>高级设置</span><ChevronRight size={15} /></summary>
@@ -639,9 +672,23 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
       </div>
     <div className="composer-feedback" id={feedbackId} aria-live="polite">
       {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
-      {!formLocked && submissionBlocker ? <div className="inline-alert composer-next-action" role="status">
-        <CircleAlert size={17} aria-hidden="true" /><span>{submissionBlocker.message}</span>
-        {submissionBlocker.target ? <Button variant="ghost" icon={<ArrowRight size={15} aria-hidden="true" />} onClick={() => correctInput(submissionBlocker.target!)}>{submissionBlocker.action}</Button> : null}
+      {!formLocked && submissionBlockers.length ? <div className="inline-alert composer-next-action" id={blockerId} role="status">
+        <CircleAlert size={17} aria-hidden="true" />
+        <div className="composer-next-action-body">
+          <strong>{submissionBlockers.length > 1 ? `开始生成前还有 ${submissionBlockers.length} 项需要处理` : '开始生成前还有 1 项需要处理'}</strong>
+          <ul className="composer-next-action-list">
+            {submissionBlockers.slice(0, 3).map((blocker) => {
+              const reloading = blocker.target === 'reload' && catalogReloadBusy
+              return <li key={blocker.id} id={`${blockerId}-${blocker.id}`}>
+                <span>{reloading
+                  ? '正在重新读取生成配置…'
+                  : `${blocker.message}${blocker.target === 'reload' && catalogLastAttempt ? `（上次尝试 ${catalogLastAttempt} 仍未通过）` : ''}`}</span>
+                {blocker.target ? <Button variant="ghost" busy={reloading} icon={<ArrowRight size={15} aria-hidden="true" />} onClick={() => correctInput(blocker.target!)}>{reloading ? '读取中' : blocker.action}</Button> : null}
+              </li>
+            })}
+          </ul>
+          {submissionBlockers.length > 3 ? <small>另有 {submissionBlockers.length - 3} 项未满足；逐项处理后本提示会自动收敛。</small> : null}
+        </div>
       </div> : null}
       {submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div> : null}
       {notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div> : null}
@@ -651,7 +698,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
       <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
         : <span className="composer-submit-summary" id={paymentId}><LockKeyhole size={14} /><span><strong>{studio ? '预计结果 · ' : ''}{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
-      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} aria-describedby={busy ? undefined : `${feedbackId} ${paymentId}`} disabled={formLocked || Boolean(submissionBlocker)} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
+      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} aria-describedby={busy ? undefined : [error || notice || submittedNotice ? feedbackId : null, submissionBlockers.length ? blockerId : null, paymentId].filter(Boolean).join(' ')} disabled={formLocked || submissionBlockers.length > 0} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
       {busy ? <div className="composer-submit-progress progress-track" role="progressbar" aria-label={stage} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={studio ? { transform: `scaleX(${progress / 100})` } : { width: `${progress}%` }} /></div> : null}
     </div>
     </div>
