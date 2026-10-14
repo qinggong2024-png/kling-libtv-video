@@ -371,6 +371,7 @@ export interface VideoGenerationStatus {
 }
 
 export interface SystemStatus {
+  cutflowHandoffEnabled?: boolean
   environment: string
   sourceRevision: string
   libtvAdapter: string

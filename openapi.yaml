@@ -2017,6 +2017,22 @@
               ],
               "title": "X-User-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -5146,6 +5162,317 @@
         }
       }
     },
+    "/api/v1/cutflow-handoffs": {
+      "get": {
+        "tags": [
+          "cutflow-handoffs"
+        ],
+        "summary": "List Handoffs",
+        "operationId": "list_handoffs_api_v1_cutflow_handoffs_get",
+        "parameters": [
+          {
+            "name": "variant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Variant Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Handoffs Api V1 Cutflow Handoffs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cutflow-handoffs"
+        ],
+        "summary": "Create Handoff",
+        "operationId": "create_handoff_api_v1_cutflow_handoffs_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CutflowHandoffCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Handoff Api V1 Cutflow Handoffs Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cutflow-handoffs/{handoff_id}/retry": {
+      "post": {
+        "tags": [
+          "cutflow-handoffs"
+        ],
+        "summary": "Retry Handoff",
+        "operationId": "retry_handoff_api_v1_cutflow_handoffs__handoff_id__retry_post",
+        "parameters": [
+          {
+            "name": "handoff_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Handoff Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cutflow-handoffs/{handoff_id}/outputs/{output_id}": {
+      "get": {
+        "tags": [
+          "cutflow-handoffs"
+        ],
+        "summary": "Output Media",
+        "operationId": "output_media_api_v1_cutflow_handoffs__handoff_id__outputs__output_id__get",
+        "parameters": [
+          {
+            "name": "handoff_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Handoff Id"
+            }
+          },
+          {
+            "name": "output_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Output Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cutflow-handoffs/{handoff_id}": {
+      "get": {
+        "tags": [
+          "cutflow-handoffs"
+        ],
+        "summary": "Get Handoff",
+        "operationId": "get_handoff_api_v1_cutflow_handoffs__handoff_id__get",
+        "parameters": [
+          {
+            "name": "handoff_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Handoff Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Handoff Api V1 Cutflow Handoffs  Handoff Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/video-templates": {
       "get": {
         "tags": [
@@ -6598,7 +6925,7 @@
     "/api/v1/creative-workflow/tasks": {
       "post": {
         "tags": [
-          "creative-workflow-offline"
+          "creative-workflow"
         ],
         "summary": "Create",
         "operationId": "create_api_v1_creative_workflow_tasks_post",
@@ -6659,7 +6986,7 @@
     "/api/v1/creative-workflow/tasks/{task_id}": {
       "get": {
         "tags": [
-          "creative-workflow-offline"
+          "creative-workflow"
         ],
         "summary": "Read",
         "operationId": "read_api_v1_creative_workflow_tasks__task_id__get",
@@ -6720,7 +7047,7 @@
     "/api/v1/creative-workflow/tasks/{task_id}/commands": {
       "post": {
         "tags": [
-          "creative-workflow-offline"
+          "creative-workflow"
         ],
         "summary": "Command",
         "operationId": "command_api_v1_creative_workflow_tasks__task_id__commands_post",
@@ -6840,6 +7167,255 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ControlledImageBridgePreflight"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/human-reviews/export": {
+      "get": {
+        "tags": [
+          "human-production-reviews"
+        ],
+        "summary": "Export",
+        "operationId": "export_api_v1_human_reviews_export_get",
+        "parameters": [
+          {
+            "name": "subjectType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "IMAGE_OUTPUT",
+                "VIDEO_VARIANT",
+                "DIRECTOR_CANDIDATE"
+              ],
+              "type": "string",
+              "title": "Subjecttype"
+            }
+          },
+          {
+            "name": "subjectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150,
+              "title": "Subjectid"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Taskid"
+            }
+          },
+          {
+            "name": "includeSynthetic",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includesynthetic"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanReviewExport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/human-reviews": {
+      "get": {
+        "tags": [
+          "human-production-reviews"
+        ],
+        "summary": "Read",
+        "operationId": "read_api_v1_human_reviews_get",
+        "parameters": [
+          {
+            "name": "subjectType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "IMAGE_OUTPUT",
+                "VIDEO_VARIANT",
+                "DIRECTOR_CANDIDATE"
+              ],
+              "type": "string",
+              "title": "Subjecttype"
+            }
+          },
+          {
+            "name": "subjectId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150,
+              "title": "Subjectid"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Taskid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanReviewList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "human-production-reviews"
+        ],
+        "summary": "Create",
+        "operationId": "create_api_v1_human_reviews_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HumanReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanReviewRecord"
                 }
               }
             }
@@ -7594,6 +8170,30 @@
               }
             ],
             "title": "Product Version Id"
+          },
+          "brand_profile_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Profile Id"
+          },
+          "brand_profile_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Profile Version"
           }
         },
         "type": "object",
@@ -8146,6 +8746,26 @@
         "type": "object",
         "title": "CredentialUpdateRequest"
       },
+      "CutflowHandoffCreate": {
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Taskid"
+          },
+          "variantId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Variantid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "taskId",
+          "variantId"
+        ],
+        "title": "CutflowHandoffCreate"
+      },
       "DownloadStatus": {
         "type": "string",
         "enum": [
@@ -8266,6 +8886,332 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HumanReviewExport": {
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "const": "human-production-review-export.v1",
+            "title": "Schemaversion",
+            "default": "human-production-review-export.v1"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/HumanReviewRecord"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "excludedSyntheticCount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Excludedsyntheticcount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "records",
+          "excludedSyntheticCount"
+        ],
+        "title": "HumanReviewExport"
+      },
+      "HumanReviewList": {
+        "properties": {
+          "subject": {
+            "$ref": "#/components/schemas/HumanReviewSubject"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/HumanReviewRecord"
+            },
+            "type": "array",
+            "title": "Reviews"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subject",
+          "reviews"
+        ],
+        "title": "HumanReviewList"
+      },
+      "HumanReviewRecord": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "REWORK",
+              "FAIL"
+            ],
+            "title": "Verdict"
+          },
+          "reasonCodes": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "FACE",
+                "GARMENT",
+                "REALISM",
+                "SPACE",
+                "LIGHTING",
+                "OTHER",
+                "MOTION",
+                "DEFORMATION",
+                "CAMERA"
+              ]
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Reasoncodes"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reviewKey": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Reviewkey"
+          },
+          "reviewerId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewerid"
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reviewedat"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/HumanReviewSubject"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verdict",
+          "id",
+          "reviewKey",
+          "reviewerId",
+          "reviewedAt",
+          "subject"
+        ],
+        "title": "HumanReviewRecord"
+      },
+      "HumanReviewRequest": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "REWORK",
+              "FAIL"
+            ],
+            "title": "Verdict"
+          },
+          "reasonCodes": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "FACE",
+                "GARMENT",
+                "REALISM",
+                "SPACE",
+                "LIGHTING",
+                "OTHER",
+                "MOTION",
+                "DEFORMATION",
+                "CAMERA"
+              ]
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Reasoncodes"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "subjectType": {
+            "type": "string",
+            "enum": [
+              "IMAGE_OUTPUT",
+              "VIDEO_VARIANT",
+              "DIRECTOR_CANDIDATE"
+            ],
+            "title": "Subjecttype"
+          },
+          "subjectId": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Subjectid"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taskid"
+          },
+          "reviewKey": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "title": "Reviewkey"
+          },
+          "expectedOutputHash": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Expectedoutputhash"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verdict",
+          "subjectType",
+          "subjectId",
+          "reviewKey",
+          "expectedOutputHash"
+        ],
+        "title": "HumanReviewRequest"
+      },
+      "HumanReviewSubject": {
+        "properties": {
+          "subjectType": {
+            "type": "string",
+            "enum": [
+              "IMAGE_OUTPUT",
+              "VIDEO_VARIANT",
+              "DIRECTOR_CANDIDATE"
+            ],
+            "title": "Subjecttype"
+          },
+          "subjectId": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Subjectid"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taskid"
+          },
+          "outputHash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outputhash"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "title": "Synthetic"
+          },
+          "packageId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packageid"
+          },
+          "packageRevision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packagerevision"
+          },
+          "inputHash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputhash"
+          },
+          "promptHash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompthash"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subjectType",
+          "subjectId",
+          "outputHash",
+          "synthetic"
+        ],
+        "title": "HumanReviewSubject"
       },
       "ImageQualityDecisionRequest": {
         "properties": {

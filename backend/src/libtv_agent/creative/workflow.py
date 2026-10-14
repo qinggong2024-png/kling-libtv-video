@@ -213,7 +213,7 @@ class Command(Contract):
     command_key: str = Field(min_length=1, max_length=120)
     expected_version: int = Field(ge=0)
     action: Literal[
-        "analyze", "select_direction", "authorize", "generate", "review",
+        "analyze", "retry_analysis", "select_direction", "authorize", "generate", "review",
         "select", "revise", "stop", "revoke_asset", "reconcile",
     ]
     direction_id: Literal["A", "B", "C"] | None = None

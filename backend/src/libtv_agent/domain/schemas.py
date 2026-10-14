@@ -177,6 +177,14 @@ class SubjectImageInput(ApiModel):
     order: int = Field(ge=1, le=4)
 
 
+class CreativePackageInput(ApiModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_id: uuid.UUID
+    package_id: str = Field(min_length=1, max_length=160)
+    shot_id: str = Field(min_length=1, max_length=40)
+
+
 class TaskCreate(ApiModel):
     client_task_id: str = Field(min_length=1, max_length=160)
     title: str = Field(min_length=1, max_length=160)
@@ -230,7 +238,8 @@ class VideoTaskCreate(ApiModel):
         max_length=4,
     )
     element_ids: list[str] = Field(default_factory=list, max_length=7)
-    generation_mode: Literal["automatic", "custom"] = "automatic"
+    generation_mode: Literal["automatic", "custom", "director_fixed"] = "automatic"
+    creative_package: CreativePackageInput | None = None
     custom_prompt: str | None = Field(default=None, max_length=2800)
     template_id: str | None = Field(default=None, min_length=1, max_length=80)
     site_profile_id: str | None = Field(default=None, min_length=1, max_length=80)
@@ -266,6 +275,10 @@ class VideoTaskCreate(ApiModel):
             )
         if self.generation_mode == "automatic" and not self.site_profile_id:
             raise ValueError("automatic generation requires a site profile")
+        if self.generation_mode == "director_fixed" and self.creative_package is None:
+            raise ValueError("director_fixed requires an explicit creative package")
+        if self.creative_package is not None and self.generation_mode != "director_fixed":
+            raise ValueError("explicit creative package requires director_fixed")
         if self.generation_mode == "custom":
             prompt = (self.custom_prompt or "").strip()
             if not prompt:
@@ -345,6 +358,10 @@ class VariantRead(ApiModel):
     download_status: DownloadStatus
     validation_status: ValidationStatus
     final_approval_status: QualityDecisionStatus = QualityDecisionStatus.PENDING
+    technical_success: bool = False
+    review_required: bool = False
+    delivery_state: Literal["NOT_READY", "REVIEW_REQUIRED", "REJECTED", "DELIVERABLE"] = "NOT_READY"
+    production_context: dict[str, Any] | None = None
     quality_gates: dict[str, Any] = Field(default_factory=dict)
     final_approved_by: uuid.UUID | None = None
     final_approved_at: datetime | None = None

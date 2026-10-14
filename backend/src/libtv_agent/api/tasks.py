@@ -20,11 +20,10 @@ from libtv_agent.api.dependencies import (
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
 from libtv_agent.domain.enums import (
-    DownloadStatus,
+    AIUsageReservationStatus,
     GenerationStatus,
     ParentTaskPhase,
     QualityDecisionStatus,
-    ValidationStatus,
     VariantKind,
 )
 from libtv_agent.domain.models import (
@@ -49,6 +48,13 @@ from libtv_agent.domain.schemas import (
     VariantFeedbackRequest,
 )
 from libtv_agent.runner.supervisor import RunnerSupervisor
+from libtv_agent.services.ai_usage import (
+    AIUsageLimitExceededError,
+    AIUsageRequestConflictError,
+    estimate_risk_units,
+    reserve_ai_usage,
+    settle_ai_usage,
+)
 from libtv_agent.services.analysis import analyze_task
 from libtv_agent.services.analysis_lifecycle import (
     StaleAnalysisRunError,
@@ -74,13 +80,18 @@ from libtv_agent.services.idempotency import (
     store_idempotent_response,
 )
 from libtv_agent.services.points import PointsLimitExceededError
-from libtv_agent.services.prompt_revision import PromptRevisionTimeoutError, run_prompt_assistant
+from libtv_agent.services.prompt_revision import (
+    PromptRevisionNotSubmittedError,
+    PromptRevisionTimeoutError,
+    run_prompt_assistant,
+)
 from libtv_agent.services.restore import RemoteRestoreInProgressError, restore_remote_output
 from libtv_agent.services.runtime_control import RuntimeControlBlockedError
 from libtv_agent.services.state_machine import (
     VersionConflictError,
     aggregate_parent_phase,
     cas_task_phase,
+    technically_successful,
 )
 from libtv_agent.services.tasks import (
     TaskNotFoundError,
@@ -154,6 +165,7 @@ async def _run_analysis_job(
     task_id: uuid.UUID,
     user_id: uuid.UUID,
     analysis_run_id: uuid.UUID,
+    ai_usage_request_key: str | None = None,
 ) -> None:
     try:
         async with app.state.database.session_factory() as session:
@@ -165,6 +177,7 @@ async def _run_analysis_job(
                 app.state.object_store,
                 app.state.kling_adapter,
                 analysis_run_id=analysis_run_id,
+                ai_usage_request_key=ai_usage_request_key or analysis_run_id.hex,
             )
     except StaleAnalysisRunError:
         logger.info(
@@ -196,6 +209,15 @@ async def _run_analysis_job(
             task_id,
             analysis_run_id,
             reason_code=exc.code,
+            audit_action="ANALYSIS_REQUEST_REJECTED",
+            reason=str(exc),
+        )
+    except AIUsageLimitExceededError as exc:
+        await _persist_analysis_failure(
+            app,
+            task_id,
+            analysis_run_id,
+            reason_code="AI_USAGE_LIMIT_EXCEEDED",
             audit_action="ANALYSIS_REQUEST_REJECTED",
             reason=str(exc),
         )
@@ -423,6 +445,23 @@ async def get_generation_preview(
     }
 
 
+@router.get("/review-required", response_model=list[TaskRead])
+async def get_review_required(
+    actor: Actor, session: Session, request: Request, response: Response,
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: str | None = Query(default=None, max_length=300),
+) -> list[TaskRead]:
+    cursor_updated_at, cursor_id = _decode_task_cursor(cursor)
+    tasks = await list_tasks(
+        session, actor.id, limit=limit + 1,
+        cursor_updated_at=cursor_updated_at, cursor_id=cursor_id, review_required=True,
+    )
+    if len(tasks) > limit:
+        tasks = tasks[:limit]
+        response.headers["X-Next-Cursor"] = _encode_task_cursor(tasks[-1].updated_at, tasks[-1].id)
+    return await tasks_to_read(session, tasks, _settings(request).daily_user_points_limit)
+
+
 @router.get("/{task_id}", response_model=TaskRead)
 async def get_task_detail(
     task_id: uuid.UUID, actor: Actor, session: Session, request: Request
@@ -591,11 +630,7 @@ async def put_variant_final_approval(
                 "currentStateVersion": task.state_version,
             },
         )
-    technical_pass = (
-        variant.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
-        and variant.download_status == DownloadStatus.READY
-        and variant.validation_status in {ValidationStatus.PASSED, ValidationStatus.WARNING}
-    )
+    technical_pass = technically_successful(variant)
     if not technical_pass:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -748,10 +783,38 @@ async def post_prompt_assistant(
     actor: Actor,
     session: Session,
     request: Request,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> PromptAssistantResponse:
     task = await get_task(session, actor.id, task_id)
     _validate_prompt_edit(task, payload.expected_state_version)
     settings = _settings(request)
+    payload_json = payload.model_dump(mode="json", by_alias=True)
+    effective_key = idempotency_key or sha256_json(
+        {"taskId": str(task_id), "payload": payload_json}
+    )
+    operation_type = f"PROMPT_ASSISTANT:{task_id}"
+    try:
+        cached_response = await load_idempotent_response(
+            session,
+            tenant_id=str(actor.id),
+            operation_type=operation_type,
+            key=effective_key,
+            payload=payload_json,
+        )
+    except (IdempotencyConflictError, IdempotencyInProgressError) as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": (
+                    "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+                    if isinstance(exc, IdempotencyInProgressError)
+                    else "IDEMPOTENCY_KEY_REUSED"
+                ),
+                "message": str(exc),
+            },
+        ) from exc
+    if cached_response:
+        return PromptAssistantResponse.model_validate(cached_response[1])
     model = next(
         (
             str(variant.generation_config_json.get("analysisModel"))
@@ -760,6 +823,74 @@ async def post_prompt_assistant(
         ),
         settings.openai_model,
     )
+    provider = (
+        "openai"
+        if settings.ai_adapter_mode == "openai"
+        else f"offline:{settings.ai_adapter_mode}"
+    )
+    request_hash = sha256_json(
+        {
+            "taskId": str(task_id),
+            "payload": payload_json,
+            "model": model,
+        }
+    )
+    input_chars = len(
+        json.dumps(
+            {
+                "instruction": payload.instruction,
+                "userRequirement": task.user_requirement_raw,
+                "analysisResult": task.analysis_result_json or {},
+                "stablePrompt": payload.stable_prompt,
+                "dynamicPrompt": payload.dynamic_prompt,
+            },
+            ensure_ascii=False,
+        )
+    )
+    risk_units = estimate_risk_units(
+        settings,
+        input_chars=input_chars,
+        input_image_count=0,
+        max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
+    )
+    try:
+        usage = await reserve_ai_usage(
+            session,
+            settings,
+            user_id=actor.id,
+            task_id=task.id,
+            operation_type=f"AI_PROMPT_{payload.action}",
+            provider=provider,
+            model=model,
+            input_chars=input_chars,
+            input_image_count=0,
+            max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
+            risk_units=risk_units,
+            idempotency_key=effective_key,
+            request_hash=request_hash,
+        )
+    except AIUsageLimitExceededError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "AI_USAGE_LIMIT_EXCEEDED", "message": str(exc)},
+        ) from exc
+    except AIUsageRequestConflictError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "AI_USAGE_IDEMPOTENCY_CONFLICT", "message": str(exc)},
+        ) from exc
+    if not usage.created:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "AI_USAGE_REQUEST_ALREADY_RESOLVED",
+                "message": "this prompt assistant request has already been submitted",
+            },
+        )
+    await session.commit()
     revision_started_at = time.perf_counter()
     try:
         result = await run_prompt_assistant(
@@ -774,6 +905,14 @@ async def post_prompt_assistant(
             target_variant=payload.target_variant.value if payload.target_variant else None,
         )
     except PromptRevisionTimeoutError as exc:
+        async with request.app.state.database.session_factory() as settlement_session:
+            await settle_ai_usage(
+                settlement_session,
+                usage.reservation.id,
+                status=AIUsageReservationStatus.UNKNOWN,
+                actual_cost_status="UNKNOWN_COST",
+            )
+            await settlement_session.commit()
         if payload.action == "REGENERATE":
             elapsed = time.perf_counter() - revision_started_at
             task.analysis_duration_seconds += elapsed
@@ -784,7 +923,28 @@ async def post_prompt_assistant(
             status.HTTP_504_GATEWAY_TIMEOUT,
             detail={"code": "PROMPT_ASSISTANT_TIMEOUT", "message": str(exc)},
         ) from exc
+    except PromptRevisionNotSubmittedError as exc:
+        async with request.app.state.database.session_factory() as settlement_session:
+            await settle_ai_usage(
+                settlement_session,
+                usage.reservation.id,
+                status=AIUsageReservationStatus.RELEASED,
+                actual_cost_status="NOT_SUBMITTED",
+            )
+            await settlement_session.commit()
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "PROMPT_ASSISTANT_NOT_SUBMITTED", "message": str(exc)},
+        ) from exc
     except RuntimeError as exc:
+        async with request.app.state.database.session_factory() as settlement_session:
+            await settle_ai_usage(
+                settlement_session,
+                usage.reservation.id,
+                status=AIUsageReservationStatus.UNKNOWN,
+                actual_cost_status="UNKNOWN_COST",
+            )
+            await settlement_session.commit()
         if payload.action == "REGENERATE":
             elapsed = time.perf_counter() - revision_started_at
             task.analysis_duration_seconds += elapsed
@@ -795,6 +955,19 @@ async def post_prompt_assistant(
             status.HTTP_502_BAD_GATEWAY,
             detail={"code": "PROMPT_ASSISTANT_FAILED", "message": str(exc)},
         ) from exc
+    async with request.app.state.database.session_factory() as settlement_session:
+        await settle_ai_usage(
+            settlement_session,
+            usage.reservation.id,
+            status=AIUsageReservationStatus.SETTLED,
+            actual_risk_units=0 if settings.ai_adapter_mode != "openai" else None,
+            actual_cost_status=(
+                "OFFLINE"
+                if settings.ai_adapter_mode != "openai"
+                else "UNKNOWN_COST"
+            ),
+        )
+        await settlement_session.commit()
     if payload.action == "REGENERATE":
         elapsed = time.perf_counter() - revision_started_at
         task.analysis_duration_seconds += elapsed
@@ -827,10 +1000,21 @@ async def post_prompt_assistant(
         )
         await session.commit()
         task = await get_task(session, actor.id, task_id)
-    return PromptAssistantResponse(
+    response = PromptAssistantResponse(
         task=await _read(session, task, settings),
         advice=result.advice,
     )
+    await store_idempotent_response(
+        session,
+        tenant_id=str(actor.id),
+        operation_type=operation_type,
+        key=effective_key,
+        payload=payload_json,
+        response_status=status.HTTP_200_OK,
+        response_body=response.model_dump(mode="json", by_alias=True),
+    )
+    await session.commit()
+    return response
 
 
 @router.post("", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
@@ -841,11 +1025,21 @@ async def post_task(
     request: Request,
     idempotency_key: IdempotencyKey,
 ) -> TaskRead:
+    actor_id = actor.id
     payload_json = payload.model_dump(mode="json", by_alias=True)
-    if cached := await _cached(session, actor.id, "CREATE_TASK", idempotency_key, payload_json):
+    if cached := await _cached(session, actor_id, "CREATE_TASK", idempotency_key, payload_json):
         return cached
     try:
-        task = await create_task(session, actor.id, payload)
+        task = await create_task(session, actor_id, payload)
+    except RuntimeControlBlockedError as exc:
+        await session.rollback()
+        session.add(AuditEvent(
+            actor_id=actor_id, action="VIDEO_SOURCE_BLOCKED", entity_type="parent_task",
+            entity_id=str(actor_id), from_state=None, to_state="BLOCKED", reason=exc.code,
+            correlation_id=str(uuid.uuid4()), evidence_refs_json=[],
+        ))
+        await session.commit()
+        raise HTTPException(409, {"code": exc.code, "message": str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -854,7 +1048,7 @@ async def post_task(
     result = await _read(session, task, _settings(request))
     await store_idempotent_response(
         session,
-        tenant_id=str(actor.id),
+        tenant_id=str(actor_id),
         operation_type="CREATE_TASK",
         key=idempotency_key,
         payload=payload_json,
@@ -984,6 +1178,64 @@ async def post_analyze(
         session, actor.id, f"ANALYZE_TASK:{task_id}", idempotency_key, payload_json
     ):
         return cached
+    task = await get_task(session, actor.id, task_id)
+    analysis_model = next(
+        (
+            str(variant.generation_config_json.get("analysisModel"))
+            for variant in task.variants
+            if variant.generation_config_json.get("analysisModel")
+        ),
+        _settings(request).openai_model,
+    )
+    input_image_count = sum(1 for asset in task.assets if asset.used_for_analysis)
+    input_chars = len(task.user_requirement_raw) + input_image_count * 160
+    risk_units = estimate_risk_units(
+        _settings(request),
+        input_chars=input_chars,
+        input_image_count=input_image_count,
+        max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
+    )
+    try:
+        usage = await reserve_ai_usage(
+            session,
+            _settings(request),
+            user_id=actor.id,
+            task_id=task.id,
+            operation_type="AI_ANALYSIS",
+            provider=(
+                "openai"
+                if _settings(request).ai_adapter_mode == "openai"
+                else f"offline:{_settings(request).ai_adapter_mode}"
+            ),
+            model=analysis_model,
+            input_chars=input_chars,
+            input_image_count=input_image_count,
+            max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
+            risk_units=risk_units,
+            idempotency_key=idempotency_key,
+            request_hash=sha256_json(payload_json),
+        )
+    except AIUsageLimitExceededError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "AI_USAGE_LIMIT_EXCEEDED", "message": str(exc)},
+        ) from exc
+    except AIUsageRequestConflictError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "AI_USAGE_IDEMPOTENCY_CONFLICT", "message": str(exc)},
+        ) from exc
+    if not usage.created:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "AI_USAGE_REQUEST_ALREADY_RESOLVED",
+                "message": "this analysis request has already been submitted",
+            },
+        )
     try:
         analysis_run_id = await claim_analysis_run(
             session,
@@ -1013,7 +1265,15 @@ async def post_analyze(
         response_body=result.model_dump(mode="json", by_alias=True),
     )
     await session.commit()
-    job = asyncio.create_task(_run_analysis_job(request.app, task_id, actor.id, analysis_run_id))
+    job = asyncio.create_task(
+        _run_analysis_job(
+            request.app,
+            task_id,
+            actor.id,
+            analysis_run_id,
+            idempotency_key,
+        )
+    )
     request.app.state.analysis_jobs.add(job)
     job.add_done_callback(request.app.state.analysis_jobs.discard)
     return result

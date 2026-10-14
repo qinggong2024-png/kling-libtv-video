@@ -90,6 +90,10 @@ class AnalysisTimeoutError(TimeoutError):
     pass
 
 
+class AnalysisNotSubmittedError(RuntimeError):
+    """The request failed local preflight before an OpenAI call was sent."""
+
+
 def fake_analysis(asset_ids: list[str], user_requirement: str = "") -> AnalysisResult:
     facts = [
         StoryboardFact(asset_id=asset_id, order=index + 1)
@@ -186,7 +190,7 @@ class OpenAIAnalysisAdapter:
 
     async def analyze(self, prompt: str, images: list[AnalysisImageInput]) -> AnalysisResult:
         if self.client is None and not self.settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for real AI analysis")
+            raise AnalysisNotSubmittedError("OPENAI_API_KEY is required for real AI analysis")
         if not images:
             raise ValueError("at least one ordered analysis image is required")
         orders = [item.order for item in images]

@@ -1,0 +1,9 @@
+.cutflow-control { margin-top: 12px; font-size: 13px; }
+.cutflow-control__body { display: grid; gap: 8px; margin-top: 8px; min-width: 0; }
+.cutflow-control__body > .compact-button, .cutflow-control__body > .text-button { justify-self: start; }
+.cutflow-control__body small { color: var(--muted); overflow-wrap: anywhere; }
+.cutflow-control__body small[role="alert"] { color: var(--danger); }
+.cutflow-control__batch { font-size: 11px; }
+.cutflow-control__output { display: flex; gap: 8px; justify-content: space-between; align-items: center; min-width: 0; }
+.cutflow-control__output .text-button { text-align: left; white-space: normal; min-width: 0; }
+.cutflow-control__output .icon-button { flex: 0 0 40px; height: 40px; }

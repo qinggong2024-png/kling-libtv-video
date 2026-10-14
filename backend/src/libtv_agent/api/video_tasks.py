@@ -1,7 +1,9 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from libtv_agent.api.dependencies import Actor, Session
+from libtv_agent.domain.models import AuditEvent
 from libtv_agent.domain.schemas import TaskRead, VideoTaskCreate
 from libtv_agent.services.fixed_video_tasks import (
     FixedVideoTaskValidationError,
@@ -28,12 +30,15 @@ async def create_video_task(
     request: Request,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> TaskRead:
+    actor_id = actor.id
     operation = "CREATE_FIXED_VIDEO_TASK"
     payload_json = payload.model_dump(mode="json", by_alias=True)
+    if payload.creative_package is None:
+        payload_json.pop("creativePackage")
     try:
         cached = await load_idempotent_response(
             session,
-            tenant_id=str(actor.id),
+            tenant_id=str(actor_id),
             operation_type=operation,
             key=idempotency_key,
             payload=payload_json,
@@ -53,14 +58,14 @@ async def create_video_task(
         schedule_subject_element_job(
             request.app,
             task_id=cached_result.id,
-            user_id=actor.id,
+            user_id=actor_id,
         )
         return cached_result
 
     try:
         task = await create_fixed_video_task(
             session,
-            user_id=actor.id,
+            user_id=actor_id,
             payload=payload,
             settings=request.app.state.settings,
             kling_adapter=request.app.state.kling_adapter,
@@ -69,11 +74,18 @@ async def create_video_task(
     except FixedVideoTaskValidationError as exc:
         await release_idempotency_claim(
             session,
-            tenant_id=str(actor.id),
+            tenant_id=str(actor_id),
             operation_type=operation,
             key=idempotency_key,
             payload=payload_json,
         )
+        if exc.code.startswith(("SOURCE_IMAGE_", "CREATIVE_")):
+            session.add(AuditEvent(
+                actor_id=actor_id, action="VIDEO_SOURCE_BLOCKED", entity_type="parent_task",
+                entity_id=str(actor_id), from_state=None, to_state="BLOCKED", reason=exc.code,
+                correlation_id=str(uuid.uuid4()), evidence_refs_json=[],
+            ))
+            await session.commit()
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": str(exc), "details": exc.details},
@@ -81,7 +93,7 @@ async def create_video_task(
     except Exception:
         await release_idempotency_claim(
             session,
-            tenant_id=str(actor.id),
+            tenant_id=str(actor_id),
             operation_type=operation,
             key=idempotency_key,
             payload=payload_json,
@@ -95,7 +107,7 @@ async def create_video_task(
     )
     await store_idempotent_response(
         session,
-        tenant_id=str(actor.id),
+        tenant_id=str(actor_id),
         operation_type=operation,
         key=idempotency_key,
         payload=payload_json,
@@ -107,6 +119,6 @@ async def create_video_task(
         schedule_subject_element_job(
             request.app,
             task_id=task.id,
-            user_id=actor.id,
+            user_id=actor_id,
         )
     return result

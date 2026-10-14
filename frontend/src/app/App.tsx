@@ -154,11 +154,11 @@ function App() {
     ? providerPresentation(currentVideoGeneration?.provider).displayLabel
     : 'AI 视频生产'
   const nav: NavItem[] = [
-    { id: 'image-studio', value: 'images', label: '图片工作室', icon: <Images size={18} />, surface: 'image' },
     { id: 'director-studio', value: 'images', label: '导演台', icon: <WandSparkles size={18} />, surface: 'director' },
+    { id: 'image-studio', value: 'images', label: '图片工作室', icon: <Images size={18} />, surface: 'image' },
     { id: 'video-studio', value: 'make', label: '视频工作室', icon: <Clapperboard size={18} />, surface: 'video' },
-    { id: 'task-center', value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
     { id: 'library', value: 'library', label: '素材库', icon: <Library size={18} />, surface: 'assets' },
+    { id: 'task-center', value: 'records', label: '任务中心', icon: <ListVideo size={18} />, badge: counts.attention || counts.active },
     ...(canOperate ? [{ id: 'admin', value: 'admin' as const, label: '管理', icon: <ShieldCheck size={18} /> }] : []),
     { id: 'settings', value: 'settings', label: '设置', icon: <Settings size={18} /> },
   ]
@@ -226,13 +226,13 @@ function App() {
           局域网内可忽略）。若不接受这次可见变化，把 HomeView / CreativeWorkspace
           改回顶部静态 import 并删掉本 Suspense 即可，entry 会回到约 333 kB。 */}
       <Suspense fallback={<PageLoading />}>
-        <HomeView active={view === 'make' && !isCreativeWorkspaceSurface} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
+        <HomeView active={view === 'make' && !isCreativeWorkspaceSurface} tasks={tasks} seed={seed} system={system} actorId={actorId} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} cutflowCanWrite={Boolean(actor && ['ADMIN', 'OPERATOR', 'USER'].includes(actor.role))} onCreated={created} onOpen={(task) => navigate('make', task.id)} onView={switchView} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} />
         {isCreativeWorkspaceSurface
           ? <CreativeWorkspaceView surface={surface} tasks={tasks} onNavigate={navigateSurface} />
           : null}
         {view === 'make' && surface === null && selectedTask ? <FoundationDrawer open title={selectedTask.title} eyebrow="视频任务" onClose={closeTaskDetail}><div className="studio-task-detail"><CreativeWorkspace key={`${selectedTask.id}-${selectedTask.phase}`} task={selectedTask} onClose={closeTaskDetail} onChanged={taskChanged} onRemix={() => void remix(selectedTask)} onReuse={(variants) => void reuseCompleted(selectedTask, variants)} onPlay={(variant) => play(selectedTask, variant)} /></div></FoundationDrawer> : null}
       </Suspense>
-      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
+      {view === 'records' ? <RecordsView tasks={tasks} hasMore={Boolean(nextTaskCursor)} loadingMore={loadingMoreTasks} lastSyncedAt={lastSyncedAt} syncError={Boolean(error)} onLoadMore={() => void loadMoreTasks()} onOpen={(task) => openTaskFromRecords(task.id)} onPlay={play} onRemix={(task) => void remix(task)} onFeedbackChanged={feedbackChanged} onCreateTask={() => navigate('make')} canReview={actor?.role === 'ADMIN' || actor?.role === 'OPERATOR'} cutflowEnabled={system?.cutflowHandoffEnabled} cutflowCanWrite={Boolean(actor && ['ADMIN', 'OPERATOR', 'USER'].includes(actor.role))} initialFilter={recordsFilter} initialQuery={recordsQuery} onStateChange={navigateRecords} /> : null}
       {view === 'library' ? <Suspense fallback={<PageLoading />}><ContentLibraryView
         actorId={actorId}
         canDeleteSubjects={actor?.role === 'ADMIN'}

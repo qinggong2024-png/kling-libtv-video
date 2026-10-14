@@ -21,6 +21,10 @@ from libtv_agent.domain.models import (
     ImageGenerationItem,
     ImageGenerationOutput,
 )
+from libtv_agent.services.creative_production_context import (
+    CreativeProductionBlockedError,
+    validate_bound_package,
+)
 from libtv_agent.services.image_quota import settle_image_quota
 from PIL import Image
 from sqlalchemy import select, update
@@ -161,7 +165,11 @@ def create_batch_record(
                 label=spec.label,
                 prompt=spec.prompt,
                 model_id="PENDING",
-                request_json={"referenceFileIndexes": list(spec.reference_file_indexes)},
+                request_json={
+                    "referenceFileIndexes": list(spec.reference_file_indexes),
+                    **({"creativePackage": manifest["creativePackage"]}
+                       if manifest.get("creativePackage") else {}),
+                },
                 outputs=[],
             )
         )
@@ -360,10 +368,24 @@ async def submit_batch(
             output_format=str(request["outputFormat"]),
         )
         item.model_id = model_id
-        item.request_json = payload
+        context = request.get("creativePackage")
+        item.request_json = {
+            **payload, **({"creativePackage": context} if context else {}),
+        }
         item.status = "SUBMITTING"
         await session.commit()
         try:
+            if context:
+                await validate_bound_package(session, batch.user_id, context)
+                if (
+                    hashlib.sha256(item.prompt.encode()).hexdigest() != context["promptHash"]
+                    or len(file_paths) != 1
+                    or hashlib.sha256(file_paths[0].read_bytes()).hexdigest()
+                    != context["sourceHash"]
+                ):
+                    raise CreativeProductionBlockedError(
+                        "CREATIVE_REQUEST_CHANGED", "image prompt or canonical bytes changed",
+                    )
             response = await adapter.submit_prediction(model_id, payload)
             task_id, provider_status, result_url, raw = _submission_result(response)
             item.provider_task_id = task_id

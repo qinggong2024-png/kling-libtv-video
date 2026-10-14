@@ -71,8 +71,8 @@ def reject(code: str, status: int = 409, *, extra: dict | None = None) -> None:
 
 
 async def owned(session: AsyncSession, task_id: uuid.UUID, owner_id: uuid.UUID) -> CreativeTask:
-    task = await session.scalar(select(CreativeTask).where(
-        CreativeTask.id == task_id, CreativeTask.user_id == owner_id,
+    task = await session.scalar(select(CreativeTask).join(Product).where(
+        CreativeTask.id == task_id, CreativeTask.user_id == owner_id, Product.user_id == owner_id,
     ))
     if task is None:
         reject("TASK_NOT_FOUND", 404)
@@ -364,6 +364,7 @@ async def create_task(
         if prior:
             if prior.request_hash != request_hash:
                 reject("TASK_IDEMPOTENCY_CONFLICT")
+            await owned(session, prior.task_id, owner_id)
             return prior.result_json
     brand_dna = None
     if brand_profile_id is not None:
@@ -424,6 +425,7 @@ async def create_task(
                 CreativeCreation.client_key == client_key,
             ))
             if prior and prior.request_hash == request_hash:
+                await owned(session, prior.task_id, owner_id)
                 return prior.result_json
             if prior:
                 reject("TASK_IDEMPOTENCY_CONFLICT")
@@ -496,6 +498,7 @@ def authorization(
 async def execute(
     session: AsyncSession, task: CreativeTask, command: Command, object_store, owner_id: uuid.UUID,
 ) -> dict:
+    task = await owned(session, task.id, owner_id)
     fingerprint = digest(command.model_dump(mode="json"))
     prior = await session.scalar(select(CreativeCommand).where(
         CreativeCommand.task_id == task.id, CreativeCommand.command_key == command.command_key,
@@ -525,8 +528,8 @@ async def execute(
     if action not in {"stop", "revoke_asset", "reconcile"}:
         await validate_asset(snapshot, object_store)
         await validate_product_version(session, task, snapshot)
-    if action == "analyze":
-        if stage != "DRAFT":
+    if action in {"analyze", "retry_analysis"}:
+        if stage not in {"DRAFT", "ANALYSIS_FAILED"}:
             reject("STAGE_INVALID")
         facts_revision = snapshot["product_version"]["facts_revision"]
         brand = snapshot.get("brand_dna")
@@ -566,6 +569,7 @@ async def execute(
         snapshot["plan"] = plan.model_dump(mode="json")
         snapshot["director_analysis"] = analysis.model_dump(mode="json")
         snapshot["director_analysis_hash"] = digest(snapshot["director_analysis"])
+        snapshot.pop("analysis_failure", None)
         snapshot["trace"].extend(["D1", "D2"])
         stage = "AWAITING_DIRECTION"
         record(session, task.id, "plan", "1", snapshot["plan"])
@@ -1021,3 +1025,30 @@ async def execute(
         await session.rollback()
         reject("COMMAND_CONFLICT")
     return result
+
+
+async def persist_analysis_failure(
+    session: AsyncSession, task_id: uuid.UUID, owner_id: uuid.UUID, expected_version: int,
+    command_key: str,
+) -> None:
+    task = await owned(session, task_id, owner_id)
+    if task.status not in {"DRAFT", "ANALYSIS_FAILED"}:
+        return
+    snapshot = deepcopy(task.snapshot_json)
+    snapshot["analysis_failure"] = {
+        "reason_code": "DIRECTOR_ANALYSIS_FAILED", "retryable": True,
+        "command_key": command_key,
+    }
+    changed = await session.execute(
+        update(CreativeTask).where(
+            CreativeTask.id == task_id, CreativeTask.user_id == owner_id,
+            CreativeTask.state_version == expected_version,
+        ).values(
+            status="ANALYSIS_FAILED", snapshot_json=snapshot,
+            state_version=expected_version + 1,
+        )
+    )
+    if changed.rowcount == 1:
+        record(session, task_id, "analysis_failure", str(expected_version + 1),
+               snapshot["analysis_failure"])
+    await session.commit()

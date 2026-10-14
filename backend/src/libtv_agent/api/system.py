@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from libtv_agent.api.dependencies import Session
 from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import sha256_json
+from libtv_agent.services.cutflow_handoff import configured as cutflow_configured
 from libtv_agent.services.database_schema import inspect_database_schema
 from libtv_agent.services.generation_safety import paid_generation_authorized
 
@@ -123,6 +124,7 @@ async def system_status(request: Request, session: Session) -> dict[str, object]
     }
     return {
         "environment": settings.app_env,
+        "cutflowHandoffEnabled": cutflow_configured(settings),
         "sourceRevision": settings.deployment_source_revision,
         "schemaRevision": schema_revision,
         "configRevision": _config_revision(settings),
@@ -140,10 +142,10 @@ async def system_status(request: Request, session: Session) -> dict[str, object]
         "technicalValidationConcurrency": settings.technical_validation_concurrency,
         "zipEnabled": False,
         "phaseOneUserId": settings.dev_user_id
-        if settings.app_env in {"development", "test"}
+        if settings.offline_authentication
         else None,
         "phaseOneAdminId": settings.dev_admin_id
-        if settings.app_env in {"development", "test"}
+        if settings.offline_authentication
         else None,
         "sharedAuthentication": settings.shared_authentication,
         "csrfCookieName": settings.csrf_cookie_name,

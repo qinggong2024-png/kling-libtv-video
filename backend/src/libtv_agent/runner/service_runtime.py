@@ -67,6 +67,7 @@ def _load_video_provider_admin_configs(
     load_kling_admin_config(settings)
     load_wavespeed_admin_config(settings)
     load_bach_admin_config(settings)
+    settings.validate_shared_environment()
     return _video_provider_admin_config_signatures(settings)
 
 

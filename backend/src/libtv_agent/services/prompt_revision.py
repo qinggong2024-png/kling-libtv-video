@@ -19,6 +19,10 @@ class PromptRevisionTimeoutError(TimeoutError):
     pass
 
 
+class PromptRevisionNotSubmittedError(RuntimeError):
+    """The request failed local preflight before an OpenAI call was sent."""
+
+
 def _offline_result(
     action: Literal["REGENERATE", "ADVISE"],
     instruction: str,
@@ -68,7 +72,7 @@ async def run_prompt_assistant(
             target_variant,
         )
     if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for prompt revision")
+        raise PromptRevisionNotSubmittedError("OPENAI_API_KEY is required for prompt revision")
 
     from openai import AsyncOpenAI
 
@@ -124,6 +128,7 @@ async def run_prompt_assistant(
                     {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
                 ],
                 text_format=PromptRevisionResult,
+                max_output_tokens=settings.openai_prompt_assistant_max_output_tokens,
             )
     except TimeoutError as exc:
         raise PromptRevisionTimeoutError(

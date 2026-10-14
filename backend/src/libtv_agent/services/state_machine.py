@@ -28,6 +28,24 @@ class VariantDeliveryState(Protocol):
     final_approval_status: QualityDecisionStatus
 
 
+def technically_successful(item: VariantDeliveryState) -> bool:
+    return (
+        item.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
+        and item.download_status == DownloadStatus.READY
+        and item.validation_status in {ValidationStatus.PASSED, ValidationStatus.WARNING}
+    )
+
+
+def delivery_state(item: VariantDeliveryState) -> str:
+    if not technically_successful(item):
+        return "NOT_READY"
+    if item.final_approval_status == QualityDecisionStatus.APPROVED:
+        return "DELIVERABLE"
+    if item.final_approval_status == QualityDecisionStatus.REJECTED:
+        return "REJECTED"
+    return "REVIEW_REQUIRED"
+
+
 def aggregate_parent_phase(
     variants: Sequence[VariantDeliveryState],
 ) -> ParentTaskPhase:
@@ -35,9 +53,7 @@ def aggregate_parent_phase(
     technically_valid = [
         item
         for item in variants
-        if item.generation_status in {GenerationStatus.SUCCEEDED, GenerationStatus.PARTIAL}
-        and item.download_status == DownloadStatus.READY
-        and item.validation_status in {ValidationStatus.PASSED, ValidationStatus.WARNING}
+        if technically_successful(item)
     ]
     deliverable = [
         item

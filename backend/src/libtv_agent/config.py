@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     openai_analysis_verbosity: Literal["low", "medium", "high"] = "low"
     openai_analysis_max_output_tokens: int = Field(default=4000, ge=1000, le=128_000)
     openai_analysis_fallback_max_output_tokens: int = Field(default=6000, ge=1000, le=128_000)
+    openai_prompt_assistant_max_output_tokens: int = Field(default=2000, ge=500, le=64_000)
     openai_analysis_timeout_seconds: float = Field(default=180.0, gt=0, le=900)
     openai_analysis_timeout_base_image_count: int = Field(default=4, ge=1, le=20)
     openai_analysis_timeout_per_extra_image_seconds: float = Field(default=45.0, ge=0, le=300)
@@ -109,6 +110,13 @@ class Settings(BaseSettings):
     libtv_workspace_id: str | None = None
     libtv_project_uuid: str | None = None
     fake_libtv_scenario: str = "success"
+    cutflow_handoff_enabled: bool = False
+    cutflow_handoff_root: Path | None = None
+    cutflow_base_url: str | None = None
+    cutflow_service_token: str | None = None
+    cutflow_request_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    cutflow_poll_seconds: float = Field(default=15.0, ge=5, le=300)
+    cutflow_max_media_bytes: int = Field(default=2_147_483_648, ge=1)
     # CLI remains recovery-only. New work can be routed to Kling, WaveSpeed, or
     # Bach without changing persisted historical attempts.
     kling_provider_backend: Literal["cli", "api", "wavespeed", "bach"] = "api"
@@ -200,6 +208,15 @@ class Settings(BaseSettings):
     daily_user_points_limit: int = Field(default=5000, ge=1)
     generation_estimated_points: int = Field(default=120, ge=1)
     daily_user_image_limit: int = Field(default=500, ge=1)
+    # Separate internal risk units for AI analysis and prompt assistance. These
+    # values are controls, not a currency estimate and not video points.
+    ai_risk_daily_user_limit: int = Field(default=100, ge=1)
+    ai_risk_daily_global_limit: int = Field(default=1000, ge=1)
+    ai_risk_base_units: int = Field(default=1, ge=1)
+    ai_risk_input_chars_per_unit: int = Field(default=1000, ge=1)
+    ai_risk_image_unit: int = Field(default=4, ge=1)
+    ai_risk_output_tokens_per_unit: int = Field(default=1000, ge=1)
+    ai_risk_fallback_reserve_units: int = Field(default=2, ge=1)
     auto_run_fake_commands: bool = True
     dev_user_id: str = "00000000-0000-0000-0000-000000000001"
     dev_admin_id: str = "00000000-0000-0000-0000-000000000099"
@@ -559,6 +576,12 @@ class Settings(BaseSettings):
 
     def validate_shared_environment(self) -> None:
         if (
+            self.app_env != "test"
+            and self.real_provider_enabled
+            and not self.shared_authentication
+        ):
+            raise ValueError("Real providers and paid generation require shared authentication")
+        if (
             self.app_env not in {"staging", "production"}
             and self.shared_authentication
             and self.session_secret == "change-me-before-shared-use"
@@ -582,6 +605,35 @@ class Settings(BaseSettings):
     @property
     def shared_authentication(self) -> bool:
         return self.shared_authentication_enabled or self.app_env in {"staging", "production"}
+
+    @property
+    def real_provider_enabled(self) -> bool:
+        return (
+            self.ai_adapter_mode == "openai"
+            or (
+                bool(self.openai_api_key)
+                and self.feedback_learning_enabled
+                and self.feedback_learning_llm_enabled
+            )
+            or self.libtv_adapter_mode == "real"
+            or self.kling_cli_enabled
+            or self.kling_api_enabled
+            or self.wavespeed_enabled
+            or self.bach_enabled
+            or self.libtv_execution_mode == "live"
+            or self.paid_generation_enabled
+            or self.kling_enable_paid_integration_test
+            or self.kling_api_enable_paid_integration_test
+        )
+
+    @property
+    def offline_authentication(self) -> bool:
+        # Test adapters may be mocked; existing paid-test prohibitions still apply.
+        return (
+            self.app_env in {"development", "test"}
+            and not self.shared_authentication
+            and (self.app_env == "test" or not self.real_provider_enabled)
+        )
 
 
 @lru_cache
