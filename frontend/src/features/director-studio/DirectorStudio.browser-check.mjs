@@ -254,17 +254,15 @@ try {
       await advanced.locator('summary').click()
       assert.equal(await advanced.getByRole('textbox', { name: /产品材质/ }).inputValue(), 'PLANNED_MATERIAL', 'Collapse retains planning values')
       await advanced.locator('summary').click()
-      await page.getByLabel('上传商品正面').setInputFiles({
-        name: 'front.png', mimeType: 'image/png',
-        buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
-      })
+      const imageBuffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64')
+      await page.getByLabel('上传商品图片').setInputFiles(width === 1440 ? [
+        { name: 'front.png', mimeType: 'image/png', buffer: imageBuffer },
+        { name: 'back.png', mimeType: 'image/png', buffer: imageBuffer },
+      ] : { name: 'front.png', mimeType: 'image/png', buffer: imageBuffer })
       if (width === 1440) {
-        await page.getByLabel('上传商品背面').setInputFiles({
-          name: 'back.png', mimeType: 'image/png',
-          buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
-        })
-        assert(await page.getByText('back.png', { exact: true }).isVisible(), 'Optional back image is visible')
+        assert(await page.getByText(/背面：back\.png/).isVisible(), 'Optional back image is visible')
       }
+      assert.equal(await page.getByLabel('上传商品图片').count(), 1, 'Front and back share one upload entry')
       await analyze.click()
       await page.getByText('Fixture creation failure', { exact: false }).waitFor()
       await analyze.click()
