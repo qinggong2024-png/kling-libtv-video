@@ -43,6 +43,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install-api-serv
 
 ## 已知启动故障与修复
 
+2026-10-14 恢复时还出现宿主导入错误 `ModuleNotFoundError: No module named 'servicemanager'`。
+这次错误位于 `Python Service` 的 Application 事件 Id 14，Message 为空，错误细节在 Properties。
+服务 ImagePath 使用 uv 管理的基础 Python 的 `pythonservice.exe`，不能只检查项目 `.venv`。
+基础运行时已有 pywin32 文件但缺少 `Lib\site-packages\pywin32.pth`；恢复该路径文件后，
+基础 Python 可以导入 servicemanager/win32service/win32serviceutil，SCM 启动及 live/ready 均通过。
+未修改业务 `.env` 或执行迁移。基础 Python 重装或更换版本后，应重新验证实际宿主的 pywin32
+安装和服务账户读取权限。服务已核对为 Auto + DelayedAutostart=1，恢复动作仍为 5s/15s/60s。
+
 服务宿主下出现过两层相互独立的崩溃。两者都必须以 Application 事件日志中 `Id=3` 的 traceback 为准，`Start-Service` 的通用错误没有诊断价值；事件 `Message` 可能为空，此时读取事件对象的 `Properties`。
 
 1. **Proactor 事件循环**：`ValueError: set_wakeup_fd only works in main thread of the main interpreter`。pywin32 在服务线程中调用 `SvcDoRun`，默认 Proactor 策略会安装 signal wakeup fd。修复方式是在 `asyncio.run()` 之前切换到 `WindowsSelectorEventLoopPolicy`。

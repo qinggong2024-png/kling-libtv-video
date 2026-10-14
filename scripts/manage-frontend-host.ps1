@@ -107,17 +107,31 @@ function Resolve-NodeExecutable([string]$Explicit) {
     foreach ($scope in @('Machine', 'User')) {
         $value = [Environment]::GetEnvironmentVariable('Path', $scope)
         if (-not $value) { continue }
-        foreach ($dir in ($value -split ';')) { $candidates += (Join-Path $dir.Trim() 'node.exe') }
+        foreach ($dir in ($value -split ';')) {
+            $trimmed = $dir.Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+            try { $candidates += (Join-Path -Path $trimmed -ChildPath 'node.exe') } catch { continue }
+        }
     }
-    foreach ($dir in ($env:PATH -split ';')) { $candidates += (Join-Path $dir.Trim() 'node.exe') }
+    foreach ($dir in ($env:PATH -split ';')) {
+        $trimmed = $dir.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+        try { $candidates += (Join-Path -Path $trimmed -ChildPath 'node.exe') } catch { continue }
+    }
 
     foreach ($candidate in $candidates) {
         if (-not $candidate) { continue }
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         $version = $null
-        try { $version = (& $candidate --version 2>&1 | Select-Object -First 1) }
+        # Let the native process finish before selecting its first output line.
+        # Select-Object in the native pipeline can terminate it with exit -1.
+        try {
+            $output = @(& $candidate --version 2>&1)
+            $exitCode = $LASTEXITCODE
+            $version = $output | Select-Object -First 1
+        }
         catch { continue }
-        if ($LASTEXITCODE -eq 0 -and $version) {
+        if ($exitCode -eq 0 -and $version) {
             return [pscustomobject]@{
                 Path = (Resolve-Path -LiteralPath $candidate).Path
                 Version = [string]$version
@@ -364,24 +378,36 @@ function Stop-FrontendHost {
     Get-FrontendHostStatus
 }
 
-switch ($Action) {
-    'Status' { Get-FrontendHostStatus | Format-List }
-    'Serve' { Invoke-FrontendServe }
-    'Install' { Install-FrontendHost | Format-List }
-    'Uninstall' {
-        Stop-FrontendHost | Out-Null
-        if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+try {
+    switch ($Action) {
+        'Status' { Get-FrontendHostStatus | Format-List }
+        'Serve' { Invoke-FrontendServe }
+        'Install' { Install-FrontendHost | Format-List }
+        'Uninstall' {
+            Stop-FrontendHost | Out-Null
+            if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            }
+            Get-FrontendHostStatus | Format-List
         }
-        Get-FrontendHostStatus | Format-List
+        'Start' {
+            # Re-enable first: Stop disables the task, and a disabled task ignores
+            # Start-ScheduledTask.
+            Enable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+            Start-ScheduledTask -TaskName $TaskName
+            Start-Sleep -Seconds 2
+            Get-FrontendHostStatus | Format-List
+        }
+        'Stop' { Stop-FrontendHost | Format-List }
     }
-    'Start' {
-        # Re-enable first: Stop disables the task, and a disabled task ignores
-        # Start-ScheduledTask.
-        Enable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
-        Start-ScheduledTask -TaskName $TaskName
-        Start-Sleep -Seconds 2
-        Get-FrontendHostStatus | Format-List
+}
+catch {
+    $detail = $_.Exception.ToString()
+    try {
+        Write-StackLog -Path $frontendLogPath -Text @(
+            ("[{0}] UNHANDLED: {1}" -f [DateTimeOffset]::Now.ToString('o'), $detail)
+        )
     }
-    'Stop' { Stop-FrontendHost | Format-List }
+    catch { }
+    throw
 }

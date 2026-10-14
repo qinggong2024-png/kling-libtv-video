@@ -36,6 +36,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\manage-frontend-
 
 `Install` 不需要管理员权限：任务是当前交互用户 + `RunLevel Limited`。
 
+以上 `Install` 是本地登录托管。正式版目前使用另行注册的 SYSTEM 开机任务，不能用普通
+`Install` 覆盖它，否则会退回需要用户登录的启动方式。正式状态检查应明确指定
+`-ProjectRoot 'C:\Users\Reel\Documents\libtv-auto-main-sync'`。
+
 默认参数：`-HostAddress 0.0.0.0`、`-Port 5173`、`-TaskName 'LibTV Frontend Host'`、`-StartupTimeoutSeconds 40`。
 
 ## 为什么是 Vite 开发服务器
@@ -75,3 +79,44 @@ supervisor 退避：5s 起步、翻倍、封顶 60s；某次运行存活满 120s
 ## 已知遗留
 
 - 计划任务 `LibTV Local Stack Watchdog`（`-Mode Lan`）仍在注册表中。它调用 `watch-local-stack.ps1` → `start-local-stack.ps1` → `start-local-api.ps1`，会执行生产迁移、启动 Runner 并抢占 `8000`，与本方案的目标相冲突。本次未修改它，但在下一次登录时它可能触发。处理它之前应先确认整体自启动编排的归属。
+
+## 2026-10-14 正式恢复与开机配置
+
+本节更新上面的历史验收：正式入口为 `http://192.168.30.126:5173/`，
+源码目录为 `C:\Users\Reel\Documents\libtv-auto-main-sync`，分支 `main`。
+旧 `LibTV Local Stack Watchdog` 已核对为 Disabled，应继续保持禁用。
+
+SYSTEM 的 PATH 包含一个空项，原解析器在检查显式 Node 前对空项调用 `Join-Path`，
+导致任务退出码 1、日志只有 run start、5173 没有监听。解析器现在跳过空项及无法组合的路径；
+动作异常写入 `frontend.host.log` 的 `UNHANDLED` 记录后继续抛出，保留任务失败状态。
+
+当前正式任务已核对：
+
+| 项目 | 配置 |
+| --- | --- |
+| 身份 | SYSTEM / ServiceAccount / Highest，不依赖交互用户登录 |
+| 触发 | AtStartup + 每分钟重复，无截止日期 |
+| 执行 | Windows PowerShell 5.1，Hidden，正式目录的 `-Action Serve` |
+| Node | `D:\New Folder\node.exe` |
+| 运行期限 | PT0S，不限时 |
+| 恢复 | RestartCount 999、RestartInterval PT1M、StartWhenAvailable |
+| 重入 | IgnoreNew；健康常驻时 0x800710E0 是重复启动被拒绝，不是 HTTP 故障 |
+| 电池 | 允许启动，切换电池不停止任务 |
+
+前端及代理 live/ready 均返回 200；ready 的数据库和 schema 检查通过。
+非管理员读取 SYSTEM 进程时 CommandLine/ExecutablePath 可能为空，
+此时 `OwnedByWorkspace=False` 不能单独证明是外部进程；需结合任务 Action、
+启动日志、父进程和 HTTP 核对，不能据此强杀监听者。
+
+回归检查只验证启动解析和失败日志，不启动服务器：
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\test-frontend-host.ps1
+```
+
+普通用户关闭终端或退出登录后，SYSTEM 任务仍可运行；机器关机、睡眠或断电期间不能提供服务。
+本次未执行整机重启或休眠演练，开机恢复仍需安排实际演练。
+要摆脱这台电脑的开关机，部署目标必须是常开的服务器或独立主机：
+构建前端交给 IIS/Nginx，反向代理 `/api`；将 API、数据库、运行数据和备份一起规划，
+通过目标机 live/ready、登录和重启验收后再切换访问入口。真实密钥通过独立配置交付，
+不经 Git 同步；付费执行、Runner 和生产写权限保持各自的授权边界。
