@@ -129,6 +129,12 @@
 
 @media (min-width: 821px) { .app-shell.app-shell--video { grid-template-columns: 208px minmax(0, 1fr); } }
 @media (min-width: 821px) {
+  .composer--studio .composer-submit-row { grid-template-areas: "count duration summary action"; }
+  .composer--studio .composer-submit-row > .composer-result-count { grid-area: count; }
+  .composer--studio .composer-submit-row > .composer-duration-field { grid-area: duration; }
+  .composer--studio .composer-submit-row > .composer-submit-summary,
+  .composer--studio .composer-submit-row > .composer-submit-status { grid-area: summary; }
+  .composer--studio .composer-submit-row > button { grid-area: action; }
   .composer--studio .upload-panel--has-items { display: flex; flex-wrap: wrap; align-items: flex-start; }
   .composer--studio .upload-panel--has-items .upload-panel-head { flex: 1 0 100%; padding-right: 0; }
   .composer--studio .upload-panel--has-items .studio-storyboard { order: 1; flex: 0 1 auto; }
@@ -140,10 +146,11 @@
 @media (min-width: 821px) and (max-width: 1199px) {
   .home-view.video-studio { padding-inline: 24px; }
   .composer--studio .generation-workflow { grid-template-columns: minmax(220px, 1fr) minmax(0, 1.45fr); column-gap: 24px; }
-  .composer--studio .composer-submit-row { grid-template-columns: 180px 144px minmax(0, 1fr); }
+  .composer--studio .composer-submit-row { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "count duration" "summary summary" "action action"; gap: var(--space-3); }
   .composer--studio .composer-submit-summary,
-  .composer--studio .composer-submit-status { grid-column: 1 / 3; grid-row: 2; justify-content: flex-start; }
-  .composer--studio .composer-submit-row > button { grid-column: 3; grid-row: 2; }
+  .composer--studio .composer-submit-status { justify-content: flex-start; }
+  .composer--studio .composer-duration-field > span:last-child { max-width: 180px; }
+  .composer--studio .composer-submit-row > button { width: 100%; }
 }
 @media (hover: hover) and (pointer: fine) {
   .composer--studio .studio-shot .material-remove:hover { color: var(--danger); }

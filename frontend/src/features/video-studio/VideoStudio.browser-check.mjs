@@ -101,6 +101,62 @@ try {
       await page.screenshot({ path: resolve(reportDir, `video-tasks-${width}.png`) })
       await page.getByRole('heading', { name: '生成结果', exact: true }).scrollIntoViewIfNeeded()
       await page.screenshot({ path: resolve(reportDir, `video-results-${width}.png`) })
+      if (process.env.UI_VIDEO_MIGRATION_PHASE !== '1') {
+        result.submit = await page.locator('.composer-submit-row').evaluate(row => {
+          const rect = selector => {
+            const r = row.querySelector(selector).getBoundingClientRect()
+            return { x: r.x, y: r.y, bottom: r.bottom, right: r.right }
+          }
+          return { count: rect('.composer-result-count'), duration: rect('.composer-duration-field'), summary: rect('.composer-submit-summary'), action: rect('button'), height: row.getBoundingClientRect().height }
+        })
+        check(result.submit.duration.y < result.submit.action.y, 'Video duration appears before submit')
+        check(await page.locator('.composer-submit-summary small').isVisible(), 'Original paid confirmation remains visible')
+        check(result.submit.height < 220, 'Submit layout has no accidental extra row')
+        if (width === 1024) {
+          check(result.submit.summary.y >= Math.max(result.submit.count.bottom, result.submit.duration.bottom), '1024 estimate follows both settings')
+          check(result.submit.action.y >= result.submit.summary.bottom, '1024 CTA follows the estimate')
+        }
+        await page.locator('.composer-result-count .segmented-control label').nth(1).click()
+        await page.getByRole('combobox', { name: '视频时长', exact: true }).selectOption('5')
+        const input = page.locator('.upload-panel input[type=file]').first()
+        await input.setInputFiles([
+          { name: 'front.png', mimeType: 'image/png', buffer: media },
+          { name: 'detail.png', mimeType: 'image/png', buffer: media },
+        ])
+        check(await page.locator('.studio-shot').count() === 2, 'Storyboard files render in the uploader')
+        await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
+        check(await page.locator('.studio-shot__name').first().innerText() === 'detail.png', 'Storyboard ordering stays intact')
+        await page.getByRole('button', { name: '删除图片 2', exact: true }).click()
+        check(await page.locator('.studio-shot').count() === 1, 'Storyboard deletion stays intact')
+        check(await page.getByRole('button', { name: '开始生成', exact: true }).isEnabled(), 'Existing valid-input gate enables the CTA')
+        await page.locator('.composer-submit-row').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: resolve(reportDir, `video-configured-${width}.png`) })
+        await page.getByRole('radio', { name: '自定义提示词', exact: true }).click()
+        await page.getByPlaceholder('输入画面动作、镜头和节奏要求').fill('离线验收：保持商品轮廓，不提交真实生成。')
+        await page.reload()
+        await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '服装多镜头展示', exact: true }).waitFor({ state: 'attached' })
+        check(await page.locator('.composer-result-count input[value="2"]').isChecked(), 'Result count restores after refresh')
+        check(await page.getByRole('combobox', { name: '视频时长', exact: true }).inputValue() === '5', 'Duration restores after refresh')
+        check(await page.getByPlaceholder('输入画面动作、镜头和节奏要求').inputValue() === '离线验收：保持商品轮廓，不提交真实生成。', 'Custom prompt restores without changing its content')
+        check(await page.locator('.studio-shot').count() === 0 && await page.getByRole('button', { name: '开始生成', exact: true }).isDisabled(), 'Refresh does not pretend local files are restored')
+        await page.locator('.home-title-actions').getByRole('button', { name: '任务中心', exact: true }).click()
+        await page.getByRole('navigation', { name: '制作导航', exact: true }).getByRole('button', { name: '视频工作室', exact: true }).click()
+        await page.locator('.home-view.video-studio').waitFor({ state: 'visible' })
+        check(new URL(page.url()).searchParams.get('view') === 'make', 'Return navigation keeps the existing video mapping')
+        await page.getByRole('radio', { name: '自动化生成', exact: true }).click()
+        fixture.state.mode = 'catalog-failure'
+        await page.reload()
+        await page.getByRole('alert').filter({ hasText: '暂时无法开始生成' }).waitFor()
+        check(await page.getByText('配置暂时无法读取', { exact: true }).isVisible(), 'Catalog failure is not shown as loading')
+        check(await page.getByText('正在加载配置', { exact: true }).count() === 0, 'Error takes precedence over loading')
+        await page.screenshot({ path: resolve(reportDir, `video-error-${width}.png`) })
+        await page.route('**/api/v1/video-templates', route => route.fulfill({ status: 503, json: { detail: { code: 'MAINTENANCE_QUERY_ONLY', message: 'Fixture maintenance boundary' } } }))
+        await page.reload()
+        await page.getByText('已有任务仍可查看', { exact: true }).waitFor()
+        check(await page.getByRole('button', { name: '开始生成', exact: true }).isDisabled(), 'Maintenance does not alter the generation gate')
+        check(await page.locator('.result-card').count() === 3, 'Saved results remain available in maintenance')
+        await page.screenshot({ path: resolve(reportDir, `video-maintenance-${width}.png`) })
+      }
       check(fixture.state.writes.length === 0, 'Readability checks never create or review tasks')
       check(errors.length === 0, 'No browser runtime errors')
       check(fixture.state.unexpected.length === 0, 'No unhandled API calls')
