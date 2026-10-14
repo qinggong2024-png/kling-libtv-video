@@ -24,6 +24,8 @@
   --success-soft: #ecfdf5;
   --warning: #b45309;
   --warning-soft: #fff7ed;
+  /* 待处理面板的暖色描边：原先以字面量 #e7d5aa / #eadcb9 散在两处，收成一个 token（评审 D1⑤）。 */
+  --warning-line: #e7d5aa;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, .04);
@@ -754,13 +756,13 @@ main { min-height: 100dvh; }
 .home-hero-grid .materials-grid { grid-template-columns: repeat(4, minmax(104px, 1fr)); }
 .home-hero-grid .composer-options { grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr); gap: 16px; }
 .home-hero-grid .composer-head h2 { font-size: 26px; }
-.attention-panel { min-width: 0; overflow: hidden; margin-top: 22px; padding: 18px; border: 1px solid #e7d5aa; border-radius: 10px; background: #fffcf5; box-shadow: var(--shadow-sm); }
+.attention-panel { min-width: 0; overflow: hidden; margin-top: 22px; padding: 18px; border: 1px solid var(--warning-line); border-radius: 10px; background: #fffcf5; box-shadow: var(--shadow-sm); }
 .attention-panel > p { margin: -5px 0 14px; color: #875a18; font-size: 12px; }
 .attention-panel .count-badge { background: #f4dca7; color: #7b4d12; }
 .attention-panel-actions { display: flex; align-items: center; gap: 8px; }
 .attention-dismiss { width: 44px; min-width: 44px; min-height: 44px; }
 .attention-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.attention-item { position: relative; min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 52px 12px 12px; border: 1px solid #eadcb9; border-radius: var(--radius-sm); background: #fff; }
+.attention-item { position: relative; min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 52px 12px 12px; border: 1px solid var(--warning-line); border-radius: var(--radius-sm); background: #fff; }
 .attention-item .task-thumb { width: 52px; height: 52px; }
 .attention-item > div { min-width: 0; display: grid; align-content: center; gap: 4px; }
 .attention-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

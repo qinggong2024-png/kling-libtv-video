@@ -64,10 +64,9 @@
 .composer--studio .upload-panel-head h2 { font-size: 15px; }
 .composer--studio .upload-panel-head small { display: block; font-size: 12px; color: var(--studio-muted); }
 .composer--studio .studio-upload-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px 16px; }
-.composer--studio .upload-panel--storyboard .upload-zone { width: auto; flex: 0 0 auto; margin: 0; min-height: 56px; padding: 8px 12px; gap: 8px; border-radius: 8px; background: var(--surface); justify-content: flex-start; }
-.composer--studio .upload-panel--has-items .upload-zone { flex: 0 1 240px; min-height: 44px; margin: 0; }
-.composer--studio .upload-zone strong { font-size: 13px; }
-.composer--studio .upload-icon { width: 32px; height: 32px; background: transparent; }
+/* 已删除 4 条 `.composer--studio .upload-zone` / `.composer--studio .upload-icon` 规则
+   （原 :67/:68/:69/:70）：studio 分支走 `ImageUploadTrigger`，渲染 `.studio-image-upload`
+   + `.studio-image-upload__icon`，DOM 中压根没有 `.upload-zone`（评审 L1④）。 */
 .composer--studio .upload-batch-button { min-height: 44px; font-size: 12px; text-align: left; white-space: nowrap; flex-shrink: 0; }
 .composer--studio .upload-panel--storyboard > .studio-storyboard { grid-column: 1 / -1; margin: 0; }
 .composer--studio .upload-panel--storyboard > .batch-groups,
@@ -240,7 +239,6 @@
   .composer--studio .upload-panel--storyboard { grid-template-columns: minmax(0, 1fr); }
   .composer--studio .upload-panel-head > div { display: flex; gap: 8px; }
   .composer--studio .studio-upload-actions { flex-wrap: wrap; gap: 8px; }
-  .composer--studio .upload-panel--storyboard .upload-zone { flex: 1 1 200px; }
   .composer--studio .composer-asset-lane { padding-bottom: 16px; }
   .composer--studio .generation-workflow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .composer--studio .studio-template-selector,
