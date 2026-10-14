@@ -1,6 +1,6 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 import { AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronRight, CircleAlert, Images, LoaderCircle, LockKeyhole, Settings, UploadCloud, WandSparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ApiError, createVideoTask, getKlingElements, getSiteStyleProfiles, getVideoTemplates, querySubmissionRecovery, uploadStoryboard, type SubmissionRecoveryResult } from '../../api'
 import { mapWithConcurrency } from '../../concurrency'
 import { type KlingElement, type SiteStyleProfileSummary, type SystemStatus, type Task, type VideoTemplateSummary } from '../../types'
@@ -22,6 +22,7 @@ import { Storyboard } from '../../shared/components/studio/Storyboard'
 import { TemplateSelector } from '../../shared/components/studio/TemplateSelector'
 import { SubjectDisclosure } from '../../shared/components/studio/SubjectDisclosure'
 import { Button } from '../../shared/components/ui/Button'
+import { ImageUploadTrigger } from '../../shared/components/studio/ImageUploadTrigger'
 import './videoStudio.css'
 import './studioRefinement.css'
 
@@ -80,6 +81,9 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   layout?: 'standard' | 'studio'
 }) {
   const directorFixed = Boolean(directorFixedPreparation)
+  const composerRef = useRef<HTMLElement>(null)
+  const feedbackId = useId()
+  const paymentId = useId()
   const [storedSettings] = useState(() => loadVideoComposerSettings(
     typeof localStorage === 'undefined'
       ? { getItem: () => null }
@@ -158,11 +162,64 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   const templateAcceptsCount = Boolean(selectedTemplate && storyboards.length >= selectedTemplate.minImages && storyboards.length <= selectedTemplate.maxImages)
   const formLocked = busy || resetting || Boolean(uncertainSubmission)
   const batchMode = batchGroups.length > 0
-  const batchInvalid = batchMode && batchGroups.some((group) => group.errors.length > 0
+  const invalidBatchGroup = batchGroups.find((group) => group.errors.length > 0
     || group.storyboards.length < (selectedTemplate?.minImages ?? 1)
     || group.storyboards.length > (selectedTemplate?.maxImages ?? storyboardLimit)
     || !getVideoDurationOptions(videoGeneration, group.storyboards.length).includes(normalizedDurationSeconds)
     || group.storyboards.length + Number(Boolean(group.productFront)) + Number(Boolean(group.productBack)) > referenceLimit)
+  type CorrectionTarget = 'upload' | 'template' | 'subject' | 'prompt' | 'profile' | 'batch' | 'duration' | 'reload'
+  // Submission and its recovery action share the same ordered validation.
+  const submissionBlocker = (() : { message: string; action?: string; target?: CorrectionTarget } | null => {
+    if (catalogLoading) return { message: '正在读取生成配置，请稍候。' }
+    if (catalogError) return { message: catalogError.includes('当前处于维护模式') ? '当前处于维护模式，已有任务仍可查看。' : catalogError, action: '重新读取', target: 'reload' }
+    if (!selectedTemplate) return { message: '暂无可用视频模板，请联系管理员检查模板配置。' }
+    if (!providerAvailable) return { message: `${activeProvider.displayLabel} 当前不可用。请让管理员配置凭据、启用通道并验证连接。` }
+    if (selectedTemplate.status !== 'active') return { message: '当前视频模板尚未通过生产验收。', action: '调整模板', target: 'template' }
+    if (invalidBatchGroup) {
+      const group = invalidBatchGroup
+      if (group.errors.length) return { message: `${group.key}：${group.errors.join('、')}。请重新导入或退出批量编辑当前组。`, action: '检查批量素材', target: 'batch' }
+      if (group.storyboards.length < selectedTemplate.minImages || group.storyboards.length > selectedTemplate.maxImages) return { message: `${group.key} 有 ${group.storyboards.length} 张分镜，当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张。`, action: '调整模板', target: 'template' }
+      const durations = getVideoDurationOptions(videoGeneration, group.storyboards.length)
+      if (!durations.includes(normalizedDurationSeconds)) return { message: `${group.key} 当前支持 ${formatVideoDurationOptions(durations)}，不支持 ${normalizedDurationSeconds} 秒。`, action: '调整时长', target: 'duration' }
+      return { message: `${group.key} 的分镜与主体图片总数超过模型的 ${referenceLimit} 张限制。请重新导入或退出批量编辑。`, action: '检查批量素材', target: 'batch' }
+    }
+    if (!storyboards.length) return { message: '请至少上传 1 张分镜图', action: '添加素材', target: 'upload' }
+    if (!templateAcceptsCount) return { message: `当前模板接受 ${selectedTemplate.minImages}–${selectedTemplate.maxImages} 张分镜图`, action: '调整模板', target: 'template' }
+    if (!subjectReady) return { message: subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。', action: '编辑主体', target: 'subject' }
+    if (!providerInputsSupported) return { message: `当前模型 ${activeModel} 最多接收 ${referenceLimit} 张图片；系统不会静默丢弃分镜。`, action: '调整素材', target: 'subject' }
+    if (!productionReady) return { message: '当前站点风格尚未通过生产验收。', action: '选择站点风格', target: 'profile' }
+    if (!customPromptReady) return { message: '请输入自定义提示词，或切换到自动化生成。', action: '填写提示词', target: 'prompt' }
+    return null
+  })()
+  const correctInput = (target: CorrectionTarget) => {
+    if (formLocked) return
+    if (target === 'reload') {
+      setCatalogLoading(true)
+      setCatalogReloadKey((key) => key + 1)
+      return
+    }
+    const selectors: Record<Exclude<CorrectionTarget, 'reload'>, string> = {
+      upload: '.studio-upload-actions button, .upload-zone',
+      template: '.studio-template-controls select',
+      subject: '.subject-input-panel button',
+      prompt: '.custom-prompt-field textarea',
+      profile: '.generation-route--automatic select',
+      batch: '.studio-batch-mode button',
+      duration: '.composer-duration-field select',
+    }
+    if (target === 'subject') {
+      const disclosure = composerRef.current?.querySelector<HTMLDetailsElement>('.studio-subject-disclosure')
+      if (disclosure) disclosure.open = true
+    }
+    const subjectUploadControl = target === 'subject' && subjectMode === 'upload'
+      ? composerRef.current?.querySelector<HTMLElement>('.subject-upload-tile input[aria-invalid="true"]:not(:disabled)')
+        ?? composerRef.current?.querySelector<HTMLElement>('.subject-upload-tile.is-required input:not(:disabled)')
+      : null
+    const control = subjectUploadControl ?? composerRef.current?.querySelector<HTMLElement>(selectors[target])
+    const scrollTarget = subjectUploadControl?.closest('.subject-upload-tile') ?? control
+    scrollTarget?.scrollIntoView({ block: 'center' })
+    control?.focus({ preventScroll: true })
+  }
   useEffect(() => {
     if (directorFixed) {
       return
@@ -299,7 +356,7 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
   }
   const submit = async () => {
     if (directorFixed) return
-    if (submitLockRef.current || formLocked || batchInvalid || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady) return
+    if (submitLockRef.current || formLocked || submissionBlocker) return
     submitLockRef.current = true
     setBusy(true)
     setError('')
@@ -474,7 +531,30 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
 
   if (directorFixedPreparation) return <DirectorFixedPreparationPanel preparation={directorFixedPreparation} />
 
-  return <section className={`composer${studio ? ' composer--studio' : ''}${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-label="视频制作配置" aria-busy={busy}>
+  const handleModeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (formLocked || !(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'radio') return
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const next = event.key === 'Home' ? 'custom' : event.key === 'End' ? 'automatic' : generationMode === 'custom' ? 'automatic' : 'custom'
+    setGenerationMode(next)
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-mode="${next}"]`)?.focus()
+  }
+  const modeSelector = (mode: 'custom' | 'automatic') => <button
+    type="button"
+    className={`generation-route-selector${generationMode === mode ? ' is-selected' : ''}`}
+    data-mode={mode}
+    role="radio"
+    tabIndex={generationMode === mode ? 0 : -1}
+    aria-checked={generationMode === mode}
+    disabled={formLocked}
+    onClick={() => setGenerationMode(mode)}
+  >
+    <span className="generation-route-radio">{generationMode === mode ? <Check size={14} /> : null}</span>
+    <span><strong>{mode === 'custom' ? '自定义提示词' : '自动化生成'}</strong></span>
+  </button>
+  const batchImportButton = <button type="button" className="text-button upload-batch-button" aria-label="按命名批量导入产品图与分镜" title="按命名批量导入产品图与分镜" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />{studio ? '批量导入' : '按命名批量导入产品图与分镜'}</button>
+
+  return <section ref={composerRef} className={`composer${studio ? ' composer--studio' : ''}${busy ? ' is-busy' : ''}${resetting ? ' is-resetting' : ''}`} aria-label="视频制作配置" aria-busy={busy}>
     {uncertainSubmission ? <div className="inline-alert inline-alert--warning" role="alert">
       <CircleAlert size={17} />
       <span>
@@ -505,10 +585,10 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
         }} onDrop={(event) => { if (!formLocked && !batchMode) handleDrop(event, storyboards.length) }}>
           <input ref={storyboardInputRef} hidden type="file" multiple disabled={formLocked || batchMode} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
           <input ref={batchInputRef} hidden type="file" multiple disabled={formLocked} accept={IMAGE_FILE_ACCEPT} onChange={(event) => { addBatchFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = '' }} />
-          <div className="upload-panel-head"><div><h2>{studio ? '分镜素材' : '有序分镜'}</h2><small>至少 1 张，最多 {storyboardLimit} 张</small></div><span>{storyboards.length}/{storyboardLimit}</span></div>
+          <div className="upload-panel-head"><div><h2>{studio ? '分镜素材' : '有序分镜'}</h2><small>至少 1 张，最多 {storyboardLimit} 张</small></div><span>{storyboards.length}/{storyboardLimit}</span>{studio ? batchImportButton : null}</div>
           <div className={studio ? 'studio-upload-actions' : undefined}>
-          <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} aria-hidden="true" /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>
-          <button type="button" className="text-button upload-batch-button" aria-label="按命名批量导入产品图与分镜" title="按命名批量导入产品图与分镜" disabled={formLocked} onClick={() => batchInputRef.current?.click()}><Images size={16} />{studio ? '批量导入' : '按命名批量导入产品图与分镜'}</button>
+          {studio ? <ImageUploadTrigger title={storyboards.length ? '继续添加分镜图' : '上传分镜图'} disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()} /> : <button type="button" className="upload-zone upload-zone--compact" disabled={formLocked || batchMode} onClick={() => storyboardInputRef.current?.click()}><span className="upload-icon"><UploadCloud size={22} aria-hidden="true" /></span><span><strong>{storyboards.length ? '继续添加分镜图' : '上传分镜图'}</strong><small>JPG、PNG、WEBP</small></span></button>}
+          {!studio ? batchImportButton : null}
           </div>
           {studio ? <Storyboard materials={storyboards} selectedId={selectedMaterial?.id} disabled={formLocked || batchMode} onSelect={setSelectedMaterialId} onMove={moveMaterial} onRemove={remove} onDropAt={handleDrop} onPreview={(material, index) => setPreview({ file: material.file, label: `分镜图 ${index + 1}` })} /> : null}
           {batchGroups.length ? <div className="batch-groups" aria-live="polite"><strong>批量识别</strong>{batchGroups.map((group) => <div key={group.key}><span>{group.key}</span><small>{group.productFront ? '正面已识别' : '缺正面'} · {group.productBack ? '背面已识别' : '无背面'} · {group.storyboards.length} 张分镜{group.errors.length ? ` · ${group.errors.join('、')}` : ''}</small></div>)}</div> : null}
@@ -526,30 +606,19 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
         </div>
         <div className="composer-production-lane">
         <section className="generation-workflow" aria-labelledby="generation-workflow-title">
-          {studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">生成配置</h2></div></div> : null}
+          {studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">生成配置</h2></div><div className="generation-mode-switch" role="radiogroup" aria-label="生成方式" onKeyDown={handleModeKeyDown}>{modeSelector('custom')}{modeSelector('automatic')}</div></div> : null}
           <TemplateSelector templates={templates} value={templateId} onChange={setTemplateId} disabled={formLocked} loading={catalogLoading} compact={studio} />
           {!studio ? <div className="generation-workflow-heading"><div><h2 id="generation-workflow-title">创意配置</h2></div></div> : null}
-          <div className="generation-routes" role="radiogroup" aria-label="生成方式" onKeyDown={(event) => {
-            if (formLocked || !(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'radio') return
-            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-            event.preventDefault()
-            const next = event.key === 'Home' ? 'custom' : event.key === 'End' ? 'automatic' : generationMode === 'custom' ? 'automatic' : 'custom'
-            setGenerationMode(next)
-            event.currentTarget.querySelector<HTMLButtonElement>(`.generation-route--${next} [role="radio"]`)?.focus()
-          }}>
+          <div className="generation-routes" role={studio ? undefined : 'radiogroup'} aria-label={studio ? undefined : '生成方式'} onKeyDown={studio ? undefined : handleModeKeyDown}>
             <article className={`generation-route generation-route--custom${generationMode === 'custom' ? ' is-active' : ' is-inactive'}`}>
-              <button type="button" className="generation-route-selector" role="radio" tabIndex={generationMode === 'custom' ? 0 : -1} aria-checked={generationMode === 'custom'} disabled={formLocked} onClick={() => setGenerationMode('custom')}>
-                <span className="generation-route-radio">{generationMode === 'custom' ? <Check size={14} /> : null}</span><span><strong>自定义提示词</strong></span>
-              </button>
+              {!studio ? modeSelector('custom') : null}
               <div className="generation-route-body">
-                <CustomPromptField scope="video" label={`${activeModel} 提示词`} value={customPrompt} disabled={formLocked || generationMode !== 'custom'} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
+                <CustomPromptField scope="video" label={`${activeModel} 提示词`} value={customPrompt} disabled={formLocked || generationMode !== 'custom'} describedBy={submissionBlocker?.target === 'prompt' ? feedbackId : undefined} onChange={setCustomPrompt} placeholder="输入画面动作、镜头和节奏要求" />
               </div>
             </article>
 
             <article className={`generation-route generation-route--automatic${generationMode === 'automatic' ? ' is-active' : ' is-inactive'}`}>
-              <button type="button" className="generation-route-selector" role="radio" tabIndex={generationMode === 'automatic' ? 0 : -1} aria-checked={generationMode === 'automatic'} disabled={formLocked} onClick={() => setGenerationMode('automatic')}>
-                <span className="generation-route-radio">{generationMode === 'automatic' ? <Check size={14} /> : null}</span><span><strong>自动化生成</strong></span>
-              </button>
+              {!studio ? modeSelector('automatic') : null}
               <div className="generation-route-body">
                 <label className="catalog-field"><span>站点风格</span><select value={siteProfileId} disabled={formLocked || catalogLoading || generationMode !== 'automatic'} onChange={(event) => setSiteProfileId(event.target.value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === 'active' ? '' : ' · 待验收'}</option>)}</select><small>{studio
                   ? catalogError ? '配置暂时无法读取' : catalogLoading ? '正在加载配置' : selectedProfile?.tone ?? '暂无可用站点风格'
@@ -568,30 +637,21 @@ export function ProductionComposer({ seed, directorFixedPreparation, onCreated, 
         </div>
       </div>
       </div>
-    <div className="composer-feedback" aria-live="polite">
-      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>
-        : catalogError ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} /><span>{studio
-          ? <><strong>暂时无法开始生成</strong><small>{catalogError.includes('当前处于维护模式') ? '已有任务仍可查看' : catalogError}</small></>
-          : catalogError}</span><Button variant="ghost" disabled={catalogLoading} onClick={() => { setCatalogLoading(true); setCatalogReloadKey((key) => key + 1) }}>重新读取</Button></div>
-          : !selectedTemplate && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>暂无可用视频模板，请联系管理员检查模板配置。</span></div>
-          : batchInvalid ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />批量素材有缺失或超出模板/模型数量限制，请重新导入或退出批量编辑当前组。</div>
-          : !providerAvailable ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />{activeProvider.displayLabel} 当前不可用。请让管理员配置凭据、启用通道并验证连接。</div>
-          : !productionReady && !catalogLoading ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{generationMode === 'automatic' ? '当前站点风格尚未通过生产验收。' : '默认生产规格当前不可用。'}</span></div>
-          : !subjectReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>{subjectMode === 'upload' ? subjectValidation.errors[0] : '请选择一个可用的历史主体，或清除主体后按默认方式生成。'}</span></div>
-          : !providerInputsSupported ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={16} />当前模型 {activeModel} 最多接收 {referenceLimit} 张图片；系统不会静默丢弃分镜。</div>
-            : submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div>
-              : notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div>
-                : !storyboards.length ? <div className="inline-alert"><CircleAlert size={17} /><span>请至少上传 1 张分镜图</span></div>
-                  : !templateAcceptsCount ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>当前模板接受 {selectedTemplate?.minImages}–{selectedTemplate?.maxImages} 张分镜图</span></div>
-                    : !customPromptReady ? <div className="inline-alert" role="alert"><CircleAlert size={17} /><span>请输入自定义提示词，或切换到自动化生成。</span></div>
-                  : null}
+    <div className="composer-feedback" id={feedbackId} aria-live="polite">
+      {error ? <div className="inline-alert inline-alert--danger" role="alert"><AlertTriangle size={17} /><span>{error}</span></div> : null}
+      {!formLocked && submissionBlocker ? <div className="inline-alert composer-next-action" role="status">
+        <CircleAlert size={17} aria-hidden="true" /><span>{submissionBlocker.message}</span>
+        {submissionBlocker.target ? <Button variant="ghost" icon={<ArrowRight size={15} aria-hidden="true" />} onClick={() => correctInput(submissionBlocker.target!)}>{submissionBlocker.action}</Button> : null}
+      </div> : null}
+      {submittedNotice ? <div className="inline-alert inline-alert--success" role="status"><CheckCircle2 size={17} /><span>{submittedNotice}</span></div> : null}
+      {notice ? <div className="inline-alert" role="status"><CircleAlert size={17} /><span>{notice}</span></div> : null}
     </div>
     <div className="composer-submit-row" aria-live="polite">
       <fieldset className="result-count-field composer-result-count" disabled={formLocked}><legend>每组结果数</legend><div className="segmented-control">{([1, 2, 3, 4] as const).map((count) => <label key={count} className={resultCount === count ? 'is-selected' : ''}><input type="radio" name="result-count" value={count} checked={resultCount === count} onChange={() => setResultCount(count)} /><span>{count}</span></label>)}</div></fieldset>
       <label className="composer-duration-field" htmlFor="video-duration"><span>视频时长 <small id="video-duration-options">{durationOptionsLabel}</small></span><span><select id="video-duration" aria-label="视频时长" value={normalizedDurationSeconds} disabled={formLocked} aria-describedby="video-duration-options" onChange={(event) => setDurationSeconds(Number(event.target.value))}>{durationOptions.map((duration) => <option key={duration} value={duration}>{duration}</option>)}</select><small>秒</small></span></label>
       {busy ? <span className="composer-submit-status"><LoaderCircle className="spin" size={14} /><span>{stage}</span><strong>{progress}%</strong></span>
-        : <span className="composer-submit-summary"><LockKeyhole size={14} /><span><strong>{studio ? '预计结果 · ' : ''}{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
-      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} disabled={formLocked || batchInvalid || catalogLoading || !storyboards.length || !providerAvailable || !subjectReady || !providerInputsSupported || !productionReady || !templateAcceptsCount || !customPromptReady} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
+        : <span className="composer-submit-summary" id={paymentId}><LockKeyhole size={14} /><span><strong>{studio ? '预计结果 · ' : ''}{batchMode ? batchGroups.length : 1} 组 · {resultCount * (batchMode ? batchGroups.length : 1)} 个结果</strong><small>点击“开始生成”即确认付费提交</small></span></span>}
+      <Button variant="primary" className="primary-button primary-button--large" aria-busy={busy} aria-describedby={busy ? undefined : `${feedbackId} ${paymentId}`} disabled={formLocked || Boolean(submissionBlocker)} onClick={() => void submit()}>{busy ? <><LoaderCircle className="spin" size={18} />正在准备素材</> : resetting ? <><CheckCircle2 size={18} />已提交</> : <><WandSparkles size={18} />开始生成<ArrowRight size={17} /></>}</Button>
       {busy ? <div className="composer-submit-progress progress-track" role="progressbar" aria-label={stage} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={studio ? { transform: `scaleX(${progress / 100})` } : { width: `${progress}%` }} /></div> : null}
     </div>
     </div>
