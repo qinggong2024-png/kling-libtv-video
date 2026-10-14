@@ -57,6 +57,7 @@ front: image file
 Optional fields:
 
 ```text
+back: optional product back image
 client_key: string
 product_version_id: string
 ```

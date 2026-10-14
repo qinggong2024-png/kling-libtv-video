@@ -85,6 +85,8 @@ export function selectDirectorEvidence(
 
   const snapshot = record(workflow.snapshot)
   const asset = record(snapshot.asset)
+  const productAssets = record(snapshot.product_assets)
+  const backAsset = record(productAssets.back)
   const plan = record(snapshot.plan)
   const packageRevision = record(snapshot.package)
   const packageId = stringValue(packageRevision.package_id)
@@ -142,8 +144,10 @@ export function selectDirectorEvidence(
     },
     backAssumption: {
       key: 'back-view',
-      value: backAssumption?.unknownOrAssumption || 'back view not observed',
-      availability: backAssumption ? 'available' : 'unverified',
+      value: backAsset.object_key
+        ? 'back view available from uploaded reference'
+        : backAssumption?.unknownOrAssumption || 'back view not observed',
+      availability: backAsset.object_key || backAssumption ? 'available' : 'unverified',
     },
     groundedClaims,
     reality,

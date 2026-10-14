@@ -74,6 +74,9 @@ export interface DirectorProductIntake {
   productFrontName: string
   productFrontPreviewUrl: string
   productFrontFile?: File
+  productBackName: string
+  productBackPreviewUrl: string
+  productBackFile?: File
   brandMode: DirectorBrandMode
   brandName: string
   material: string
@@ -152,6 +155,8 @@ export function createDirectorDraft(): DirectorDraft {
       productName: '',
       productFrontName: '',
       productFrontPreviewUrl: '',
+      productBackName: '',
+      productBackPreviewUrl: '',
       brandMode: 'generic',
       brandName: '',
       material: '',

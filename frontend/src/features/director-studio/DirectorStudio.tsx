@@ -79,6 +79,7 @@ export function DirectorStudio() {
   const [viewedStage, setViewedStage] = useState<DirectorStageKey | null>(null)
   const clientKeyRef = useRef(createUuid())
   const frontImageInputRef = useRef<HTMLInputElement>(null)
+  const backImageInputRef = useRef<HTMLInputElement>(null)
   const productIdRef = useRef<string | undefined>(undefined)
   const recoveryAttemptRef = useRef<string | null>(null)
   const commandRef = useRef<{ fingerprint: string; key: string } | null>(null)
@@ -219,6 +220,16 @@ export function DirectorStudio() {
       productFrontName: file.name,
       productFrontPreviewUrl: URL.createObjectURL(file),
       productFrontFile: file,
+    })
+  }
+
+  const onBackImage = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    updateIntake({
+      productBackName: file.name,
+      productBackPreviewUrl: URL.createObjectURL(file),
+      productBackFile: file,
     })
   }
 
@@ -373,6 +384,7 @@ export function DirectorStudio() {
         const created = await createDirectorTask({
           productId: productIdRef.current,
           front: draft.intake.productFrontFile!,
+          ...(draft.intake.productBackFile ? { back: draft.intake.productBackFile } : {}),
           clientKey: clientKeyRef.current,
           ...(draft.intake.brandMode === 'brand' && chosenBrand ? {
             brandProfileId: chosenBrand.id,
@@ -625,11 +637,24 @@ export function DirectorStudio() {
         </div>
         <div className="director-intake-layout">
           <div className="director-intake-primary">
+            <div className="director-upload-pair">
+            <div className="director-upload-slot">
+            <span className="director-upload-label">商品正面 <small>必填</small></span>
             <ImageUploadTrigger className="director-upload" title={draft.intake.productFrontPreviewUrl ? '更换商品正面' : '上传商品正面'}
               disabled={workflow !== null || busyAction !== null} onClick={() => frontImageInputRef.current?.click()}
               preview={draft.intake.productFrontPreviewUrl ? <img src={draft.intake.productFrontPreviewUrl} alt="商品正面预览" /> : undefined} />
-            <input ref={frontImageInputRef} hidden type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
+            <input ref={frontImageInputRef} hidden aria-label="上传商品正面" type="file" accept="image/*" onChange={onFrontImage} disabled={workflow !== null || busyAction !== null} />
             {draft.intake.productFrontName ? <p className="director-file-name">{draft.intake.productFrontName}</p> : null}
+            </div>
+            <div className="director-upload-slot">
+            <span className="director-upload-label">商品背面 <small>可选</small></span>
+            <ImageUploadTrigger className="director-upload director-upload--optional" title={draft.intake.productBackPreviewUrl ? '更换商品背面' : '上传商品背面'}
+              disabled={workflow !== null || busyAction !== null} onClick={() => backImageInputRef.current?.click()}
+              preview={draft.intake.productBackPreviewUrl ? <img src={draft.intake.productBackPreviewUrl} alt="商品背面预览" /> : undefined} />
+            <input ref={backImageInputRef} hidden aria-label="上传商品背面" type="file" accept="image/*" onChange={onBackImage} disabled={workflow !== null || busyAction !== null} />
+            {draft.intake.productBackName ? <p className="director-file-name">{draft.intake.productBackName}</p> : <p className="director-file-name director-file-name--optional">没有背面图也可以开始分析</p>}
+            </div>
+            </div>
             <div className="director-media-mode director-media-mode--secondary" role="group" aria-label="分析素材类型">
               <span>输入类型</span>
               <button type="button" className="is-selected" aria-pressed="true"><FileImage size={15} />图片</button>

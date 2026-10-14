@@ -283,11 +283,28 @@ async def script_product_references(
     """Resolve declared product views from registered, owner-scoped original uploads."""
     sources = snapshot["product_version"].get("truth_fields", {}).get("product_view_uploads", {})
     registered = snapshot["product_version"].get("source_asset_references", [])
+    task_assets = snapshot.get("product_assets", {})
     views = {
         m.garment_view for raw in beats for m in ScriptBeat.model_validate(raw).moments
     } - {"front"}
     evidence, assets = {}, {}
     for view in sorted(views):
+        direct_asset = task_assets.get(view)
+        if direct_asset:
+            if direct_asset.get("object_key") not in registered:
+                reject("PRODUCT_VIEW_EVIDENCE_REQUIRED")
+            with TemporaryDirectory(prefix="creative-product-view-") as directory:
+                if not await object_store.exists(direct_asset["object_key"]):
+                    reject("ASSET_MISSING")
+                path = await object_store.localize(direct_asset["object_key"], Path(directory) / view)
+                if hashlib.sha256(path.read_bytes()).hexdigest() != direct_asset["sha256"]:
+                    reject("ASSET_HASH_MISMATCH")
+            evidence[view] = direct_asset["sha256"]
+            assets[view] = {
+                "object_key": direct_asset["object_key"],
+                "sha256": direct_asset["sha256"],
+            }
+            continue
         try:
             upload_id = uuid.UUID(sources[view])
         except (KeyError, ValueError, TypeError):
@@ -337,6 +354,7 @@ def storyboard_package(
 async def create_task(
     session: AsyncSession, owner_id: uuid.UUID, product_id: uuid.UUID, asset: AssetLink,
     *, client_key: str | None = None, product_version_id: uuid.UUID | None = None,
+    back_asset: AssetLink | None = None,
     brand_profile_id: str | None = None, brand_profile_version: str | None = None,
 ) -> dict:
     product = await session.scalar(select(Product).where(
@@ -348,6 +366,7 @@ async def create_task(
         reject("OWNER_MISMATCH")
     request_input = {
         "product_id": str(product_id), "front_sha": asset.sha256,
+        "back_sha": back_asset.sha256 if back_asset else None,
         "product_version_id": str(product_version_id) if product_version_id else None,
         "settings": {"mode": "OFFLINE_FAKE_ONLY", "role": asset.role, "view": asset.view},
     }
@@ -388,7 +407,12 @@ async def create_task(
             reject("PRODUCT_VERSION_NOT_FOUND", 404)
     else:
         version = await append_version(session, product_id, ProductVersionCreate(
-            source_type="USER_UPLOAD", source_asset_references=[asset.object_key],
+            source_type="USER_UPLOAD",
+            source_asset_references=[asset.object_key] + ([back_asset.object_key] if back_asset else []),
+            truth_fields={"product_view_evidence": {
+                "front": asset.sha256,
+                **({"back": back_asset.sha256} if back_asset else {}),
+            }},
             product_page_url=None, client_request_key=f"creative:{asset.sha256}",
         ))
     facts = version_content(version)
@@ -397,6 +421,10 @@ async def create_task(
         status="DRAFT", state_version=0,
         snapshot_json={
             "asset": asset.model_dump(mode="json"), "trace": ["G0"], "candidates": [],
+            "product_assets": {
+                "front": asset.model_dump(mode="json"),
+                **({"back": back_asset.model_dump(mode="json")} if back_asset else {}),
+            },
             "calls": 0, "cost_micros": 0, "total_calls": 0, "total_cost_micros": 0,
             "stopped": False, "product_version": facts,
             **({"brand_dna": brand_dna} if brand_dna is not None else {}),
@@ -408,6 +436,8 @@ async def create_task(
     session.add(task)
     await session.flush()
     record(session, task.id, "asset_link", "canonical-front", asset.model_dump(mode="json"))
+    if back_asset is not None:
+        record(session, task.id, "asset_link", "canonical-back", back_asset.model_dump(mode="json"))
     result = {"id": str(task.id), "status": task.status, "state_version": 0}
     if client_key:
         session.add(CreativeCreation(
@@ -434,15 +464,17 @@ async def create_task(
 
 
 async def validate_asset(snapshot: dict, object_store) -> None:
-    asset = AssetLink.model_validate(snapshot["asset"])
-    if asset.revoked:
-        reject("ASSET_REVOKED")
-    if not await object_store.exists(asset.object_key):
-        reject("ASSET_MISSING")
-    with TemporaryDirectory(prefix="cw-materialize-") as directory:
-        path = await object_store.localize(asset.object_key, Path(directory) / "front")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != asset.sha256:
-            reject("ASSET_HASH_MISMATCH")
+    assets = snapshot.get("product_assets") or {"front": snapshot["asset"]}
+    for view, raw in assets.items():
+        asset = AssetLink.model_validate(raw)
+        if asset.revoked:
+            reject("ASSET_REVOKED")
+        if not await object_store.exists(asset.object_key):
+            reject("ASSET_MISSING")
+        with TemporaryDirectory(prefix="cw-materialize-") as directory:
+            path = await object_store.localize(asset.object_key, Path(directory) / view)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != asset.sha256:
+                reject("ASSET_HASH_MISMATCH")
 
 
 async def validate_product_version(
@@ -557,8 +589,18 @@ async def execute(
                 "source_fact_keys": ["source_asset_references"],
                 "facts_revision": facts_revision, "evidence_kind": "OBSERVED_REFERENCE",
                 "confidence_basis": "asset_sha256_and_source_fact",
-                "unknown_or_assumption": "back view not observed",
-            }],
+                "unknown_or_assumption": (
+                    "back view observed from uploaded reference"
+                    if snapshot.get("product_assets", {}).get("back")
+                    else "back view not observed"
+                ),
+            }] + ([{
+                "claim_id": "back-source", "value": "back image available",
+                "source_fact_keys": ["source_asset_references"],
+                "facts_revision": facts_revision, "evidence_kind": "OBSERVED_REFERENCE",
+                "confidence_basis": "asset_sha256_and_source_fact",
+                "unknown_or_assumption": "back view observed from uploaded reference",
+            }] if snapshot.get("product_assets", {}).get("back") else []),
         )
         analysis = build_director_analysis(
             source_hash=snapshot["asset"]["sha256"],

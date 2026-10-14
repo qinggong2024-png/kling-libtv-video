@@ -127,6 +127,10 @@ export interface DirectorStoryboardState {
 export interface DirectorTaskSnapshot {
   brand_dna?: BrandDNASnapshot
   asset: { sha256: string; width: number; height: number; object_key: string; revoked?: boolean }
+  product_assets?: {
+    front?: { sha256: string; width: number; height: number; object_key: string; view: 'front' }
+    back?: { sha256: string; width: number; height: number; object_key: string; view: 'back' }
+  }
   trace: string[]
   candidates: DirectorCandidate[]
   calls: number
@@ -242,6 +246,7 @@ export function createDirectorProduct(internalSkuId: string): Promise<{ id: stri
 export async function createDirectorTask(input: {
   productId: string
   front: File
+  back?: File
   clientKey: string
   brandProfileId?: string
   brandProfileVersion?: string
@@ -252,6 +257,7 @@ export async function createDirectorTask(input: {
   if (input.brandProfileId) body.append('brand_profile_id', input.brandProfileId)
   if (input.brandProfileVersion) body.append('brand_profile_version', input.brandProfileVersion)
   body.append('front', input.front, input.front.name)
+  if (input.back) body.append('back', input.back, input.back.name)
   const created = await request<DirectorTaskResponse & { snapshot?: DirectorTaskSnapshot }>(
     '/creative-workflow/tasks',
     { method: 'POST', body },

@@ -254,10 +254,17 @@ try {
       await advanced.locator('summary').click()
       assert.equal(await advanced.getByRole('textbox', { name: /产品材质/ }).inputValue(), 'PLANNED_MATERIAL', 'Collapse retains planning values')
       await advanced.locator('summary').click()
-      await page.locator('input[type=file]').setInputFiles({
+      await page.getByLabel('上传商品正面').setInputFiles({
         name: 'front.png', mimeType: 'image/png',
         buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
       })
+      if (width === 1440) {
+        await page.getByLabel('上传商品背面').setInputFiles({
+          name: 'back.png', mimeType: 'image/png',
+          buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'),
+        })
+        assert(await page.getByText('back.png', { exact: true }).isVisible(), 'Optional back image is visible')
+      }
       await analyze.click()
       await page.getByText('Fixture creation failure', { exact: false }).waitFor()
       await analyze.click()
@@ -271,7 +278,11 @@ try {
       assert.equal(productRequests, 1, 'Workflow creation or analysis failure never recreates the existing Product')
       assert.equal(commands.filter(command => command.action === 'retry_analysis').length, 1)
       const formFields = [...creationRequests[0].matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map(match => match[1])
-      assert.deepEqual(formFields.sort(), ['client_key', 'front', 'product_id'], 'Only existing effective inputs enter task creation')
+      assert.deepEqual(
+        formFields.sort(),
+        width === 1440 ? ['back', 'client_key', 'front', 'product_id'] : ['client_key', 'front', 'product_id'],
+        'Only existing effective inputs enter task creation',
+      )
       assert(!creationRequests[0].includes('PLANNED_'), 'Planning values stay out of analysis')
       const analysisCommand = commands.find(command => command.action === 'analyze')
       assert.deepEqual(Object.keys(analysisCommand).sort(), ['action', 'command_key', 'expected_version'], 'Analysis contract unchanged')
@@ -453,7 +464,7 @@ try {
       assert.equal(commands.find(command => command.action === 'select' && command.shot_id === 'SHOT_01').shot_id, 'SHOT_01')
       await page.screenshot({ path: resolve(evidence, `selected-${width}.png`), fullPage: true })
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No page overflow')
-      assert(await page.locator('.director-upload img').evaluate(img => img.complete && img.naturalWidth > 0), 'Product preview renders')
+      assert(await page.locator('.director-upload img').first().evaluate(img => img.complete && img.naturalWidth > 0), 'Product preview renders')
       assert.deepEqual(errors, [])
       report.cases.push({ width, passed: true, commands: commands.length })
     } finally {
