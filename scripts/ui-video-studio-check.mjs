@@ -14,7 +14,7 @@ const reportDir = resolve(process.env.UI_STUDIO_REPORT_DIR)
 assert(relative(root, reportDir).startsWith('..') || isAbsolute(relative(root, reportDir)), 'Evidence must be external')
 await mkdir(reportDir, { recursive: true })
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE)
-const browser = await chromium.launch({ channel: 'msedge', headless: true })
+const browser = await chromium.launch({ channel: process.env.UI_BROWSER_CHANNEL || 'msedge', headless: true })
 const fixture = await createStudioFixtureServer({ cacheDir: resolve(reportDir, 'vite-cache') })
 const mediaPage = await browser.newPage()
 await mediaPage.goto(fixture.origin)
@@ -76,7 +76,7 @@ async function run(width, mode = 'success') {
     await page.clock.install()
     await page.goto(`${fixture.origin}/studio/video`)
     const generate = page.getByRole('button', { name: '开始生成', exact: true })
-    await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
+    await page.getByRole('heading', { name: '视频工作室', exact: true }).waitFor()
     assert(await generate.isDisabled())
     assert.equal(await page.locator('.composer .studio-canvas').count(), 0, 'No permanent empty source canvas')
     assert.equal(await page.locator('.composer .studio-storyboard').count(), 0, 'Empty uploader reserves no sequence area')
@@ -110,7 +110,10 @@ async function run(width, mode = 'success') {
     await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
     assert.equal(await page.locator('.studio-shot__name').first().innerText(), 'second.png')
     // Reordering remains available by both pointer drag and keyboard controls.
-    await page.locator('.studio-shot .material-card').first().dragTo(page.locator('.studio-shot .material-card').nth(1))
+    await page.locator('.studio-shot .material-card').first().dragTo(page.locator('.studio-shot .material-card').nth(1), {
+      sourcePosition: { x: 8, y: 8 },
+      targetPosition: { x: 8, y: 8 },
+    })
     assert.equal(await page.locator('.studio-shot__name').first().innerText(), 'first.png')
     await page.getByRole('button', { name: '前移分镜 2', exact: true }).click()
     const inspect = page.getByRole('button', { name: '查看图片 1 大图', exact: true })
@@ -349,7 +352,7 @@ async function runGuard(mode, width = 390) {
   const creates = () => fixture.state.writes.filter((write) => write.path === '/api/v1/video-tasks')
   try {
     await page.goto(`${fixture.origin}/studio/video`)
-    await page.getByRole('heading', { name: '视频制作', exact: true }).waitFor()
+    await page.getByRole('heading', { name: '视频工作室', exact: true }).waitFor()
     const generate = page.getByRole('button', { name: '开始生成', exact: true })
     if (mode === 'seven-shots') {
       await page.locator('.upload-panel input[type=file]').first().setInputFiles(Array.from({ length: 7 }, (_, index) => file(`shot-${index + 1}.png`)))
