@@ -89,7 +89,7 @@ export function HomeView({ active, tasks, seed, system, actorId, onCreated, onOp
     })
   }
   return <div className="home-view video-studio" hidden={!active}>
-    <div className="home-title"><div><h1>视频制作</h1><span className="studio-kicker">Video Studio</span></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
+    <div className="home-title"><div><h1>视频工作室</h1><span className="studio-kicker">Video Studio</span></div><div className="home-title-actions"><button className="text-button" onClick={() => onView('records')}>任务中心<ChevronRight size={15} /></button></div></div>
     <div className="home-hero-grid home-hero-grid--full">
       {directorFixedPreparation ? <ProductionComposer key="director-fixed-offline" seed={null} directorFixedPreparation={directorFixedPreparation} onCreated={onCreated} system={system} actorId={actorId} layout="studio" /> : null}
       <ProductionComposer key={seed?.id ?? 'new-production'} seed={seed} onCreated={onCreated} system={system} actorId={actorId} layout="studio" />

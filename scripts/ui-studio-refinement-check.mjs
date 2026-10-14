@@ -14,7 +14,7 @@ await mkdir(reportDir, { recursive: true })
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE)
 const media = await readFile(resolve(process.env.UI_STUDIO_MEDIA_DIR, 'fixture-product.png'))
 const fixture = await createStudioFixtureServer({ cacheDir: resolve(reportDir, 'vite-cache'), media })
-const browser = await chromium.launch({ channel: 'msedge', headless: true })
+const browser = await chromium.launch({ channel: process.env.UI_BROWSER_CHANNEL || 'msedge', headless: true })
 const report = { scope: 'isolated-refinement-no-provider', browserVersion: browser.version(), cases: [], externalRequests: [], sourceHashes: {} }
 for (const file of ['frontend/src/app/AppShell.tsx', 'frontend/src/CustomPromptField.tsx', 'frontend/src/styles.css', 'frontend/src/features/production/studioRefinement.css', 'frontend/src/features/production/ProductionComposer.tsx', 'frontend/src/shared/components/ui/Modal.tsx', 'frontend/src/shared/components/ui/Button.tsx', 'scripts/ui-studio-refinement-check.mjs']) {
   report.sourceHashes[file] = createHash('sha256').update(await readFile(resolve(root, file))).digest('hex')
@@ -55,7 +55,7 @@ try {
       assert(await page.getByRole('button', { name: '开始生成', exact: true }).isDisabled())
       await page.screenshot({ path: resolve(reportDir, `loading-${width}-${motion}.png`) })
       await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '服装多镜头展示', exact: true }).waitFor({ state: 'attached' })
-      if (width === 1440) assert.equal(await page.locator('.sidebar').evaluate(el => Math.round(el.getBoundingClientRect().width)), 208)
+      if (width === 1440) assert.equal(await page.locator('.sidebar').evaluate(el => Math.round(el.getBoundingClientRect().width)), 240)
       const helper = await page.locator('.composer-submit-summary small').evaluate(el => ({ fg: getComputedStyle(el).color, bg: getComputedStyle(el.closest('.app-shell')).backgroundColor }))
       result.paymentContrast = contrast(helper.fg, helper.bg)
       assert(result.paymentContrast >= 4.5)

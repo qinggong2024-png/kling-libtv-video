@@ -152,6 +152,33 @@
   .composer--studio .composer-duration-field > span:last-child { max-width: 180px; }
   .composer--studio .composer-submit-row > button { width: 100%; }
 }
+@media (min-width: 821px) {
+  .home-view.video-studio { width: min(var(--content-max), calc(100% - var(--content-gutter) * 2)); padding: var(--space-5) 0 var(--space-7); background: transparent; color: var(--text); }
+  .video-studio .home-title { gap: var(--space-5); margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-color: var(--line); }
+  .video-studio .home-title h1 { font-size: 28px; line-height: 1.3; font-weight: 650; }
+  .video-studio .home-title > div:first-child { flex-wrap: wrap; gap: var(--space-3); }
+  .video-studio .studio-kicker { color: var(--muted); }
+  .video-studio .composer-asset-lane { gap: var(--space-3); padding-bottom: var(--space-4); border-color: var(--line); }
+  .video-studio .composer-production-lane { padding-top: var(--space-5); }
+  .video-studio .generation-workflow { gap: var(--space-4) var(--space-6); }
+  .video-studio .studio-upload-actions { gap: var(--space-3); }
+  .video-studio .composer-submit-row { margin-top: var(--space-5); padding: var(--space-4); background: var(--surface-soft); border-radius: var(--radius-card); }
+  .video-studio :is(.upload-zone, .studio-button, .compact-button, .primary-button, .secondary-button, .studio-template-controls select, .catalog-field select, .custom-prompt-field textarea, .segmented-control) { border-radius: var(--radius-button); }
+  .video-studio .composer-duration-field > span:last-child { border-radius: var(--radius-button); }
+  .video-studio :is(.studio-template-controls select, .catalog-field select, .custom-prompt-field textarea) { border-color: var(--line); background: var(--surface-soft); }
+  .video-studio .attention-panel { margin-top: var(--space-6); padding: var(--space-5) 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
+  .video-studio .attention-panel > p { color: var(--text-secondary); }
+  .video-studio .attention-panel .count-badge { background: var(--warning-soft); color: var(--warning); }
+  .video-studio .attention-item { border-color: var(--line); border-radius: var(--radius-card); background: var(--surface); }
+  .video-studio .result-card { border-radius: var(--radius-card); border-color: var(--line); background: var(--surface); box-shadow: none; }
+  .video-studio .result-card:hover { transform: none; border-color: var(--line-strong); box-shadow: none; }
+  .video-studio .result-cover { border-radius: calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0 0; }
+  .video-studio .home-section { margin-top: var(--space-6); padding-top: var(--space-5); border-color: var(--line); }
+  .video-studio .section-heading h2 { font-size: 18px; font-weight: 650; }
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  .home-view.video-studio { width: calc(100% - 40px); padding-inline: 0; }
+}
 @media (hover: hover) and (pointer: fine) {
   .composer--studio .studio-shot .material-remove:hover { color: var(--danger); }
   .composer--studio :is(.upload-zone, .studio-button):active:not(:disabled):not(:focus-visible),

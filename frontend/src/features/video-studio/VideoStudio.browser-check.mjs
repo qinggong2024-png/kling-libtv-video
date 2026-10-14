@@ -33,6 +33,7 @@ try {
       ...structuredClone(task),
       id: `desktop-task-${index}`,
       title: `${index + 1} · 服装商品保真与关键质量人工审核_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`,
+      variants: task.variants.map(variant => ({ ...variant, feedback: index === 2 ? 'DISLIKE' : null })),
     }))
     fixture.state.phase = 'AWAITING_FINAL_APPROVAL'
     fixture.state.mode = 'success'
@@ -52,8 +53,17 @@ try {
     })
     const result = { width, checks: 0, passed: false }
     const check = (condition, message) => { assert(condition, message); result.checks += 1 }
+    let releaseConfig
+    const configReady = new Promise(finish => { releaseConfig = finish })
+    await page.route('**/api/v1/video-templates', async route => { await configReady; await route.continue() })
     try {
       await page.goto(`${fixture.origin}/?view=make&pane=video`)
+      if (process.env.UI_VIDEO_MIGRATION_PHASE !== '1') {
+        await page.getByText('正在加载配置', { exact: true }).waitFor()
+        check(await page.getByRole('button', { name: '开始生成', exact: true }).isDisabled(), 'Loading preserves the generation gate')
+        await page.screenshot({ path: resolve(reportDir, `video-loading-${width}.png`) })
+      }
+      releaseConfig()
       await page.getByRole('combobox', { name: '视频模板', exact: true }).getByRole('option', { name: '服装多镜头展示', exact: true }).waitFor({ state: 'attached' })
       await page.locator('.attention-item').nth(2).waitFor()
       await page.locator('.result-card').nth(2).waitFor()
@@ -102,6 +112,8 @@ try {
       await page.getByRole('heading', { name: '生成结果', exact: true }).scrollIntoViewIfNeeded()
       await page.screenshot({ path: resolve(reportDir, `video-results-${width}.png`) })
       if (process.env.UI_VIDEO_MIGRATION_PHASE !== '1') {
+        check(await page.getByRole('heading', { name: '视频工作室', exact: true }).isVisible(), 'Video header uses the shared product name')
+        check(await page.getByText('反馈已记录', { exact: true }).isVisible(), 'Saved feedback makes no automatic learning claim')
         result.submit = await page.locator('.composer-submit-row').evaluate(row => {
           const rect = selector => {
             const r = row.querySelector(selector).getBoundingClientRect()
@@ -165,6 +177,7 @@ try {
       result.failure = error.message
       await page.screenshot({ path: resolve(reportDir, `failure-${width}.png`), fullPage: true }).catch(() => {})
     } finally {
+      releaseConfig()
       report.cases.push(result)
       await context.close()
       console.log(`${result.passed ? 'PASS' : 'FAIL'} video-desktop-${width}: ${result.checks} checks${result.failure ? `, ${result.failure}` : ''}`)
