@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowRight, GripVertical, UploadCloud, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, GripVertical, X } from 'lucide-react'
+import { ImageUploadTrigger } from '../../../shared/components/studio/ImageUploadTrigger'
 import { useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../../imageFiles'
-import { IMAGE_REFERENCE_ROLE_ORDER } from '../../../imageCenterModel'
 import type { ImageReferenceRole } from '../../../imageCenterModel'
 import { AssetPreview } from './ImageAssets'
 
@@ -54,17 +54,9 @@ export function ReferenceImageUpload({ files, boundRoles, maxFiles, onChange, on
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types.includes(REFERENCE_DRAG_TYPE) ? 'move' : 'copy' }}
     onDrop={event => drop(event, files.length)}>
     <header><h3>上传参考图片</h3><span>{files.length}/{maxFiles} 张</span></header>
-    <button type="button" className="image-reference-upload__dropzone" disabled={files.length >= maxFiles} onClick={() => input.current?.click()}>
-      <UploadCloud size={22} aria-hidden="true" /><span><strong>{files.length ? '添加图片' : '上传图片'}</strong><small>先上传模特正面和商品正面 · JPG、PNG、WEBP · 最多 {maxFiles} 张</small></span>
-    </button>
+    <ImageUploadTrigger title={files.length ? '继续添加图片' : '上传参考图片'} disabled={files.length >= maxFiles} onClick={() => input.current?.click()} />
     <input ref={input} id="image-reference-files" className="sr-only" type="file" multiple accept={IMAGE_FILE_ACCEPT}
       disabled={files.length >= maxFiles} onChange={event => { receive(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} />
-    <ol className="image-reference-position-guide" aria-label="参考图固定上传顺序">
-      {IMAGE_REFERENCE_ROLE_ORDER.map((role, index) => <li key={role} className={index >= maxFiles ? 'is-outside-limit' : boundRoles.includes(role) ? 'is-filled' : ''}>
-        <span>图{index + 1}</span><strong>{REFERENCE_ROLE_LABELS[role]}</strong><small>{index >= maxFiles ? '当前模型不支持' : index < 2 ? '必填' : '可选'}</small>
-      </li>)}
-    </ol>
-    <p className="image-reference-upload__binding-note">当前用途见图片标签；上传、排序或删除后，按以上顺序重新绑定。</p>
     {files.length ? <div className="image-reference-list" role="list" aria-label="参考图顺序">
       {files.map((file, index) => <article key={`${index}-${file.name}-${file.size}-${file.lastModified}`}
         role="listitem" aria-label={`参考图 ${index + 1}`} className={`image-reference-tile${dropTarget === index ? ' is-drop-target' : ''}`}

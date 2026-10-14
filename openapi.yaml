@@ -5,6 +5,108 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/ai-usage/quota": {
+      "get": {
+        "tags": [
+          "ai-usage"
+        ],
+        "summary": "Get Quota",
+        "operationId": "get_quota_api_v1_ai_usage_quota_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Quota Api V1 Ai Usage Quota Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai-usage/prices": {
+      "get": {
+        "tags": [
+          "ai-usage"
+        ],
+        "summary": "Get Prices",
+        "operationId": "get_prices_api_v1_ai_usage_prices_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Prices Api V1 Ai Usage Prices Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "tags": [
@@ -1622,6 +1724,88 @@
         }
       }
     },
+    "/api/v1/tasks/review-required": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Review Required",
+        "operationId": "get_review_required_api_v1_tasks_review_required_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRead"
+                  },
+                  "title": "Response Get Review Required Api V1 Tasks Review Required Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}": {
       "get": {
         "tags": [
@@ -2003,22 +2187,6 @@
             }
           },
           {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-User-Id"
-            }
-          },
-          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -2032,6 +2200,22 @@
                 }
               ],
               "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
             }
           }
         ],
@@ -7044,6 +7228,66 @@
         }
       }
     },
+    "/api/v1/creative-workflow/recovery/{client_key}": {
+      "get": {
+        "tags": [
+          "creative-workflow"
+        ],
+        "summary": "Recover",
+        "operationId": "recover_api_v1_creative_workflow_recovery__client_key__get",
+        "parameters": [
+          {
+            "name": "client_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Key"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Recover Api V1 Creative Workflow Recovery  Client Key  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/creative-workflow/tasks/{task_id}/commands": {
       "post": {
         "tags": [
@@ -8295,6 +8539,7 @@
             "type": "string",
             "enum": [
               "analyze",
+              "retry_analysis",
               "select_direction",
               "authorize",
               "generate",
@@ -8481,8 +8726,8 @@
                   "type": "object"
                 },
                 "type": "array",
-                "minItems": 1,
-                "maxItems": 32
+                "maxItems": 32,
+                "minItems": 1
               },
               {
                 "type": "null"
@@ -8696,6 +8941,35 @@
           "password"
         ],
         "title": "CreateUserRequest"
+      },
+      "CreativePackageInput": {
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workflowid"
+          },
+          "packageId": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Packageid"
+          },
+          "shotId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Shotid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workflowId",
+          "packageId",
+          "shotId"
+        ],
+        "title": "CreativePackageInput"
       },
       "CredentialUpdateRequest": {
         "properties": {
@@ -12203,6 +12477,39 @@
             "$ref": "#/components/schemas/QualityDecisionStatus",
             "default": "PENDING"
           },
+          "technicalSuccess": {
+            "type": "boolean",
+            "title": "Technicalsuccess",
+            "default": false
+          },
+          "reviewRequired": {
+            "type": "boolean",
+            "title": "Reviewrequired",
+            "default": false
+          },
+          "deliveryState": {
+            "type": "string",
+            "enum": [
+              "NOT_READY",
+              "REVIEW_REQUIRED",
+              "REJECTED",
+              "DELIVERABLE"
+            ],
+            "title": "Deliverystate",
+            "default": "NOT_READY"
+          },
+          "productionContext": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Productioncontext"
+          },
           "qualityGates": {
             "additionalProperties": true,
             "type": "object",
@@ -12515,10 +12822,21 @@
             "type": "string",
             "enum": [
               "automatic",
-              "custom"
+              "custom",
+              "director_fixed"
             ],
             "title": "Generationmode",
             "default": "automatic"
+          },
+          "creativePackage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreativePackageInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "customPrompt": {
             "anyOf": [

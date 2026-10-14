@@ -53,11 +53,17 @@ from libtv_agent.services.ai_pricing import AIPricingError, estimate_text_price
 from libtv_agent.services.ai_usage import (
     AIUsageLimitExceededError,
     AIUsageRequestConflictError,
+    reserve_ai_usage_batch,
     reserve_priced_ai_usage,
     settle_ai_usage,
     settle_provider_usage,
 )
-from libtv_agent.services.analysis import analyze_task, render_analysis_prompt
+from libtv_agent.services.analysis import (
+    _analysis_fallback_model,
+    analyze_task,
+    release_unsubmitted_analysis_usage,
+    render_analysis_prompt,
+)
 from libtv_agent.services.analysis_lifecycle import (
     StaleAnalysisRunError,
     claim_analysis_run,
@@ -243,6 +249,19 @@ async def _run_analysis_job(
             reason=type(exc).__name__,
         )
         logger.exception("analysis provider request failed", extra={"task_id": str(task_id)})
+    finally:
+        async def release_unused() -> None:
+            async with app.state.database.session_factory() as cleanup_session:
+                await release_unsubmitted_analysis_usage(
+                    cleanup_session, user_id=user_id, task_id=task_id,
+                    request_key=ai_usage_request_key or analysis_run_id.hex,
+                )
+
+        cleanup = asyncio.create_task(release_unused())
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
 
 
 async def _persist_confirmation_failure(
@@ -1231,19 +1250,31 @@ async def post_analyze(
             input_chars=input_chars, input_image_count=input_image_count,
             max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
         )
-        usage = await reserve_priced_ai_usage(
-            session,
-            _settings(request),
-            user_id=actor.id,
-            task_id=task.id,
-            operation_type="AI_ANALYSIS",
-            quote=quote,
-            input_chars=input_chars,
-            input_image_count=input_image_count,
-            max_output_tokens=_settings(request).openai_analysis_max_output_tokens,
-            idempotency_key=idempotency_key,
-            request_hash=sha256_json(payload_json),
-        )
+        requests = [{
+            "user_id": actor.id, "task_id": task.id, "operation_type": "AI_ANALYSIS",
+            "quote": quote, "input_chars": input_chars,
+            "input_image_count": input_image_count,
+            "max_output_tokens": _settings(request).openai_analysis_max_output_tokens,
+            "idempotency_key": idempotency_key, "request_hash": sha256_json(payload_json),
+        }]
+        fallback = _analysis_fallback_model(_settings(request), analysis_model)
+        if provider == "openai" and fallback:
+            fallback_quote = estimate_text_price(
+                _settings(request), provider=provider, model=fallback,
+                input_chars=input_chars, input_image_count=input_image_count,
+                max_output_tokens=_settings(request).openai_analysis_fallback_max_output_tokens,
+            )
+            requests.append({
+                **requests[0], "operation_type": "AI_ANALYSIS_FALLBACK",
+                "quote": fallback_quote, "idempotency_key": f"{idempotency_key}:fallback",
+                "max_output_tokens": _settings(request).openai_analysis_fallback_max_output_tokens,
+            })
+        if sum(item["quote"].risk_units for item in requests) > (
+            _settings(request).ai_request_max_units
+        ):
+            raise AIPricingError("analysis including fallback exceeds the USD request cap")
+        usages = await reserve_ai_usage_batch(session, _settings(request), requests=requests)
+        usage = usages[0]
     except AIPricingError as exc:
         await session.rollback()
         raise HTTPException(

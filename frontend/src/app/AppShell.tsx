@@ -61,7 +61,7 @@ export function AppShell({
   projectContext,
   overlays,
 }: Props) {
-  const mobileNav = nav.filter((item) => item.value !== 'admin')
+  const mobileNav = nav.filter((item) => item.value !== 'admin' && item.value !== 'settings')
   const primaryNav = nav.filter((item) => item.value !== 'admin' && item.value !== 'settings')
   const activeView = surface === 'workspace' || surface === 'projects' || surface === 'memory' ? null : view
   const roleLabel = actor?.role === 'ADMIN' ? '管理员' : actor?.role === 'OPERATOR' ? '运营人员' : '普通用户'
@@ -90,7 +90,7 @@ export function AppShell({
       </div>
     </aside>
     <div className="app-body">
-      <header className="mobile-topbar"><ProductLogo subtitle={currentProviderLabel} /><div className="mobile-topbar-actions">{view === 'make' ? <button type="button" className="icon-button" aria-label="帮助" title="帮助" aria-expanded={sidebarInfo === 'help'} onClick={() => onSidebarInfoChange(sidebarInfo === 'help' ? null : 'help')}><HelpCircle size={18} aria-hidden="true" /></button> : null}<div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></div></header>
+      <header className="mobile-topbar"><ProductLogo subtitle={currentProviderLabel} /><div className="mobile-topbar-actions">{view === 'make' ? <button type="button" className="icon-button" aria-label="帮助" title="帮助" aria-expanded={sidebarInfo === 'help'} onClick={() => onSidebarInfoChange(sidebarInfo === 'help' ? null : 'help')}><HelpCircle size={18} aria-hidden="true" /></button> : null}<button type="button" className="icon-button" aria-label="设置" title="设置" aria-current={view === 'settings' ? 'page' : undefined} onClick={() => onSwitchView('settings')}><Settings size={18} aria-hidden="true" /></button><div className="service-state"><span className={error ? 'is-offline' : ''} />{error ? '服务异常' : system?.environment === 'test' ? '测试版' : '正式版'}</div></div></header>
       {view === 'make' && sidebarInfo === 'help' ? <section className="mobile-studio-help" aria-label="制作帮助"><strong>制作帮助</strong><p>上传服装与参考图后，确认方案即可开始生成。历史视频可在记录中继续处理。</p><button type="button" className="text-button" onClick={() => onSidebarInfoChange(null)}>关闭</button></section> : null}
       {projectContext}
       <main id="main-content"><ErrorBoundary resetKeys={errorResetKeys} onBack={onErrorBack} backLabel="返回制作页">{children}</ErrorBoundary></main>

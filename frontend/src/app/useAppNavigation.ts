@@ -84,7 +84,7 @@ export function useAppNavigation() {
   const closeTaskDetail = useCallback(() => {
     const snapshot = readJsonStorage<RecordsReturnSnapshot | null>('session', RECORDS_RETURN_KEY, null)
     const snapshotUrl = snapshot?.url ? new URL(snapshot.url, window.location.href) : null
-    if (!snapshotUrl || snapshotUrl.searchParams.get('view') !== 'records') {
+    if (!snapshotUrl || !['records', 'library'].includes(snapshotUrl.searchParams.get('view') ?? '')) {
       removeStorage('session', RECORDS_RETURN_KEY)
       setView('make')
       setDetailId(null)

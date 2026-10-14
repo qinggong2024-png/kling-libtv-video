@@ -16,4 +16,13 @@ describe('ContentLibraryView accessibility contract', () => {
     expect(markup).toContain('tabindex="0"')
     expect(markup).toContain('tabindex="-1"')
   })
+
+  it('labels the embedded maintenance surface as the brand asset library', () => {
+    const markup = renderToStaticMarkup(<ContentLibraryView embedded actorId={null} canDeleteSubjects={false} canEditCatalog={false} />)
+
+    expect(markup).toContain('低频维护配置')
+    expect(markup).toContain('品牌资产库')
+    expect(markup).toContain('三个生产工作区会从这里调用可用资产')
+    expect(markup).toContain('class="settings-section content-library-view content-library-view--embedded"')
+  })
 })

@@ -35,6 +35,10 @@ from libtv_agent.services.feedback_learning import apply_video_learning
 from libtv_agent.services.generation_safety import write_preview_file
 from libtv_agent.services.kling_preparation import prepare_kling_task
 from libtv_agent.services.material_validator import MaterialDescriptor, validate_materials
+from libtv_agent.services.media_ai_usage import (
+    MEDIA_BUDGET_ERRORS,
+    reserve_video_attempts,
+)
 from libtv_agent.services.points import PointsLimitExceededError, reserve_points
 from libtv_agent.services.prompt_compiler import PromptCompileInput, compile_video_plan
 from libtv_agent.services.runtime_control import (
@@ -596,6 +600,7 @@ async def create_fixed_video_task(
 
     previews: list[dict[str, Any]] = []
     try:
+        await reserve_video_attempts(session, settings, task, attempts)
         for attempt in attempts:
             variant = next(item for item in task.variants if item.id == attempt.variant_id)
             paid_boundary = _paid_boundary(attempt.provider, settings)
@@ -633,14 +638,15 @@ async def create_fixed_video_task(
                     },
                 )
             )
-    except PointsLimitExceededError as exc:
+    except (PointsLimitExceededError, *MEDIA_BUDGET_ERRORS) as exc:
         await session.rollback()
-        task = await get_task(session, user_id, task.id)
+        task = await get_task(session, user_id, task_id)
         return await _mark_action_required(
             session,
             task,
             actor_id=user_id,
-            code="POINTS_LIMIT_EXCEEDED",
+            code="POINTS_LIMIT_EXCEEDED" if isinstance(exc, PointsLimitExceededError)
+            else getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED"),
             message=str(exc),
         )
 

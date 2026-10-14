@@ -134,7 +134,7 @@ function makePageHtml() {
         return React.createElement(React.Fragment, null,
           React.createElement('nav', { 'aria-label': '测试导航' },
             React.createElement('button', { type: 'button', onClick: () => go('director') }, '导演工作流'),
-            React.createElement('button', { type: 'button', onClick: () => go('make') }, '视频制作'),
+            React.createElement('button', { type: 'button', onClick: () => go('make') }, '视频工作室'),
           ),
           view === 'director'
             ? React.createElement(DirectorStudio)
@@ -475,7 +475,7 @@ async function runViewport({ browser, origin, width, height, evidenceDir }) {
     assert.equal(recoveryProductGets > 0, true, 'reload did not validate product through server GET')
     assert.equal(await page.locator('input[type=file]').count(), 1)
     assert.equal(await page.locator('input[type=file]').isDisabled(), true, 'recovery unexpectedly requires a new upload')
-    await page.getByRole('button', { name: '视频制作', exact: true }).click()
+    await page.getByRole('button', { name: '视频工作室', exact: true }).click()
     await page.getByRole('region', { name: '导演固定视频准备' }).waitFor()
 
     const fixedPanel = page.getByRole('region', { name: '导演固定视频准备' })

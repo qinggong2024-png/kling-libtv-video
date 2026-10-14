@@ -8,7 +8,6 @@ from libtv_agent.config import Settings
 from libtv_agent.domain.enums import AIUsageReservationStatus
 from libtv_agent.domain.models import AIUsageLedger, AIUsageQuotaSummary, AIUsageReservation
 from libtv_agent.services.ai_pricing import (
-    ACCOUNTING_VERSION,
     AIPricingError,
     actual_cost_from_snapshot,
     estimate_price,
@@ -35,6 +34,8 @@ def _entry(provider, model, unit, rate, *, quantity=1, **extra):
         "rate_microusd": rate, "quantity": quantity,
         "version": "test-price-v1", "effective_at": "2026-01-01T00:00:00Z",
         "source": "offline test fixture; NOT a vendor quote", "reference_only": False,
+        "all_parameters_upper_bound": True,
+        "trusted_input_token_upper_bound": 32768 if unit == "input_token" else None,
         **extra,
     }
 
@@ -79,6 +80,8 @@ def test_defaults_are_one_shared_fifty_dollar_pool():
     assert settings.ai_risk_daily_user_limit == 50_000
     assert settings.ai_request_max_units == 5000
     assert settings.ai_batch_max_units == 10_000
+    assert settings.ai_pending_max_units == 10_000
+    assert settings.ai_unknown_price_policy == "reject"
     assert settings.ai_unknown_price_cap_units == 5000
 
 
@@ -97,7 +100,7 @@ def test_token_model_and_media_prices_are_provider_specific():
         settings, provider="kling", model="video-test", kind="video", video_seconds=12,
     ).risk_units == 1200
     other = estimate_price(
-        settings, provider="another-provider", model="image-test", kind="image", image_count=1,
+        settings, provider="offline:fake", model="image-test", kind="image", image_count=1,
     )
     assert other.risk_units == 5000
     assert other.snapshot["price_status"] == "CONSERVATIVE_CAP"
@@ -123,7 +126,7 @@ def test_effective_versions_reference_only_and_expiry():
     assert quote.snapshot["prices"]["image"]["version"] == "v2"
     settings.ai_price_catalog_json = json.dumps({"version": "v", "prices": entries[2:3]})
     assert estimate_price(
-        settings, provider="wavespeed", model="image", kind="image", image_count=1,
+        settings, provider="offline:fake", model="image", kind="image", image_count=1,
     ).risk_units == 5000
     settings.ai_unknown_price_policy = "reject"
     with pytest.raises(AIPricingError, match="no effective"):
@@ -231,6 +234,8 @@ async def test_unknown_settlement_retains_budget_and_reconciliation_releases_sur
             "0.000", "0.000", "0.004",
         )
         assert quota["available"] == "49.996"
+        assert quota["admission_available"] == "10.000"
+        assert quota["daily_available"] == "49.996"
         assert row.reservation.actual_cost_status == "LOCAL_PRICE_USAGE"
         await settle_provider_usage(session, row.reservation.id, input_tokens=0, output_tokens=0)
         await session.commit()
@@ -243,7 +248,7 @@ async def test_unknown_price_success_cannot_be_reported_as_known_zero_cost(tmp_p
     user = uuid.uuid4()
     engine, factory = await _database(tmp_path / "unknown.db", user_ids=[user])
     settings = _priced_settings()
-    quote = estimate_price(settings, provider="unpriced", model="unknown")
+    quote = estimate_price(settings, provider="offline:fake", model="unknown")
     async with factory() as session:
         row = await reserve_priced_ai_usage(session, settings, **_request(user, quote, "unknown"))
         await session.commit()
@@ -261,7 +266,7 @@ async def test_batch_cap_and_quota_failure_leave_no_partial_batch(tmp_path):
     user = uuid.uuid4()
     engine, factory = await _database(tmp_path / "batch.db", user_ids=[user])
     settings = _priced_settings(ai_risk_daily_user_limit=9000)
-    quote = estimate_price(settings, provider="unpriced", model="unknown")
+    quote = estimate_price(settings, provider="offline:fake", model="unknown")
     requests = [_request(user, quote, str(index)) for index in range(3)]
     async with factory() as session:
         with pytest.raises(AIPricingError, match="batch cap"):
@@ -284,7 +289,7 @@ async def test_concurrent_same_key_and_settlement_claims_are_exactly_once(tmp_pa
     user = uuid.uuid4()
     engine, factory = await _database(tmp_path / "concurrency.db", user_ids=[user])
     settings = _priced_settings()
-    quote = estimate_price(settings, provider="unpriced", model="unknown")
+    quote = estimate_price(settings, provider="offline:fake", model="unknown")
 
     async def reserve():
         async with factory() as session:
@@ -316,7 +321,7 @@ async def test_concurrent_distinct_settlements_do_not_lose_usage(tmp_path):
     user = uuid.uuid4()
     engine, factory = await _database(tmp_path / "distinct.db", user_ids=[user])
     settings = _priced_settings()
-    quote = estimate_price(settings, provider="unpriced", model="unknown")
+    quote = estimate_price(settings, provider="offline:fake", model="unknown")
     async with factory() as session:
         rows = [
             await reserve_priced_ai_usage(session, settings, **_request(user, quote, str(index)))
@@ -347,14 +352,14 @@ async def test_legacy_risk_is_not_reinterpreted_as_dollars(tmp_path):
     settings = _priced_settings()
     async with factory() as session:
         session.add(AIUsageQuotaSummary(
-            scope_key="__global__", scope_type="GLOBAL", business_date=_business_date(),
+            scope_key=str(user), scope_type="USER", user_id=user, business_date=_business_date(),
             limit_units=1000, consumed_units=7, reserved_units=0, unknown_units=0,
         ))
         await session.commit()
         quota = await read_ai_quota(session, settings, user_id=user)
         assert quota["settled"] == "0.000"
         assert quota["legacy_reconciliation_required"] is True
-        quote = estimate_price(settings, provider="unpriced", model="unknown")
+        quote = estimate_price(settings, provider="offline:fake", model="unknown")
         with pytest.raises(AIPricingError, match="legacy"):
             await reserve_priced_ai_usage(session, settings, **_request(user, quote, "new"))
         await session.commit()
@@ -377,7 +382,7 @@ def test_migration_preserves_old_risk_units(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "get_settings", lambda: settings)
     configuration = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     graph = ScriptDirectory.from_config(configuration)
-    assert graph.get_heads() == ["c9f0a1b2c3d4"]
+    assert graph.get_heads() == ["ca01b2c3d406"]
     assert graph.get_revision("c9f0a1b2c3d4").down_revision == "c8e9f0a1b2c3"
     command.upgrade(configuration, "c8e9f0a1b2c3")
     engine = create_engine(f"sqlite:///{database_path.as_posix()}")
@@ -386,16 +391,17 @@ def test_migration_preserves_old_risk_units(tmp_path, monkeypatch):
     with engine.begin() as connection:
         connection.execute(text(
             "INSERT INTO app_user (id, username, password_hash, role, is_active, "
-            "auto_confirm_prompts, video_learning_enabled) VALUES "
-            "(:id, 'legacy', 'unused', 'USER', 1, 0, 0)"
+            "created_at, auto_confirm_prompts, video_learning_enabled) VALUES "
+            "(:id, 'legacy', 'unused', 'USER', 1, '2026-10-14 00:00:00', 0, 0)"
         ), {"id": user})
         connection.execute(text(
             "INSERT INTO ai_usage_reservation "
             "(id,user_id,operation_type,provider,model,input_chars,input_image_count,"
-            "max_output_tokens,risk_units,actual_cost_status,idempotency_key,request_hash,status)"
+            "max_output_tokens,risk_units,actual_cost_status,idempotency_key,request_hash,status,"
+            "created_at)"
             " VALUES (:id,:user,'AI_ANALYSIS','openai','legacy',0,0,1000,7,"
-            "'UNKNOWN_COST','legacy','hash','UNKNOWN')"
-        ), {"id": identifier, "user": user})
+            "'UNKNOWN_COST','legacy','hash','UNKNOWN','2026-10-14 00:00:00')"
+            ), {"id": identifier, "user": user})
     command.upgrade(configuration, "head")
     with engine.connect() as connection:
         row = connection.execute(text(

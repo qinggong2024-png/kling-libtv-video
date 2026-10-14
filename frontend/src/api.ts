@@ -1,7 +1,9 @@
-import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
+import type { AdminCredentialsStatus, AdminUser, AuthUser, BachConfig, BachConfigPatch, BatchConfirmationResponse, DirectorTaskRecord, FeedbackReason, FeedbackValue, FixedVideoTaskOptions, ImageGenerationBatch, ImageGenerationClientManifest, KlingConfig, KlingConfigPatch, KlingElement, KlingElementCreate, KlingElementList, KlingStatus, LibTVAccountStatus, LibTVAccountSwitch, LibTVLoginStart, MotionActionSummary, MotionActionWrite, OperationsSnapshot, PromptAssistantResponse, PromptPreset, PromptPresetWrite, Reconciliation, RuntimeConfigSnapshot, SiteStyleProfileSummary, SiteStyleProfileWrite, SystemStatus, Task, UploadResult, VariantKind, VideoLearningPreference, VideoTemplateSummary, WaveSpeedConfig, WaveSpeedConfigPatch } from './types'
 import { createUuid } from './uuid'
+import { collectHistory } from './shared/historyPagination'
 import type { HumanReviewExport, HumanReviewHistory, HumanReviewInput, HumanReviewQuery, HumanReviewRecord } from './features/human-review/contracts'
 import { humanReviewQueryString } from './features/human-review/humanReviewModel'
+import type { AIQuota } from './types'
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -179,6 +181,8 @@ async function request<T>(path: string, init: RequestInit = {}, policy: RequestP
   return response.json() as Promise<T>
 }
 
+export { request as apiRequest }
+
 async function requestBlob(path: string, policy: RequestPolicy = {}): Promise<Blob> {
   const response = await fetchResponse(path, {}, policy)
   return response.blob()
@@ -202,6 +206,7 @@ export const retryCutflowHandoff = (id: string) => request<CutflowHandoff>(`/api
 
 export const getSystemStatus = () => request<SystemStatus>('/api/v1/system/status', {}, { authenticate: false })
 export const getCurrentUser = () => request<AuthUser>('/api/v1/auth/me')
+export const getAIQuota = (signal?: AbortSignal) => request<AIQuota>('/api/v1/ai-usage/quota', { signal })
 export const getHumanReviewHistory = (query: HumanReviewQuery) => request<HumanReviewHistory>(`/api/v1/human-reviews?${humanReviewQueryString(query)}`)
 export const submitHumanReview = (input: HumanReviewInput) => request<HumanReviewRecord>('/api/v1/human-reviews', { method: 'POST', body: JSON.stringify(input) })
 export const getHumanReviewExport = (query: HumanReviewQuery) => request<HumanReviewExport>(`/api/v1/human-reviews/export?${humanReviewQueryString(query)}`)
@@ -220,15 +225,19 @@ export const clearPersonalVideoLearning = () => request<void>('/api/v1/auth/pref
 })
 export type TaskPage = { items: Task[]; nextCursor: string | null }
 
-export async function getTaskPage(cursor?: string): Promise<TaskPage> {
+export async function getTaskPage(cursor?: string, signal?: AbortSignal): Promise<TaskPage> {
   let nextCursor: string | null = null
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
-  const items = await request<Task[]>(`/api/v1/tasks${query}`, {}, {
+  const items = await request<Task[]>(`/api/v1/tasks${query}`, { signal }, {
     onResponse: (response) => {
       nextCursor = response.headers.get('X-Next-Cursor')
     },
   })
   return { items, nextCursor }
+}
+
+export async function getAllTaskHistory(signal?: AbortSignal): Promise<Task[]> {
+  return collectHistory(getTaskPage, signal)
 }
 
 export const getTasks = async () => (await getTaskPage()).items
@@ -659,6 +668,32 @@ export function createImageGenerationBatch(
 
 export function getImageGenerationBatch(batchId: string, signal?: AbortSignal): Promise<ImageGenerationBatch> {
   return request(`/api/v1/image-generation-batches/${encodeURIComponent(batchId)}`, { signal })
+}
+
+export async function getImageGenerationBatchPage(cursor?: string, signal?: AbortSignal): Promise<{ items: ImageGenerationBatch[]; nextCursor: string | null }> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  const response = await request<Array<ImageGenerationBatch & { nextCursor?: string }>>(`/api/v1/image-generation-batches${query}`, { signal })
+  const nextCursor = response.at(-1)?.nextCursor ?? null
+  return { items: response.map((batch) => {
+    const copy = { ...batch }
+    delete copy.nextCursor
+    return copy
+  }), nextCursor }
+}
+
+export async function getAllImageGenerationBatchHistory(signal?: AbortSignal): Promise<ImageGenerationBatch[]> {
+  return collectHistory(getImageGenerationBatchPage, signal)
+}
+
+export async function getDirectorTaskPage(cursor?: string, signal?: AbortSignal): Promise<{ items: DirectorTaskRecord[]; nextCursor: string | null }> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  const response = await request<Array<DirectorTaskRecord>>(`/api/v1/creative-workflow/tasks${query}`, { signal })
+  const nextCursor = response.at(-1)?.nextCursor ?? null
+  return { items: response, nextCursor }
+}
+
+export async function getAllDirectorTaskHistory(signal?: AbortSignal): Promise<DirectorTaskRecord[]> {
+  return collectHistory(getDirectorTaskPage, signal)
 }
 
 export function setImageOutputQualityDecision(

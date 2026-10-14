@@ -11,7 +11,7 @@
   --studio-canvas-muted: #b4b4ba;
 }
 
-.studio-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; line-height: 1.4; font-weight: 650; transition: background .15s ease, border-color .15s ease; }
+.studio-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; line-height: 1.4; font-weight: 600; transition: background .15s ease, border-color .15s ease; }
 .studio-button:hover:not(:disabled) { background: var(--surface-soft); border-color: var(--line-strong); }
 .studio-button:active:not(:disabled) { background: var(--primary-soft); }
 .studio-button--primary { background: var(--primary); border-color: var(--primary); color: #fff; }
@@ -48,6 +48,11 @@
 .composer.composer--studio { overflow: visible; margin-inline: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .composer--studio .composer-workspace { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
 .composer--studio .composer-inputs,
+/* studio 模式下 .upload-panels 不生成盒子：两个面板由 .composer-workspace 的单列网格直接接管
+   （见下方 .composer-asset-lane / .composer-production-lane 的 grid-row）。
+   ⚠️ 因此 styles.css 里 `.upload-panels--with-subject` 的 grid-template-columns / grid-column
+   在 studio 下完全不生效（getComputedStyle 仍会返回值），那份声明只服务于非 studio 的 composer 路径。
+   评审 L3 把这个"声明与渲染不一致"记成 P2，这里用注释把失效范围写死，避免后续误改。 */
 .composer--studio .upload-panels { display: contents; }
 .composer--studio .composer-asset-lane { display: grid; gap: 16px; grid-column: 1; grid-row: 1; min-width: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .composer--studio .composer-production-lane { display: grid; grid-column: 1; grid-row: 2; min-width: 0; padding-top: 24px; }
@@ -73,7 +78,7 @@
 .composer--studio .material-remove { opacity: 1; }
 .composer--studio .studio-asset-panel { min-width: 0; }
 .studio-subject-disclosure { min-width: 0; }
-.studio-subject-disclosure > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 650; }
+.studio-subject-disclosure > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; }
 .studio-subject-disclosure > summary::-webkit-details-marker { display: none; }
 .studio-subject-disclosure > summary small { color: var(--studio-muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
 .studio-subject-disclosure > summary > svg:last-child { margin-left: auto; flex-shrink: 0; transition: transform .15s ease; }
@@ -133,7 +138,9 @@
 .studio-asset-card strong { display: block; margin: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .studio-shot-actions { display: flex; justify-content: center; gap: 8px; border-top: 1px solid var(--border); }
 .studio-shot-actions .studio-icon-button { width: 40px; min-height: 36px; height: 36px; }
-.composer--studio .generation-workflow { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); align-items: start; gap: 16px 32px; padding: 0; min-width: 0; }
+/* 列宽与 gap 统一由 studioRefinement.css 文件头部的权威声明给出（那里最后加载，能稳定胜出）。
+   本文件只在 studio 语境下补上网格容器本身与对齐方式，避免同特异性定义互相反超。 */
+.composer--studio .generation-workflow { display: grid; align-items: start; padding: 0; min-width: 0; }
 .composer--studio .generation-workflow-heading { grid-column: 1 / -1; }
 .composer--studio .studio-template-selector { grid-column: 1; }
 .studio-template-selector { display: grid; gap: 8px; min-width: 0; }
@@ -218,7 +225,8 @@
 }
 
 @media (max-width: 1279px) {
-  .composer--studio .generation-workflow { grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); column-gap: 24px; }
+  /* 生成配置的列宽/列间距由 studioRefinement.css 的权威声明统一决定；此处不再重复定义
+     （原 `minmax(240px,280px) minmax(0,1fr); column-gap: 24px` 在所有宽度下都被覆盖，评审 L7）。 */
   .composer--studio .upload-panel-head > div { display: grid; gap: 4px; }
   .studio-canvas footer { flex-wrap: wrap; }
 }

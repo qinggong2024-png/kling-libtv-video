@@ -1,4 +1,5 @@
-import { Check, Image as ImageIcon, UploadCloud, X } from 'lucide-react'
+import { Check, Image as ImageIcon, X } from 'lucide-react'
+import { ImageUploadTrigger } from '../../../shared/components/studio/ImageUploadTrigger'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import { IMAGE_FILE_ACCEPT, isSupportedImageFile } from '../../../imageFiles'
@@ -110,10 +111,7 @@ export function OrderedAssetUpload({ idPrefix, title, description, headerAccesso
       <span>{count}/3</span>
     </header>
     {headerAccessory}
-    <button type="button" className="ordered-asset-dropzone" disabled={count >= 3} onClick={() => inputRef.current?.click()}>
-      <span><UploadCloud size={20} /></span>
-      <span><strong>{count ? '继续添加图片' : '拖拽或点击批量上传'}</strong><small>JPG、PNG、WEBP，最多 3 张</small></span>
-    </button>
+    <ImageUploadTrigger title={count ? '继续添加图片' : `上传${title}`} disabled={count >= 3} onClick={() => inputRef.current?.click()} />
     <div className="ordered-asset-slot-guide" aria-label={`${title}上传槽位说明`}>
       {IMAGE_ASSET_SLOT_LABELS.map((label, index) => <span key={label} className={files[index] ? 'is-filled' : index === 0 ? 'is-required' : 'is-optional'}>
         <strong>{index + 1} · {label}</strong>

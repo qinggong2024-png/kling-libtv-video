@@ -1,0 +1,82 @@
+{
+  "version": "wavespeed-reference-20261014",
+  "prices": [
+    {
+      "provider": "wavespeed",
+      "model": "bytedance/seedream-v5.0-pro",
+      "unit": "image",
+      "rate_microusd": 45000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "bytedance/seedream-v5.0-flash",
+      "unit": "image",
+      "rate_microusd": 27000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/nano-banana-pro/text-to-image",
+      "unit": "image",
+      "rate_microusd": 140000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/nano-banana-2/text-to-image",
+      "unit": "image",
+      "rate_microusd": 45000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "wavespeed-ai/z-image/turbo",
+      "unit": "image",
+      "rate_microusd": 5000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "kwaivgi/kling-v3.0-std/text-to-video",
+      "unit": "video_second",
+      "rate_microusd": 84000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    },
+    {
+      "provider": "wavespeed",
+      "model": "google/veo3.1-fast/text-to-video",
+      "unit": "video_second",
+      "rate_microusd": 100000,
+      "quantity": 1,
+      "effective_at": "2026-10-14T00:00:00+08:00",
+      "source": "https://wavespeed.ai/zh-CN/pricing; observed 2026-10-14; starting price at minimum resolution/quality, not a verified submission cap",
+      "version": "wavespeed-reference-20261014",
+      "reference_only": true
+    }
+  ]
+}

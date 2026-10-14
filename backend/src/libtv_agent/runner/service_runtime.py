@@ -134,9 +134,14 @@ async def _refresh_libtv_auth_state(
     return True
 
 
-async def run_service_loop(stopping: Event, project_root: Path) -> None:
-    os.chdir(project_root)
-    settings = Settings()
+async def run_service_loop(
+    stopping: Event,
+    project_root: Path,
+    data_root: Path | None = None,
+) -> None:
+    runtime_root = (data_root or project_root).resolve()
+    os.chdir(runtime_root)
+    settings = Settings(_env_file=runtime_root / ".env")
     settings.validate_shared_environment()
     provider_config_signatures = _load_video_provider_admin_configs(settings)
     database = Database(settings.database_url)

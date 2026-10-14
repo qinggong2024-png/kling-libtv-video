@@ -51,6 +51,12 @@ from libtv_agent.services.media import (
     technical_validate,
     technical_validation_options,
 )
+from libtv_agent.services.media_ai_usage import (
+    MEDIA_BUDGET_ERRORS,
+    claim_media_submission,
+    finish_video_usage,
+    video_usage_request,
+)
 from libtv_agent.services.points import business_date, settle_points
 from libtv_agent.services.provider_errors import clear_provider_error, record_provider_error
 from libtv_agent.services.provider_routing import ProviderKind, provider_kind
@@ -500,7 +506,13 @@ class RunnerSupervisor:
         await session.commit()
         if not await self._guard_video_inputs(session, command, attempt):
             return True
+        if not await self._claim_video_budget(session, command, attempt):
+            return True
         if self.settings.libtv_adapter_mode == "real":
+            if not await self._guard_video_inputs(
+                session, command, attempt, media_budget_claimed=True,
+            ):
+                return True
             try:
                 manifest = self.command_host_manager.launch_generation(
                     str(command.id), attempt.project_uuid or "", attempt.video_node_key or ""
@@ -516,6 +528,7 @@ class RunnerSupervisor:
                         submitted=True,
                         uncertain=True,
                     ),
+                    media_provider_called=True,
                 )
                 return False
             command.status = CommandStatus.PROCESS_STARTED
@@ -559,6 +572,10 @@ class RunnerSupervisor:
         await self._aggregate_task(session, attempt.variant_id)
         working_directory = self.settings.runner_root / str(command.id)
         working_directory.mkdir(parents=True, exist_ok=True)
+        if not await self._guard_video_inputs(
+            session, command, attempt, media_budget_claimed=True,
+        ):
+            return True
         try:
             result = await self.adapter.run_generation(
                 project_uuid=attempt.project_uuid or "",
@@ -566,7 +583,7 @@ class RunnerSupervisor:
                 working_directory=working_directory,
             )
         except LibTVError as exc:
-            await self._handle_error(session, command, attempt, exc)
+            await self._handle_error(session, command, attempt, exc, media_provider_called=True)
             return True
         if result.status != "SUCCEEDED":
             await self._handle_terminal_failure(session, command, attempt, result)
@@ -633,6 +650,7 @@ class RunnerSupervisor:
         storyboard_paths: list[Path] = []
         product_reference_paths: list[Path] = []
         kling_adapter = self._kling_adapter_for(attempt.provider)
+        media_provider_called = False
         try:
             for index, asset in enumerate(storyboard_assets, start=1):
                 if not asset.object_key:
@@ -722,18 +740,33 @@ class RunnerSupervisor:
                     )
                 ),
             )
+            # Close the pre-materialization transaction before object-store I/O.
+            # A recovered claim must be visible to the next fence check even on
+            # SQLite, whose connection can otherwise retain an old read snapshot.
+            await session.commit()
             if not await self._guard_command(session, command, launching=True):
                 return None
             attempt.launch_started_at = command.launch_started_at
             await session.commit()
             if not await self._guard_video_inputs(session, command, attempt):
                 return True
+            if not await self._claim_video_budget(session, command, attempt):
+                return True
+            # Budget claiming commits and releases the earlier source-image lock.
+            # Keep this fresh qualification/lineage check locked through submit.
+            if not await self._guard_video_inputs(
+                session, command, attempt, media_budget_claimed=True,
+            ):
+                return True
+            media_provider_called = True
             submission = await kling_adapter.submit(request)
         except KlingCliError as exc:
             if command.status != CommandStatus.LAUNCH_STARTED:
                 if not await self._guard_command(session, command, launching=False):
                     return None
-            await self._handle_error(session, command, attempt, exc)
+            await self._handle_error(
+                session, command, attempt, exc, media_provider_called=media_provider_called,
+            )
             return True
         except Exception as exc:
             # The launch marker is durable before the paid provider call.  An adapter
@@ -784,8 +817,32 @@ class RunnerSupervisor:
         variant.generation_status = GenerationStatus.RUNNING
         task.phase = ParentTaskPhase.GENERATING
         task.state_version += 1
+        await finish_video_usage(session, attempt, raw=submission.raw_response, inflight=True)
         await session.commit()
         return False
+
+    async def _claim_video_budget(
+        self, session: AsyncSession, command: GenerationCommand, attempt: GenerationAttempt,
+    ) -> bool:
+        variant = await session.get(GenerationVariant, attempt.variant_id)
+        task = await session.get(ParentTask, variant.parent_task_id) if variant else None
+        try:
+            if task is None:
+                raise ValueError("video budget parent task is missing")
+            request = video_usage_request(
+                self.settings, task, variant, attempt, adapter=self.adapter,
+            )
+            await claim_media_submission(session, request)
+        except (*MEDIA_BUDGET_ERRORS, ValueError) as exc:
+            await self._handle_error(
+                session, command, attempt, LibTVError(
+                    getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED"), str(exc),
+                    submitted=bool(getattr(exc, "uncertain", False)),
+                    uncertain=bool(getattr(exc, "uncertain", False)),
+                ),
+            )
+            return False
+        return True
 
     async def _claim_poll_observation(
         self, session: AsyncSession, attempt: GenerationAttempt
@@ -809,6 +866,7 @@ class RunnerSupervisor:
 
     async def _guard_video_inputs(
         self, session: AsyncSession, command: GenerationCommand, attempt: GenerationAttempt,
+        *, media_budget_claimed: bool = False,
     ) -> bool:
         variant = await session.get(GenerationVariant, attempt.variant_id)
         task = await session.get(ParentTask, variant.parent_task_id) if variant else None
@@ -821,7 +879,10 @@ class RunnerSupervisor:
         try:
             await validate_task_video_sources(session, task)
         except RuntimeControlBlockedError as exc:
-            await self._handle_error(session, command, attempt, LibTVError(exc.code, str(exc)))
+            await self._handle_error(
+                session, command, attempt, LibTVError(exc.code, str(exc)),
+                media_budget_claimed=media_budget_claimed,
+            )
             task.phase_reason_code = exc.code
             session.add(AuditEvent(
                 actor_id=task.user_id, action="VIDEO_SOURCE_BLOCKED",
@@ -891,6 +952,7 @@ class RunnerSupervisor:
                     variant = await session.get(GenerationVariant, attempt.variant_id)
                     if variant is not None:
                         variant.generation_status = GenerationStatus.UNKNOWN
+                    await finish_video_usage(session, attempt)
                     await session.commit()
                     if variant is not None:
                         await self._aggregate_task(session, variant.id)
@@ -944,6 +1006,7 @@ class RunnerSupervisor:
                     if variant:
                         variant.generation_status = GenerationStatus.UNKNOWN
                         await self._aggregate_task(session, variant.id)
+                await finish_video_usage(session, attempt)
                 await session.commit()
                 processed += 1
                 continue
@@ -985,6 +1048,7 @@ class RunnerSupervisor:
                 )
                 if variant:
                     variant.generation_status = GenerationStatus.UNKNOWN
+                await finish_video_usage(session, attempt)
                 await session.commit()
             elif result.status == "failed":
                 attempt.provider_status = "failed"
@@ -1155,6 +1219,9 @@ class RunnerSupervisor:
         command: GenerationCommand,
         attempt: GenerationAttempt,
         error: LibTVError | KlingCliError,
+        *,
+        media_provider_called: bool = False,
+        media_budget_claimed: bool = False,
     ) -> None:
         if error.code == "LIBTV_AUTH_REQUIRED":
             await set_libtv_auth_required(
@@ -1201,6 +1268,10 @@ class RunnerSupervisor:
         if attempt.provider != "libtv":
             attempt.provider_status = "unknown" if error.submitted or error.uncertain else "failed"
         attempt.state_version += 1
+        await finish_video_usage(
+            session, attempt, not_submitted=not (error.submitted or error.uncertain),
+            unclaimed_only=not (media_provider_called or media_budget_claimed),
+        )
         await session.commit()
         await self._aggregate_task(session, attempt.variant_id)
 
@@ -1250,6 +1321,7 @@ class RunnerSupervisor:
         variant = await session.get(GenerationVariant, attempt.variant_id)
         if variant:
             variant.generation_status = GenerationStatus.FAILED
+        await finish_video_usage(session, attempt, raw=result.payload)
         await session.commit()
         await self._aggregate_task(session, attempt.variant_id)
 
@@ -1294,6 +1366,7 @@ class RunnerSupervisor:
         attempt.billing_source = BillingSource(billing_source) if has_attributable_billing else None
         command.status = CommandStatus.TERMINAL
         command.lease_expires_at = None
+        await finish_video_usage(session, attempt, raw=result.payload)
         try:
             variant = await session.get(GenerationVariant, attempt.variant_id)
             if variant is None:

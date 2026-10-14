@@ -10,7 +10,12 @@ from test_launch_started_recovery import _stranded_command, _supervisor
 
 
 @pytest.mark.parametrize("fail", [False, True])
-async def test_old_worker_after_localization_cannot_submit_or_settle(world, tmp_path, fail):  # noqa: F811
+async def test_old_worker_after_localization_cannot_submit_or_settle(
+    world,  # noqa: F811
+    tmp_path,
+    fail,
+    monkeypatch,
+):  # noqa: F811
     from libtv_agent.adapters.kling_official_cli import KlingCliError
     from libtv_agent.domain.models import Asset, GenerationAttempt
 
@@ -49,7 +54,10 @@ async def test_old_worker_after_localization_cannot_submit_or_settle(world, tmp_
             return tmp_path / "synthetic.png"
 
     class Provider:
+        calls = 0
+
         async def submit(self, request):
+            self.calls += 1
             raise AssertionError("stale worker submitted")
 
     supervisor = _supervisor(tmp_path)
@@ -57,8 +65,18 @@ async def test_old_worker_after_localization_cannot_submit_or_settle(world, tmp_
     supervisor.settings = app.state.settings.model_copy(update={"kling_api_enabled": True})
     supervisor.object_store = Store()
     supervisor._kling_adapters["kling_official_api"] = Provider()
+    monkeypatch.setattr(
+        "libtv_agent.runner.supervisor.real_provider_submission_authorized",
+        lambda _: True,
+    )
+    monkeypatch.setattr(
+        type(supervisor.settings),
+        "kling_provider_submission_enabled",
+        lambda *_: True,
+    )
     async with factory() as old:
         assert await supervisor._execute(old, command_id) is None
+        assert supervisor._kling_adapters["kling_official_api"].calls == 0
     async with factory() as verify:
         command = await verify.get(GenerationCommand, command_id)
         attempt = await verify.get(GenerationAttempt, command.attempt_id)

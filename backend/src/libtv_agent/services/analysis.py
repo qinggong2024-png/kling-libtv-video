@@ -21,16 +21,16 @@ from libtv_agent.config import Settings
 from libtv_agent.domain.contracts import ordered_assets_hash, sha256_json
 from libtv_agent.domain.enums import AIUsageReservationStatus, ParentTaskPhase, VariantKind
 from libtv_agent.domain.models import (
+    AIUsageReservation,
     Asset,
     AuditEvent,
     ModelSchemaSnapshot,
     ParentTask,
     VisualFactCache,
 )
-from libtv_agent.services.ai_pricing import estimate_text_price
+from libtv_agent.services.ai_pricing import ACCOUNTING_VERSION
 from libtv_agent.services.ai_usage import (
     get_ai_usage_reservation,
-    reserve_priced_ai_usage,
     settle_ai_usage,
     settle_provider_usage,
 )
@@ -352,6 +352,35 @@ def _analysis_fallback_model(settings: Settings, primary_model: str) -> str | No
     return fallback_model if fallback_model and fallback_model != primary_model else None
 
 
+async def release_unsubmitted_analysis_usage(
+    session: AsyncSession, *, user_id: uuid.UUID, task_id: uuid.UUID, request_key: str,
+) -> None:
+    for operation, key in (
+        ("AI_ANALYSIS", request_key),
+        ("AI_ANALYSIS_FALLBACK", f"{request_key}:fallback"),
+    ):
+        reservation = await get_ai_usage_reservation(
+            session, user_id=user_id, task_id=task_id,
+            operation_type=operation, idempotency_key=key,
+        )
+        if reservation is None:
+            continue
+        claimed = await session.execute(
+            update(AIUsageReservation).where(
+                AIUsageReservation.id == reservation.id,
+                AIUsageReservation.status == AIUsageReservationStatus.RESERVED,
+                AIUsageReservation.actual_cost_status == "PENDING",
+            ).values(actual_cost_status="NOT_SUBMITTED")
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount == 1:
+            await settle_ai_usage(
+                session, reservation.id, status=AIUsageReservationStatus.RELEASED,
+                actual_cost_status="NOT_SUBMITTED",
+            )
+    await session.commit()
+
+
 async def _run_openai_analysis_request(
     session: AsyncSession,
     task: ParentTask,
@@ -365,6 +394,18 @@ async def _run_openai_analysis_request(
     asset_ids: list[str],
     usage_reservation_id: uuid.UUID,
 ) -> AnalysisResult:
+    claimed = await session.execute(
+        update(AIUsageReservation).where(
+            AIUsageReservation.id == usage_reservation_id,
+            AIUsageReservation.accounting_version == ACCOUNTING_VERSION,
+            AIUsageReservation.status == AIUsageReservationStatus.RESERVED,
+            AIUsageReservation.actual_cost_status == "PENDING",
+        ).values(actual_cost_status="SUBMISSION_STARTED")
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        await session.rollback()
+        raise StaleAnalysisRunError("analysis provider reservation was already dispatched")
     adapter = OpenAIAnalysisAdapter(
         settings.model_copy(
             update={
@@ -631,35 +672,15 @@ async def analyze_task(
                     )
                 )
                 await session.commit()
-                fallback_key = f"{usage_request_key}:fallback"
-                fallback_quote = estimate_text_price(
-                    settings,
-                    provider="openai",
-                    model=fallback_model,
-                    input_chars=len(prompt),
-                    input_image_count=len(images),
-                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
-                )
-                fallback_usage = await reserve_priced_ai_usage(
+                fallback_usage = await get_ai_usage_reservation(
                     session,
-                    settings,
                     user_id=task.user_id,
                     task_id=task.id,
                     operation_type="AI_ANALYSIS_FALLBACK",
-                    quote=fallback_quote,
-                    input_chars=len(prompt),
-                    input_image_count=len(images),
-                    max_output_tokens=settings.openai_analysis_fallback_max_output_tokens,
-                    idempotency_key=fallback_key,
-                    request_hash=sha256_json(
-                        {
-                            "primaryRequestKey": usage_request_key,
-                            "model": fallback_model,
-                            "prompt": prompt,
-                        }
-                    ),
+                    idempotency_key=f"{usage_request_key}:fallback",
                 )
-                await session.commit()
+                if fallback_usage is None:
+                    raise RuntimeError("AI analysis fallback reservation is missing") from exc
                 result = await _run_openai_analysis_request(
                     session,
                     task,
@@ -671,7 +692,7 @@ async def analyze_task(
                     prompt,
                     images,
                     asset_ids,
-                    fallback_usage.reservation.id,
+                    fallback_usage.id,
                 )
                 analysis_json = normalize_analysis_motion(
                     result.model_dump(mode="json", by_alias=True)

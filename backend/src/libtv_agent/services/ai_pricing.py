@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ACCOUNTING_VERSION = "USD_MILLIDOLLAR_V1"
 LEGACY_VERSION = "LEGACY_RISK_V0"
 MICROUSD_PER_UNIT = 1000
+OFFLINE_PROVIDERS = frozenset({"offline:fake", "offline:replay"})
 PriceUnit = Literal["input_token", "output_token", "image", "video_second"]
 
 
@@ -49,6 +50,10 @@ class PriceEntry(BaseModel):
     source: str = Field(min_length=1)
     version: str = Field(min_length=1)
     reference_only: bool = True
+    # Manual verification covers media parameters and every text/context rate tier.
+    all_parameters_upper_bound: bool = Field(default=False, strict=True)
+    # Provider-enforced model input/context limit, including images and schemas.
+    trusted_input_token_upper_bound: int | None = Field(default=None, strict=True, ge=1)
 
     @model_validator(mode="after")
     def validate_dates(self) -> PriceEntry:
@@ -135,11 +140,16 @@ def estimate_price(
         if not candidates:
             break
         price = max(candidates, key=lambda item: item.effective_at)
+        if provider not in OFFLINE_PROVIDERS and not price.all_parameters_upper_bound:
+            raise AIPricingError(
+                f"price requires a verified all_parameters_upper_bound: "
+                f"{provider}/{model}/{unit}"
+            )
         selected[unit] = price.model_dump(mode="json")
         total += ceil_div(count * price.rate_microusd, price.quantity)
     priced = len(selected) == len(quantities)
     if not priced:
-        if settings.ai_unknown_price_policy == "reject" and not provider.startswith("offline:"):
+        if provider not in OFFLINE_PROVIDERS:
             raise AIPricingError(f"no effective local price for {provider}/{model}/{kind}")
         total = settings.ai_unknown_price_cap_units * MICROUSD_PER_UNIT
         selected = {}
@@ -170,15 +180,39 @@ def estimate_text_price(
     settings: Settings, *, provider: str, model: str, input_chars: int,
     input_image_count: int, max_output_tokens: int,
 ) -> PriceQuote:
-    if input_chars < 0 or input_image_count < 0:
-        raise AIPricingError("input sizes cannot be negative")
-    return estimate_price(
+    if any(type(value) is not int or value < 0 for value in (
+        input_chars, input_image_count, max_output_tokens,
+    )):
+        raise AIPricingError("input sizes and output tokens must be nonnegative integers")
+    quote = estimate_price(
         settings, provider=provider, model=model,
-        input_tokens=(
-            input_chars * 4 + input_image_count * settings.ai_input_image_token_reserve
-            + settings.ai_input_schema_token_reserve
-        ),
+        input_tokens=0,
         max_output_tokens=max_output_tokens,
+    )
+    if provider in OFFLINE_PROVIDERS:
+        return quote
+    bound = quote.snapshot["prices"]["input_token"].get("trusted_input_token_upper_bound")
+    if type(bound) is not int or bound < 1:
+        raise AIPricingError(
+            "text requires a verified trusted_input_token_upper_bound for the exact model; "
+            "character/image heuristics are not a cost upper bound"
+        )
+    # Freeze both rates and the trusted bound from the same catalog/time selection.
+    prices = quote.snapshot["prices"]
+    cost = sum(
+        ceil_div(count * prices[unit]["rate_microusd"], prices[unit]["quantity"])
+        for unit, count in (("input_token", bound), ("output_token", max_output_tokens))
+    )
+    units = max(1, microusd_to_units(cost))
+    if units > settings.ai_request_max_units:
+        raise AIPricingError("AI request exceeds the configured USD request cap")
+    return PriceQuote(
+        provider, model, "text", cost, units,
+        {
+            **quote.snapshot,
+            "quantities": {"input_token": bound, "output_token": max_output_tokens},
+            "input_bound_source": "TRUSTED_MODEL_INPUT_TOKEN_UPPER_BOUND",
+        },
     )
 
 

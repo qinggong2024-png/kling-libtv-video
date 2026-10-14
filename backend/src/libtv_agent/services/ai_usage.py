@@ -23,6 +23,7 @@ from libtv_agent.services.ai_pricing import (
     AIPricingError,
     PriceQuote,
     actual_cost_from_snapshot,
+    load_price_catalog,
     microusd_to_units,
     units_to_usd,
 )
@@ -32,6 +33,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 GLOBAL_SCOPE_KEY = "__global_usd_v1__"
+LOCK_DATE = date(1970, 1, 1)
+GLOBAL_LOCK_SCOPE_KEY = "__ai_usage_lifecycle_v1__"
 
 
 def user_scope_key(user_id: uuid.UUID) -> str:
@@ -43,9 +46,12 @@ def _request_key(task_id: uuid.UUID | None, key: str) -> str:
 
 
 class AIUsageLimitExceededError(RuntimeError):
-    def __init__(self, scope: Literal["user", "global"]) -> None:
+    def __init__(self, scope: Literal["user", "global", "pending"]) -> None:
         self.scope = scope
-        super().__init__(f"AI {scope} daily USD allowance exceeded")
+        super().__init__(
+            "AI pending USD allowance exceeded" if scope == "pending"
+            else f"AI {scope} daily USD allowance exceeded"
+        )
 
 
 class AIUsageRequestConflictError(RuntimeError):
@@ -162,6 +168,23 @@ async def _reserve_summary(
     return updated.rowcount == 1
 
 
+async def _lock_usage(session: AsyncSession, user_id: uuid.UUID | None = None) -> None:
+    # Fixed rows survive midnight. Global first also orders transactions that
+    # settle several users or dates before committing. No provider runs here.
+    locks = [(GLOBAL_LOCK_SCOPE_KEY, None)]
+    if user_id is not None:
+        locks.append((f"usd:lock:{user_id}", user_id))
+    for scope, owner in locks:
+        await _ensure_summary(
+            session, scope_key=scope, scope_type="LOCK", user_id=owner,
+            business_date=LOCK_DATE, limit_units=0,
+        )
+        await session.execute(update(AIUsageQuotaSummary).where(
+            AIUsageQuotaSummary.scope_key == scope,
+            AIUsageQuotaSummary.business_date == LOCK_DATE,
+        ).values(reserved_units=AIUsageQuotaSummary.reserved_units + 0))
+
+
 async def reserve_ai_usage(
     session: AsyncSession,
     settings: Settings,
@@ -201,10 +224,14 @@ async def reserve_ai_usage(
         )
 
 
-async def legacy_usage_blocked(session: AsyncSession, business_date: date) -> bool:
-    return await session.scalar(
+async def legacy_usage_blocked(
+    session: AsyncSession, business_date: date, *, user_id: uuid.UUID,
+) -> bool:
+    summary_blocked = await session.scalar(
         select(AIUsageQuotaSummary.id).where(
-            AIUsageQuotaSummary.scope_key == "__global__",
+            AIUsageQuotaSummary.user_id == user_id,
+            AIUsageQuotaSummary.scope_type == "USER",
+            AIUsageQuotaSummary.scope_key != user_scope_key(user_id),
             (
                 (AIUsageQuotaSummary.reserved_units > 0)
                 | (AIUsageQuotaSummary.unknown_units > 0)
@@ -215,6 +242,18 @@ async def legacy_usage_blocked(session: AsyncSession, business_date: date) -> bo
             ),
         ).limit(1)
     ) is not None
+    if summary_blocked:
+        return True
+    rows = await session.scalars(select(AIUsageReservation).where(
+        AIUsageReservation.user_id == user_id,
+        AIUsageReservation.accounting_version != ACCOUNTING_VERSION,
+        AIUsageReservation.status != AIUsageReservationStatus.RELEASED,
+    ))
+    return any(
+        row.status in {AIUsageReservationStatus.RESERVED, AIUsageReservationStatus.UNKNOWN}
+        or (row.business_date or _business_date(row.created_at)) == business_date
+        for row in rows
+    )
 
 
 async def _reserve_locked(
@@ -226,34 +265,44 @@ async def _reserve_locked(
 ) -> AIUsageReservationResult:
     business_date = _business_date()
     scope = user_scope_key(user_id)
-    await _ensure_summary(
-        session, scope_key=scope, scope_type="USER", user_id=user_id,
-        business_date=business_date, limit_units=settings.ai_risk_daily_user_limit,
-    )
-    # Serialize same-user requests before checking the reservation identity.
-    await session.execute(
-        update(AIUsageQuotaSummary).where(
-            AIUsageQuotaSummary.scope_key == scope,
-            AIUsageQuotaSummary.business_date == business_date,
-        ).values(reserved_units=AIUsageQuotaSummary.reserved_units + 0)
-    )
+    await _lock_usage(session, user_id)
     existing = await session.scalar(
         select(AIUsageReservation).where(
             AIUsageReservation.user_id == user_id,
             AIUsageReservation.operation_type == operation_type,
             AIUsageReservation.idempotency_key == idempotency_key,
-            AIUsageReservation.accounting_version == ACCOUNTING_VERSION,
-        )
+        ).execution_options(populate_existing=True)
     )
     if existing is not None:
+        if existing.accounting_version != ACCOUNTING_VERSION:
+            raise AIUsageRequestConflictError(
+                "AI usage idempotency key belongs to legacy accounting; reconcile the old request"
+            )
         if existing.request_hash != request_hash:
             raise AIUsageRequestConflictError(
                 "AI usage idempotency key was reused with a different request"
             )
         return AIUsageReservationResult(existing, False)
 
-    if await legacy_usage_blocked(session, business_date):
+    if await legacy_usage_blocked(session, business_date, user_id=user_id):
         raise AIPricingError("legacy risk usage requires reconciliation before USD submissions")
+    outstanding = (await session.execute(select(
+        AIUsageReservation.risk_units, AIUsageReservation.business_date,
+        AIUsageReservation.created_at,
+    ).where(
+        AIUsageReservation.user_id == user_id,
+        AIUsageReservation.accounting_version == ACCOUNTING_VERSION,
+        AIUsageReservation.status.in_([
+            AIUsageReservationStatus.RESERVED, AIUsageReservationStatus.UNKNOWN,
+        ]),
+    ))).all()
+    pending = sum(row.risk_units for row in outstanding)
+    if pending + risk_units > settings.ai_pending_max_units:
+        raise AIUsageLimitExceededError("pending")
+    await _ensure_summary(
+        session, scope_key=scope, scope_type="USER", user_id=user_id,
+        business_date=business_date, limit_units=settings.ai_risk_daily_user_limit,
+    )
     await _ensure_summary(
         session,
         scope_key=GLOBAL_SCOPE_KEY,
@@ -337,6 +386,8 @@ async def reserve_priced_ai_usage(
 async def reserve_ai_usage_batch(
     session: AsyncSession, settings: Settings, *, requests: list[dict],
 ) -> list[AIUsageReservationResult]:
+    if len({request["user_id"] for request in requests}) > 1:
+        raise AIPricingError("AI batch must belong to a single user")
     if not requests or sum(item["quote"].risk_units for item in requests) > (
         settings.ai_batch_max_units
     ):
@@ -360,6 +411,31 @@ async def settle_ai_usage(
     provider_response_id: str | None = None,
     actual_cost_microusd: int | None = None,
 ) -> AIUsageReservation | None:
+    async with session.begin_nested():
+        # Acquire the write fence before reading, including on SQLite where
+        # upgrading two savepoint read transactions would otherwise deadlock.
+        await _lock_usage(session)
+        owner = await session.scalar(select(AIUsageReservation.user_id).where(
+            AIUsageReservation.id == reservation_id,
+        ))
+        if owner is None:
+            return None
+        await _lock_usage(session, owner)
+        return await _settle_locked(
+            session, reservation_id, status=status,
+            actual_input_tokens=actual_input_tokens, actual_output_tokens=actual_output_tokens,
+            actual_risk_units=actual_risk_units, actual_cost_status=actual_cost_status,
+            provider_response_id=provider_response_id, actual_cost_microusd=actual_cost_microusd,
+        )
+
+
+async def _settle_locked(
+    session: AsyncSession, reservation_id: uuid.UUID, *,
+    status: AIUsageReservationStatus,
+    actual_input_tokens: int | None, actual_output_tokens: int | None,
+    actual_risk_units: int | None, actual_cost_status: str | None,
+    provider_response_id: str | None, actual_cost_microusd: int | None,
+) -> AIUsageReservation | None:
     if status not in {
         AIUsageReservationStatus.SETTLED,
         AIUsageReservationStatus.RELEASED,
@@ -368,6 +444,7 @@ async def settle_ai_usage(
         raise ValueError("AI usage settlement requires a terminal status")
     reservation = await session.scalar(
         select(AIUsageReservation).where(AIUsageReservation.id == reservation_id)
+        .execution_options(populate_existing=True)
     )
     if reservation is None:
         return None
@@ -494,36 +571,144 @@ async def settle_provider_usage(
     )
 
 
+def _pricing_diagnostics(settings: Settings, rows: list) -> dict:
+    required = {
+        ("openai", model, unit)
+        for model in {settings.openai_model, settings.openai_analysis_fallback_model}
+        if model
+        for unit in ("input_token", "output_token")
+    }
+    if settings.kling_enabled and settings.active_kling_model:
+        required.add((
+            settings.active_kling_provider_name, settings.active_kling_model, "video_second",
+        ))
+    if settings.wavespeed_enabled:
+        from libtv_agent.adapters.wavespeed import WAVESPEED_MODEL_IDS
+
+        required.update(
+            (settings.wavespeed_provider_name, model, "image") for model in WAVESPEED_MODEL_IDS
+        )
+    for row in rows:
+        if row.provider.startswith("offline:"):
+            continue
+        kind = (row.pricing_snapshot_json or {}).get("kind", "text")
+        units = (
+            ("image",) if kind == "image" else ("video_second",) if kind == "video"
+            else ("input_token", "output_token")
+        )
+        required.update((row.provider, row.model, unit) for unit in units)
+    try:
+        catalog = load_price_catalog(settings)
+    except AIPricingError:
+        return {
+            "pricing_configured": False,
+            "missing_price_entries": ["invalid_local_price_catalog"],
+        }
+    now = datetime.now(UTC)
+    effective = {}
+    for price in catalog.prices:
+        if price.reference_only or price.effective_at > now or (
+            price.expires_at is not None and now >= price.expires_at
+        ):
+            continue
+        identity = (price.provider, price.model, price.unit)
+        previous = effective.get(identity)
+        if previous is None or previous.effective_at < price.effective_at:
+            effective[identity] = price
+    missing = []
+    for identity in sorted(required):
+        price = effective.get(identity)
+        if price is None or not price.all_parameters_upper_bound or (
+            identity[2] == "input_token" and price.trusted_input_token_upper_bound is None
+        ):
+            missing.append("/".join(identity))
+    return {"pricing_configured": not missing, "missing_price_entries": missing}
+
+
 async def read_ai_quota(
     session: AsyncSession, settings: Settings, *, user_id: uuid.UUID,
 ) -> dict:
     today = _business_date()
-    summary = await session.scalar(select(AIUsageQuotaSummary).where(
-        AIUsageQuotaSummary.scope_key == user_scope_key(user_id),
-        AIUsageQuotaSummary.business_date == today,
-    ))
     total = settings.ai_risk_daily_user_limit
-    reserved = summary.reserved_units if summary else 0
-    settled = summary.consumed_units if summary else 0
-    unknown = summary.unknown_units if summary else 0
+    rows = (await session.execute(select(
+        AIUsageReservation.operation_type, AIUsageReservation.status,
+        AIUsageReservation.business_date, AIUsageReservation.created_at,
+        AIUsageReservation.risk_units, AIUsageReservation.actual_risk_units,
+        AIUsageReservation.pricing_snapshot_json,
+        AIUsageReservation.provider, AIUsageReservation.model,
+    ).where(
+        AIUsageReservation.user_id == user_id,
+        AIUsageReservation.accounting_version == ACCOUNTING_VERSION,
+    ))).all()
+    categories = {
+        kind: dict.fromkeys(
+            ("reserved", "settled", "unknown", "historical_reserved", "historical_unknown"), 0,
+        ) for kind in ("text", "image", "video")
+    }
+    for row in rows:
+        kind = (row.pricing_snapshot_json or {}).get("kind")
+        if kind not in categories:
+            operation = row.operation_type.upper()
+            kind = "image" if "IMAGE" in operation else "video" if "VIDEO" in operation else "text"
+        current = (row.business_date or _business_date(row.created_at)) == today
+        category = categories[kind]
+        if row.status in {AIUsageReservationStatus.RESERVED, AIUsageReservationStatus.UNKNOWN}:
+            field = "reserved" if row.status == AIUsageReservationStatus.RESERVED else "unknown"
+            category[field if current else f"historical_{field}"] += row.risk_units
+        elif current and row.status == AIUsageReservationStatus.SETTLED:
+            category["settled"] += row.actual_risk_units or 0
+    historical_reserved = sum(item["historical_reserved"] for item in categories.values())
+    historical_unknown = sum(item["historical_unknown"] for item in categories.values())
+    reserved = sum(item["reserved"] for item in categories.values())
+    settled = sum(item["settled"] for item in categories.values())
+    unknown = sum(item["unknown"] for item in categories.values())
+    pending = reserved + unknown + historical_reserved + historical_unknown
+    pending_available = max(0, settings.ai_pending_max_units - pending)
     available = max(0, total - reserved - settled - unknown)
+    admission_available = min(available, pending_available)
+    legacy_blocked = await legacy_usage_blocked(session, today, user_id=user_id)
+    if legacy_blocked:
+        admission_available = 0
     return {
         "currency": "USD", "business_date": today.isoformat(),
         "accounting_version": ACCOUNTING_VERSION,
         "total": units_to_usd(total), "available": units_to_usd(available),
         "reserved": units_to_usd(reserved), "settled": units_to_usd(settled),
         "unknown": units_to_usd(unknown),
+        "daily_available": units_to_usd(available),
+        "admission_available": units_to_usd(admission_available),
+        "pending_max": units_to_usd(settings.ai_pending_max_units),
+        "pending_available": units_to_usd(pending_available),
+        "historical_reserved": units_to_usd(historical_reserved),
+        "historical_unknown": units_to_usd(historical_unknown),
+        "breakdown": {
+            kind: {field: units_to_usd(value) for field, value in item.items()}
+            for kind, item in categories.items()
+        },
         "request_max": units_to_usd(settings.ai_request_max_units),
         "batch_max": units_to_usd(settings.ai_batch_max_units),
-        "legacy_reconciliation_required": await legacy_usage_blocked(session, today),
+        "legacy_reconciliation_required": legacy_blocked,
         "diagnostics": {
             "unit_microusd": MICROUSD_PER_UNIT, "total_units": total,
             "available_units": available, "reserved_units": reserved,
             "settled_units": settled, "unknown_units": unknown,
+            "historical_reserved_units": historical_reserved,
+            "historical_unknown_units": historical_unknown,
+            "pending_units": pending, "pending_max_units": settings.ai_pending_max_units,
+            "pending_available_units": pending_available, "daily_available_units": available,
+            "admission_available_units": admission_available,
+            "available_basis": "daily total minus today's reserved, settled and unknown",
+            "admission_available_basis": "min(available,pending_available); zero if legacy blocked",
+            "breakdown_basis": "current business date; historical pending reported separately",
+            **_pricing_diagnostics(settings, rows),
         },
-        "enforced_entries": ["task_analysis", "prompt_assistant"],
-        "deferred_entries": ["image_submission", "video_submission", "feedback_learning",
-                             "director_planning", "quality_review"],
+        "enforced_entries": [
+            "task_analysis", "prompt_assistant", "image_submission", "video_submission",
+            "feedback_learning",
+        ],
+        "deferred_entries": [
+            "director_planning", "quality_review",
+        ],
     }
 
 
@@ -535,13 +720,17 @@ async def get_ai_usage_reservation(
     idempotency_key: str,
     task_id: uuid.UUID | None = None,
 ) -> AIUsageReservation | None:
-    return await session.scalar(
+    reservation = await session.scalar(
         select(AIUsageReservation).where(
             and_(
                 AIUsageReservation.user_id == user_id,
                 AIUsageReservation.operation_type == operation_type,
                 AIUsageReservation.idempotency_key == _request_key(task_id, idempotency_key),
-                AIUsageReservation.accounting_version == ACCOUNTING_VERSION,
             )
         )
     )
+    if reservation is not None and reservation.accounting_version != ACCOUNTING_VERSION:
+        raise AIUsageRequestConflictError(
+            "AI usage idempotency key belongs to legacy accounting; reconcile the old request"
+        )
+    return reservation

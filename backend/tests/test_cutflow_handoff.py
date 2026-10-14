@@ -371,7 +371,7 @@ def test_cutflow_migration_has_single_head_and_upgrades_existing_schema(tmp_path
         database_url=f"sqlite+aiosqlite:///{(tmp_path / 'migration.db').as_posix()}",
     )
     monkeypatch.setattr(config_module, "get_settings", lambda: settings)
-    assert ScriptDirectory.from_config(configuration).get_heads() == ["c9f0a1b2c3d4"]
+    assert ScriptDirectory.from_config(configuration).get_heads() == ["ca01b2c3d406"]
     command.upgrade(configuration, "e5f6a7b8c901")
     engine = create_engine(f"sqlite:///{(tmp_path / 'migration.db').as_posix()}")
     with engine.begin() as connection:

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from libtv_agent.api.dependencies import (
     Actor,
@@ -48,6 +48,11 @@ from libtv_agent.services.image_quota import (
     assert_image_quota_available,
     lock_image_quota_user,
     reserve_image_quota,
+)
+from libtv_agent.services.media_ai_usage import (
+    MEDIA_BUDGET_ERRORS,
+    AIUsageLimitExceededError,
+    reserve_image_batch,
 )
 from libtv_agent.services.runtime_control import (
     RuntimeControlBlockedError,
@@ -424,6 +429,7 @@ def batch_response(batch: Any) -> dict[str, Any]:
                             output.reviewed_at.isoformat() if output.reviewed_at else None
                         ),
                         "humanReviewSeconds": output.human_review_seconds,
+                        "synthetic": is_offline_synthetic_output(output, item=prediction, batch=batch),
                         "productionContext": (prediction.request_json or {}).get(
                             "creativePackage"
                         ) or (batch.request_json or {}).get("creativePackage"),
@@ -443,6 +449,8 @@ def batch_response(batch: Any) -> dict[str, Any]:
                 "id": str(first.id),
                 "clientTaskId": first.client_task_id,
                 "outfitId": first.outfit_id,
+                "outfitName": first.outfit_name,
+                "prompts": list(dict.fromkeys(prediction.prompt for prediction in predictions)),
                 "status": _public_status(aggregate_status),
                 "providerTaskId": provider_ids[0] if len(provider_ids) == 1 else None,
                 "providerTaskIds": provider_ids,
@@ -465,6 +473,51 @@ def batch_response(batch: Any) -> dict[str, Any]:
             batch.__dict__["updated_at"].isoformat() if batch.__dict__.get("updated_at") else None
         ),
     }
+
+
+@router.get("/image-generation-batches")
+async def list_image_generation_batches(
+    actor: Actor,
+    session: Session,
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: uuid.UUID | None = Query(default=None),
+) -> list[dict[str, Any]]:
+    """Return persisted image batches so records survive a browser reset.
+
+    The cursor is the last batch id from the previous page. Ordering is stable
+    by creation time and id; the response shape intentionally reuses the detail
+    contract so the image studio and task center share one adapter.
+    """
+    statement = (
+        select(ImageGenerationBatch)
+        .where(ImageGenerationBatch.user_id == actor.id)
+        .order_by(ImageGenerationBatch.created_at.desc(), ImageGenerationBatch.id.desc())
+        .limit(limit + 1)
+    )
+    if cursor is not None:
+        anchor = await session.scalar(
+            select(ImageGenerationBatch).where(
+                ImageGenerationBatch.id == cursor,
+                ImageGenerationBatch.user_id == actor.id,
+            )
+        )
+        if anchor is None:
+            raise HTTPException(status_code=422, detail="Invalid history cursor")
+        if anchor is not None:
+            statement = statement.where(
+                (ImageGenerationBatch.created_at < anchor.created_at)
+                | (
+                    (ImageGenerationBatch.created_at == anchor.created_at)
+                    & (ImageGenerationBatch.id < anchor.id)
+                )
+            )
+    batches = list((await session.scalars(statement)).all())
+    has_more = len(batches) > limit
+    batches = batches[:limit]
+    response = [batch_response(batch) for batch in batches]
+    if has_more and batches:
+        response[-1]["nextCursor"] = response[-1]["id"]
+    return response
 
 
 async def _read_uploads(
@@ -747,7 +800,17 @@ async def create_image_generation_batch(
         try:
             await session.flush()
             await reserve_image_quota(session, batch=batch)
+            await reserve_image_batch(session, settings, batch)
             await session.commit()
+        except MEDIA_BUDGET_ERRORS as exc:
+            await session.rollback()
+            raise HTTPException(
+                429 if isinstance(exc, AIUsageLimitExceededError) else 409,
+                detail={
+                    "code": getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED"),
+                    "message": str(exc), "retryable": False,
+                },
+            ) from exc
         except IntegrityError:
             await session.rollback()
             existing = await find_idempotent_batch(

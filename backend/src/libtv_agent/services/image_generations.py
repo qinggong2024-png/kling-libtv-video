@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from libtv_agent.creative.media_qualification import is_offline_synthetic_batch
 from libtv_agent.domain.contracts import sha256_json
+from libtv_agent.domain.enums import AIUsageReservationStatus
 from libtv_agent.domain.models import (
     ImageGenerationBatch,
     ImageGenerationItem,
@@ -26,6 +27,15 @@ from libtv_agent.services.creative_production_context import (
     validate_bound_package,
 )
 from libtv_agent.services.image_quota import settle_image_quota
+from libtv_agent.services.media_ai_usage import (
+    IMAGE_OPERATION,
+    MediaAIUsageBlockedError,
+    billing_quantity,
+    claim_media_submission,
+    find_media_usage,
+    finish_media_usage,
+    image_usage_request,
+)
 from PIL import Image
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -295,6 +305,7 @@ async def submit_batch(
                 .execution_options(synchronize_session=False)
             )
             await session.refresh(item)
+            await _finish_image_usage(session, batch, item)
         elif item.status == "SUBMITTING" and item.provider_task_id:
             await session.execute(
                 update(ImageGenerationItem)
@@ -310,6 +321,52 @@ async def submit_batch(
     await session.commit()
 
     pending_items = [item for item in batch.items if item.status == "PENDING"]
+    if not pending_items:
+        _update_batch_status(batch)
+        await settle_image_quota(session, batch=batch)
+        await session.commit()
+        return
+
+    # Recovery may query old predictions, but may never invent a price reservation
+    # and submit an old PENDING item. Check the entire batch before even uploading.
+    for item in pending_items:
+        reservation = await find_media_usage(
+            session, user_id=batch.user_id, operation=IMAGE_OPERATION,
+            key=f"image:{batch.id}:{item.id}",
+        )
+        if reservation is None:
+            batch.error_json = {
+                "code": "MEDIA_PRICE_RESERVATION_MISSING",
+                "message": "historical image batches without priced budget are query-only",
+                "retryable": False,
+            }
+            for pending in pending_items:
+                pending.status = "FAILED"
+                pending.error_json = batch.error_json
+                await _finish_image_usage(
+                    session, batch, pending, not_submitted=True, unclaimed_only=True,
+                )
+            _update_batch_status(batch)
+            await settle_image_quota(session, batch=batch)
+            await session.commit()
+            return
+        if reservation.status != AIUsageReservationStatus.RESERVED or (
+            reservation.actual_cost_status != "PENDING"
+        ):
+            item.status = (
+                "WRITE_UNCERTAIN" if reservation.status in {
+                    AIUsageReservationStatus.UNKNOWN, AIUsageReservationStatus.RESERVED,
+                }
+                else "MANUAL_REVIEW"
+            )
+            item.error_json = {
+                "code": "MEDIA_SUBMISSION_ALREADY_CLAIMED",
+                "message": "image submission already started; reconcile instead of submitting",
+                "retryable": False,
+            }
+            if item.status == "WRITE_UNCERTAIN":
+                await _finish_image_usage(session, batch, item)
+    pending_items = [item for item in pending_items if item.status == "PENDING"]
     if not pending_items:
         _update_batch_status(batch)
         await settle_image_quota(session, batch=batch)
@@ -336,6 +393,10 @@ async def submit_batch(
         for item in pending_items:
             item.status = "FAILED"
             item.error_json = batch.error_json
+            await _finish_image_usage(
+                session, batch, item, not_submitted=True, unclaimed_only=True,
+            )
+        await settle_image_quota(session, batch=batch)
         await session.commit()
         return
 
@@ -386,6 +447,7 @@ async def submit_batch(
                     raise CreativeProductionBlockedError(
                         "CREATIVE_REQUEST_CHANGED", "image prompt or canonical bytes changed",
                     )
+            await claim_media_submission(session, image_usage_request(batch, item))
             response = await adapter.submit_prediction(model_id, payload)
             task_id, provider_status, result_url, raw = _submission_result(response)
             item.provider_task_id = task_id
@@ -393,23 +455,53 @@ async def submit_batch(
             item.raw_response_json = raw
             item.status = provider_status
             item.submitted_at = datetime.now(UTC)
+            await _finish_image_usage(session, batch, item, raw=raw, inflight=True)
         except Exception as exc:
             error = (
                 exc
                 if isinstance(exc, ImageBatchSubmissionError)
                 else _provider_error(exc, submission=True)
             )
-            item.status = "WRITE_UNCERTAIN" if error.uncertain else "FAILED"
+            budget_blocked = isinstance(exc, MediaAIUsageBlockedError)
+            explicitly_not_submitted = (
+                isinstance(exc, CreativeProductionBlockedError)
+                or budget_blocked and not exc.uncertain
+                or getattr(exc, "submitted", None) is False and not error.uncertain
+            )
+            uncertain = not explicitly_not_submitted
+            item.status = "WRITE_UNCERTAIN" if uncertain else "FAILED"
             item.error_json = {
                 "code": error.code,
                 "message": str(error),
                 "retryable": error.retryable,
                 "details": error.details,
             }
+            await _finish_image_usage(
+                session, batch, item, not_submitted=explicitly_not_submitted,
+                unclaimed_only=budget_blocked or isinstance(exc, CreativeProductionBlockedError),
+            )
         await session.commit()
     _update_batch_status(batch)
     await settle_image_quota(session, batch=batch)
     await session.commit()
+
+
+async def _finish_image_usage(
+    session: AsyncSession, batch: ImageGenerationBatch, item: ImageGenerationItem,
+    *, raw: Any = None, not_submitted: bool = False,
+    unclaimed_only: bool = False,
+    inflight: bool = False,
+) -> None:
+    reservation = await find_media_usage(
+        session, user_id=batch.user_id, operation=IMAGE_OPERATION,
+        key=f"image:{batch.id}:{item.id}",
+    )
+    await finish_media_usage(
+        session, reservation, quantity=billing_quantity(raw, "image"),
+        provider_response_id=item.provider_task_id, not_submitted=not_submitted,
+        unclaimed_only=unclaimed_only,
+        inflight=inflight,
+    )
 
 
 def _prediction_result(value: Any) -> tuple[str, list[str], dict[str, Any], dict[str, Any] | None]:
@@ -600,6 +692,8 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
             item.raw_response_json = raw
             item.error_json = error
             item.last_polled_at = datetime.now(UTC)
+            if provider_status in TERMINAL_ITEM_STATUSES:
+                await _finish_image_usage(session, batch, item, raw=raw)
             if provider_status == "COMPLETED":
                 item.completed_at = datetime.now(UTC)
                 known = {output.remote_url for output in item.outputs}
@@ -635,6 +729,7 @@ async def refresh_batch(session: AsyncSession, *, app: Any, batch: ImageGenerati
                 "retryable": error.retryable,
                 "details": error.details,
             }
+            await _finish_image_usage(session, batch, item)
         await session.commit()
     # Serialize aggregate updates and reload items changed by other API/worker sessions.
     await session.execute(
@@ -663,15 +758,16 @@ async def refresh_active_batches(
         (
             await session.scalars(
                 select(ImageGenerationBatch)
-                .join(ImageGenerationItem)
                 .where(
                     ImageGenerationBatch.provider.notin_(
                         ("fake", "offline", "synthetic", "offline_synthetic")
                     ),
-                    ImageGenerationItem.status.in_(ACTIVE_ITEM_STATUSES),
-                    ImageGenerationItem.provider_task_id.is_not(None),
+                    select(ImageGenerationItem.id).where(
+                        ImageGenerationItem.batch_id == ImageGenerationBatch.id,
+                        ImageGenerationItem.status.in_(ACTIVE_ITEM_STATUSES),
+                        ImageGenerationItem.provider_task_id.is_not(None),
+                    ).exists(),
                 )
-                .distinct()
                 .order_by(ImageGenerationBatch.created_at)
                 .limit(limit)
             )

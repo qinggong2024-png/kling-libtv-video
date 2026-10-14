@@ -1,9 +1,9 @@
 // 本文件由 App.tsx 拆分生成（2026-09-28 前端架构拆分 v2）。
 // 代码为逐字搬运，未经逻辑改写。
-import { Check, ChevronRight, Clipboard, ListVideo, LoaderCircle, Search, X } from 'lucide-react'
+import { Check, ChevronRight, Clipboard, ListVideo, LoaderCircle, Search, WandSparkles, X } from 'lucide-react'
 import { useState } from 'react'
 import type { RecordsFilter as AppRecordsFilter } from '../../app/appTypes'
-import { type Task, type Variant } from '../../types'
+import { type DirectorTaskRecord, type Task, type Variant } from '../../types'
 import { ACTIVE_PHASES, AWAITING_USER_INPUT_PHASES, COMPLETED_PHASES, FAILED_PHASES } from '../../domain/workflowStates'
 import { DataFreshness } from '../../shared/components/DataFreshness'
 import { EmptyState, SectionHeading } from '../../shared/components/Section'
@@ -14,7 +14,7 @@ import { TaskStatusBadge } from '../../shared/components/Badges'
 import { TaskThumb } from '../../shared/components/Media'
 
 export type RecordFilter = AppRecordsFilter
-export function RecordsView({ tasks, hasMore, loadingMore, lastSyncedAt, syncError = false, onLoadMore, onOpen, onPlay, onRemix, onFeedbackChanged, onCreateTask, canReview = false, cutflowEnabled = false, cutflowCanWrite = true, initialFilter = 'all', initialQuery = '', onStateChange }: { tasks: Task[]; hasMore: boolean; loadingMore: boolean; lastSyncedAt: number | null; syncError?: boolean; onLoadMore: () => void; onOpen: (task: Task) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; onCreateTask: () => void; canReview?: boolean; cutflowEnabled?: boolean; cutflowCanWrite?: boolean; initialFilter?: RecordFilter; initialQuery?: string; onStateChange?: (filter: RecordFilter, query: string, replace?: boolean) => void }) {
+export function RecordsView({ tasks, directorTasks = [], hasMore, loadingMore, lastSyncedAt, syncError = false, onLoadMore, onOpen, onPlay, onRemix, onFeedbackChanged, onCreateTask, canReview = false, cutflowEnabled = false, cutflowCanWrite = true, initialFilter = 'all', initialQuery = '', onStateChange }: { tasks: Task[]; directorTasks?: DirectorTaskRecord[]; hasMore: boolean; loadingMore: boolean; lastSyncedAt: number | null; syncError?: boolean; onLoadMore: () => void; onOpen: (task: Task) => void; onPlay: (task: Task, variant: Variant) => void; onRemix: (task: Task) => void; onFeedbackChanged: (task: Task) => void; onCreateTask: () => void; canReview?: boolean; cutflowEnabled?: boolean; cutflowCanWrite?: boolean; initialFilter?: RecordFilter; initialQuery?: string; onStateChange?: (filter: RecordFilter, query: string, replace?: boolean) => void }) {
   const filter = initialFilter
   const query = initialQuery
   const [copied, setCopied] = useState(false)
@@ -41,8 +41,8 @@ export function RecordsView({ tasks, hasMore, loadingMore, lastSyncedAt, syncErr
   const searching = keyword.length > 0
   const matchesQuery = (task: Task) => !searching || task.title.toLowerCase().includes(keyword)
   const visible = tasks.filter((task) => group.test(task) && matchesQuery(task))
-  const completed = visible.filter((task) => COMPLETED_PHASES.has(task.phase))
-  const listRows = filter === 'done' ? [] : visible.filter((task) => !COMPLETED_PHASES.has(task.phase))
+  const completed = visible.filter((task) => COMPLETED_PHASES.has(task.phase) || task.phase === 'PARTIALLY_DELIVERABLE')
+  const listRows = filter === 'done' ? [] : visible.filter((task) => !COMPLETED_PHASES.has(task.phase) && task.phase !== 'PARTIALLY_DELIVERABLE')
   const completedResults = completed
     .flatMap((task) => task.variants.map((variant) => ({ task, variant })))
     .filter(({ variant }) => variant.downloadArtifactId)
@@ -52,10 +52,14 @@ export function RecordsView({ tasks, hasMore, loadingMore, lastSyncedAt, syncErr
   const countOf = (test: (task: Task) => boolean) => (searching ? tasks.filter(test).filter(matchesQuery).length : tasks.filter(test).length)
   const attentionCount = countOf((task) => AWAITING_USER_INPUT_PHASES.has(task.phase) || task.variants.some((variant) => variant.generationStatus === 'UNKNOWN'))
   const activeCount = countOf((task) => ACTIVE_PHASES.has(task.phase))
-  const doneCount = countOf((task) => COMPLETED_PHASES.has(task.phase))
+  const doneCount = countOf((task) => COMPLETED_PHASES.has(task.phase) || task.phase === 'PARTIALLY_DELIVERABLE')
   const allCount = countOf(() => true)
   return <div className="page-view"><div className="page-title"><div><span>任务工作台</span><h1>任务</h1><p>查找任务、继续处理，或直接播放和下载已完成视频。</p></div><div className="records-page-actions"><DataFreshness timestamp={lastSyncedAt} stale={syncError} /><label className="search-field"><Search size={17} /><input value={query} onChange={(event) => updateQuery(event.target.value)} placeholder="搜索任务名称" aria-label="搜索任务名称" />{searching ? <button type="button" className="search-field-clear" onClick={(event) => { event.preventDefault(); updateQuery('') }} aria-label="清除搜索关键词" title="清除搜索"><X size={15} /></button> : null}</label><button type="button" className="icon-button" onClick={() => void copyLink()} aria-label="复制当前任务筛选链接" title="复制当前筛选链接">{copied ? <Check size={17} /> : <Clipboard size={17} />}</button></div></div>
     {searching ? <div className="filter-notice" role="status"><Search size={15} /><span>正在按「{query.trim()}」筛选，下方数量与列表均为匹配结果（共 {tasks.length} 条任务）。</span><button type="button" className="text-button" onClick={() => updateQuery('')}>清除搜索</button></div> : null}
+    {directorTasks.length ? <section className="records-completed records-completed--preview" aria-label="导演工作流任务"><SectionHeading title="导演工作流" count={directorTasks.length} /><div className="task-table">{directorTasks.filter((record) => !searching || record.id.toLowerCase().includes(keyword) || (record.snapshot.package?.prompt ?? '').toLowerCase().includes(keyword)).map((record) => {
+      const prompt = record.snapshot.package?.prompt ?? Object.values(record.snapshot.storyboard?.packages ?? {})[0]?.prompt ?? '尚未形成生产 Prompt'
+      return <div className="task-table-row" key={record.id}><span className="task-name-cell"><span className="task-thumb task-thumb--placeholder"><WandSparkles size={16} /></span><span><strong>导演任务 {record.id.slice(0, 8)}</strong><small>{prompt}</small></span></span><span><strong>{record.status}</strong><small>{record.mode === 'OFFLINE_FAKE_ONLY' ? 'Offline Fake · 不可交付' : '导演工作流'}</small></span><span>{record.snapshot.latest_review?.decision ?? '待审核'}</span><span>{record.snapshot.package ? `v${record.snapshot.package.revision}` : '未定稿'}</span><span /></div>
+    })}</div></section> : null}
     <section className="records-overview" aria-label="任务概览">
       <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => updateFilter('all')}><span className="records-overview-dot is-blue" /><span><small>全部任务</small><strong>{allCount}</strong></span></button>
       <button type="button" className={filter === 'attention' ? 'is-active' : ''} aria-pressed={filter === 'attention'} onClick={() => updateFilter('attention')}><span className="records-overview-dot is-amber" /><span><small>需要处理</small><strong>{attentionCount}</strong></span></button>

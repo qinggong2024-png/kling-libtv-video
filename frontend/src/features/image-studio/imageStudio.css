@@ -1,40 +1,3 @@
-.image-studio-workspace .image-reference-position-guide {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--space-2);
-  padding: 0;
-  margin: var(--space-3) 0 var(--space-2);
-  list-style: none;
-}
-
-.image-studio-workspace .image-reference-position-guide li {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-1);
-  align-items: baseline;
-  padding: var(--space-2);
-  border-left: 2px solid var(--line);
-  background: var(--surface-soft);
-  font-size: 12px;
-}
-
-.image-studio-workspace .image-reference-position-guide span,
-.image-studio-workspace .image-reference-position-guide small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.image-studio-workspace .image-reference-position-guide strong {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.image-studio-workspace .image-reference-position-guide small { grid-column: 1 / -1; }
-.image-studio-workspace .image-reference-position-guide .is-filled { border-color: var(--primary); }
-.image-studio-workspace .image-reference-position-guide .is-outside-limit { background: transparent; }
-.image-studio-workspace .image-reference-position-guide .is-outside-limit strong { color: var(--muted); }
-.image-studio-workspace .image-reference-upload__binding-note { margin: 0; color: var(--muted); font-size: 12px; }
 .image-studio-workspace .image-reference-tile__binding { min-width: 0; display: grid; gap: var(--space-1); padding: var(--space-2); }
 .image-studio-workspace .image-reference-tile__binding strong { font-size: 12px; font-weight: 600; }
 .image-studio-workspace .image-reference-tile__binding small { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
@@ -44,7 +7,7 @@
   .image-center.image-studio-workspace { padding-top: var(--space-4); padding-bottom: var(--space-5); }
   .image-studio-workspace .image-studio-header { padding-top: 0; }
   .image-studio-workspace .image-studio-header__title { margin-bottom: var(--space-3); }
-  .image-studio-workspace .image-studio-header h1 { font-size: 24px; font-weight: 650; }
+  .image-studio-workspace .image-studio-header h1 { font-size: 24px; font-weight: 600; }
   .image-studio-workspace .image-studio-modes,
   .image-studio-workspace .image-batch-modes { gap: var(--space-5); }
   .image-studio-workspace .image-studio-modes button,

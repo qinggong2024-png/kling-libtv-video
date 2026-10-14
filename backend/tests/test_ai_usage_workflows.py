@@ -106,9 +106,11 @@ async def test_analysis_timeout_keeps_unknown_risk_units(tmp_path: Path) -> None
             monkeypatch.undo()
         assert current["phase"] == ParentTaskPhase.ACTION_REQUIRED.value
         rows = await _reservations(app, task["userId"])
-        assert len(rows) == 1
-        assert rows[0].status == AIUsageReservationStatus.UNKNOWN
-        assert rows[0].actual_cost_status == "UNKNOWN_COST"
+        primary = next(row for row in rows if row.operation_type == "AI_ANALYSIS")
+        fallback = next(row for row in rows if row.operation_type == "AI_ANALYSIS_FALLBACK")
+        assert primary.status == AIUsageReservationStatus.UNKNOWN
+        assert primary.actual_cost_status == "UNKNOWN_COST"
+        assert fallback.status == AIUsageReservationStatus.RELEASED
 
 
 @pytest.mark.asyncio

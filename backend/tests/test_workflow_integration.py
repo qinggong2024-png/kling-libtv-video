@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -88,6 +89,22 @@ async def running_app(
         fake_libtv_scenario=scenario,
         libtv_adapter_mode=libtv_mode,
         ai_adapter_mode=ai_mode,
+        ai_price_catalog_json=json.dumps({
+            "version": "synthetic-workflow-test",
+            "prices": [
+                {
+                    "provider": "openai", "model": model, "unit": unit,
+                    "rate_microusd": 1, "quantity": 1,
+                    "effective_at": "2026-01-01T00:00:00Z",
+                    "source": "synthetic offline workflow fixture; not a vendor price",
+                    "version": "test-v1", "reference_only": False,
+                    "all_parameters_upper_bound": True,
+                    "trusted_input_token_upper_bound": 100_000,
+                }
+                for model in ("gpt-5.6-luna", "gpt-5.6-terra")
+                for unit in ("input_token", "output_token")
+            ],
+        }),
         object_store_mode="local",
         _env_file=None,
     )

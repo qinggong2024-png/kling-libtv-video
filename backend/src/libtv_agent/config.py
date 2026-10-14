@@ -223,10 +223,11 @@ class Settings(BaseSettings):
     ai_risk_daily_user_limit: int = Field(default=50_000, ge=1)
     ai_risk_daily_global_limit: int = Field(default=500_000, ge=1)
     ai_price_catalog_json: str = '{"version":"operator-v1","prices":[]}'
-    ai_unknown_price_policy: Literal["cap", "reject"] = "cap"
+    ai_unknown_price_policy: Literal["cap", "reject"] = "reject"
     ai_unknown_price_cap_units: int = Field(default=5000, ge=1)
     ai_request_max_units: int = Field(default=5000, ge=1)
     ai_batch_max_units: int = Field(default=10_000, ge=1)
+    ai_pending_max_units: int = Field(default=10_000, ge=1)
     ai_input_image_token_reserve: int = Field(default=4096, ge=1)
     ai_input_schema_token_reserve: int = Field(default=8192, ge=1)
     # Legacy heuristic knobs retained for configuration compatibility only.

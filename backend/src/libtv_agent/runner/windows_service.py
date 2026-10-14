@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import shutil
 import sys
 import threading
@@ -12,11 +13,18 @@ if str(BACKEND_SRC) not in sys.path:
 
 from libtv_agent.config import Settings  # noqa: E402
 from libtv_agent.logging_config import configure_file_logging  # noqa: E402
-from libtv_agent.runner.service_runtime import run_service_loop  # noqa: E402
 
 SERVICE_NAME = "LibTVProductionRunner"
 SERVICE_ACCOUNT = rf"NT SERVICE\{SERVICE_NAME}"
-RUNNER_LOG_PATH = PROJECT_ROOT / "var" / "logs" / "runner.log"
+RUNNER_LOG_NAME = "runner.log"
+
+try:
+    import servicemanager
+    import win32event
+    import win32service
+    import win32serviceutil
+except ImportError:
+    servicemanager = win32event = win32service = win32serviceutil = None
 
 
 def service_preflight() -> dict[str, object]:
@@ -52,17 +60,15 @@ def service_preflight() -> dict[str, object]:
     }
 
 
-def run_service() -> None:
-    try:
-        import servicemanager
-        import win32event
-        import win32service
-        import win32serviceutil
-    except ImportError as exc:
-        raise RuntimeError(
-            "Install the windows-runner extra to manage the Windows Service"
-        ) from exc
+def service_data_root() -> Path:
+    if win32serviceutil is None:
+        raise RuntimeError("pywin32 is required")
+    return Path(
+        win32serviceutil.GetServiceCustomOption(SERVICE_NAME, "DataRoot")
+    ).resolve()
 
+
+if win32serviceutil is not None:
     class RunnerService(win32serviceutil.ServiceFramework):
         _svc_name_ = SERVICE_NAME
         _svc_display_name_ = "LibTV Production Runner"
@@ -79,18 +85,30 @@ def run_service() -> None:
             win32event.SetEvent(self.stop_event)
 
         def SvcDoRun(self) -> None:
+            data_root = service_data_root()
+            if not (data_root / ".env").is_file():
+                raise RuntimeError(f"production configuration is missing: {data_root / '.env'}")
+            os.chdir(data_root)
             servicemanager.LogInfoMsg("LibTV Production Runner started")
             # The Windows service has no console at all, so a file log is the
             # only place its failures can surface.
             configure_file_logging(
-                RUNNER_LOG_PATH,
+                data_root / "var" / "logs" / RUNNER_LOG_NAME,
                 failure_reporter=servicemanager.LogErrorMsg,
             )
             try:
-                asyncio.run(run_service_loop(self.stopping, PROJECT_ROOT))
+                from libtv_agent.runner.service_runtime import run_service_loop
+
+                asyncio.run(run_service_loop(self.stopping, PROJECT_ROOT, data_root))
             finally:
                 servicemanager.LogInfoMsg("LibTV Production Runner stopped")
 
+
+def run_service() -> None:
+    if win32serviceutil is None:
+        raise RuntimeError(
+            "Install the windows-runner extra to manage the Windows Service"
+        )
     win32serviceutil.HandleCommandLine(RunnerService)
 
 

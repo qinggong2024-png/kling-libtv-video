@@ -2,8 +2,8 @@
 
 This module owns only the Creative FIRST_FRAME/image_edit edge. It consumes
 the existing MVP-3B temporary materialization lease and MVP-4B durable ticket.
-It does not create image batches, attempts, quota reservations, ledger rows, or
-deliverables.
+It does not create image batches, video attempts, or deliverables. Live execution
+reserves the shared USD ledger before adapter I/O.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from libtv_agent.adapters.wavespeed import WaveSpeedAdapter
 from libtv_agent.config import Settings
 from libtv_agent.creative.workflow import digest
 from libtv_agent.domain.models import CreativeTask
@@ -39,6 +40,16 @@ from libtv_agent.services.creative_provider_submission_persistence import (
     DurableSubmissionTicketStore,
 )
 from libtv_agent.services.image_generations import _provider_data
+from libtv_agent.services.media_ai_usage import (
+    IMAGE_OPERATION,
+    MEDIA_BUDGET_ERRORS,
+    MediaUsageRequest,
+    billing_quantity,
+    claim_media_submission,
+    finish_media_usage,
+    media_quote,
+    reserve_media_batch,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 ExecutionMode = Literal["dry-run", "replay", "test-double", "live"]
@@ -397,7 +408,10 @@ async def execute_creative_image(
         _assert_image_contract(ticket, request, preflight, now=current_time)
         _assert_materialized_inputs(ticket, preflight, verify_manifest=False)
     elif controls.mode == "test-double":
-        if adapter is None or not bool(getattr(adapter, "is_test_double", False)):
+        if (
+            adapter is None or not bool(getattr(adapter, "is_test_double", False))
+            or isinstance(adapter, WaveSpeedAdapter)
+        ):
             _reject("EXPLICIT_TEST_DOUBLE_REQUIRED")
     else:
         _reject("EXECUTION_MODE_INVALID")
@@ -405,6 +419,8 @@ async def execute_creative_image(
     if adapter is None:
         _reject("IMAGE_PROVIDER_ADAPTER_REQUIRED")
 
+    reservation = None
+    submission_started = False
     try:
         async with (
             checked_preflight
@@ -412,6 +428,30 @@ async def execute_creative_image(
             else _ExecutionInputs(preflight)
         ):
             async with _execution_inputs(preflight) as inputs:
+                if controls.mode == "live":
+                    # Request.provider is a GPT/Nano Banana selector; both POSTs
+                    # execute on WaveSpeed. CreativeTask is not a ParentTask FK.
+                    budget_request = MediaUsageRequest(
+                        task.user_id, IMAGE_OPERATION, f"creative-image:{ticket.ticket_id}",
+                        settings.wavespeed_provider_name, request.model, "image", 1,
+                        digest({
+                            "ticketId": ticket.ticket_id, "requestHash": request.request_hash,
+                            "owner": str(task.user_id), "imageCount": 1,
+                        }),
+                    )
+                    try:
+                        quote = media_quote(settings, budget_request)
+                        if quote.estimated_cost_microusd > approval.authorization.max_cost_micros:
+                            _reject("MEDIA_PRICE_EXCEEDS_HUMAN_AUTHORIZATION")
+                        reservation = (
+                            await reserve_media_batch(session, settings, [budget_request])
+                        )[0]
+                        await session.commit()
+                        reservation = await claim_media_submission(session, budget_request)
+                    except MEDIA_BUDGET_ERRORS as exc:
+                        raise CreativeProviderExecutionRejected(
+                            getattr(exc, "code", "AI_MEDIA_BUDGET_BLOCKED"),
+                        ) from exc
                 uploaded_urls: list[str] = []
                 try:
                     for _entry, path in inputs:
@@ -428,6 +468,7 @@ async def execute_creative_image(
                         mode="json", exclude_none=True
                     )
                     payload["images"] = uploaded_urls
+                    submission_started = True
                     response = await adapter.submit_prediction(
                         request.model,
                         payload,
@@ -443,9 +484,16 @@ async def execute_creative_image(
                             response_digest=None,
                             error_code=_provider_error_code(exc),
                         )
-                    uncertain = bool(
+                    reliably_not_submitted = not submission_started or (
+                        getattr(exc, "submitted", None) is False
+                        and not getattr(exc, "uncertain", False)
+                    )
+                    uncertain = not reliably_not_submitted or bool(
                         getattr(exc, "uncertain", False)
                         or getattr(exc, "submitted", False)
+                    )
+                    await finish_media_usage(
+                        session, reservation, not_submitted=not uncertain,
                     )
                     receipt = provider_submission_result(
                         ticket,
@@ -457,6 +505,7 @@ async def execute_creative_image(
                     await DurableSubmissionTicketStore().record_provider_result(
                         session, ticket.idempotency_key, receipt
                     )
+                    await session.commit()
                     return CreativeImageExecutionResult(
                         status=receipt.status,
                         ticket=ticket,
@@ -483,6 +532,8 @@ async def execute_creative_image(
         await DurableSubmissionTicketStore().record_provider_result(
             session, ticket.idempotency_key, receipt
         )
+        await finish_media_usage(session, reservation)
+        await session.commit()
         return CreativeImageExecutionResult(
             status="UNKNOWN",
             ticket=ticket,
@@ -511,6 +562,14 @@ async def execute_creative_image(
     await DurableSubmissionTicketStore().record_provider_result(
         session, ticket.idempotency_key, receipt
     )
+    await finish_media_usage(
+        session, reservation, quantity=billing_quantity(_provider_data(response), "image"),
+        provider_response_id=provider_task_id,
+        inflight=str(_provider_data(response).get("status") or "").lower() in {
+            "created", "queued", "processing", "running",
+        },
+    )
+    await session.commit()
     return CreativeImageExecutionResult(
         status="SUBMITTED",
         ticket=ticket,
